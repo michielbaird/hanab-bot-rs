@@ -12,7 +12,7 @@ use scala_bot::basics::clue::ClueKind;
 #[should_panic(expected = "copies")]
 fn it_fails_impossible_setup() {
     setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "r1", "r1", "r1", "r1"],
@@ -24,7 +24,7 @@ fn it_fails_impossible_setup() {
 #[test]
 fn it_elims_from_count() {
     let mut game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "r1", "r1", "r2", "r2"],
@@ -48,7 +48,7 @@ fn it_elims_from_count() {
 #[test]
 fn it_marks_trash_correctly_when_losing_all_copies_of_a_card() {
     let mut game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "r1", "r1", "b5", "b3"],
@@ -78,7 +78,7 @@ fn it_marks_trash_correctly_when_losing_all_copies_of_a_card() {
 #[test]
 fn it_visibly_elims_5s() {
     let mut game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx"], // p5, t5 in slots 3 and 4
             &["g2", "b1", "r1", "g5"],
@@ -108,7 +108,7 @@ fn it_visibly_elims_5s() {
 #[test]
 fn it_visibly_elims_mixed_cards() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["g2", "b1", "r4", "r5", "y3"],
@@ -137,7 +137,7 @@ fn it_visibly_elims_mixed_cards() {
 #[test]
 fn it_elims_dark_cards_properly_1() {
     let mut game = setup(
-        neutral(),
+        neutral(), // HGroup.atLevel(10) in Scala; re-point in M6
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "b1", "y1", "g1", "k5"],
@@ -167,7 +167,7 @@ fn it_elims_dark_cards_properly_1() {
 #[test]
 fn it_elims_dark_cards_properly_2() {
     let mut game = setup(
-        neutral(),
+        neutral(), // HGroup.atLevel(10) in Scala; re-point in M6
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "b1", "y1", "g1", "r4"],

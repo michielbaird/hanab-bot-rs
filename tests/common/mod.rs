@@ -16,6 +16,21 @@ use scala_bot::logger::{self, LogLevel};
 use scala_bot::util::{VisibleOpts, visible_find};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Colour {
+    Red,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+}
+
+impl Colour {
+    pub fn ordinal(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Player {
     Alice,
     Bob,
@@ -777,3 +792,7 @@ pub fn has_status(game: &Game, target: Player, slot: usize, status: CardStatus) 
 
 #[allow(unused)]
 fn _keep(_: FastBitSet) {}
+
+pub fn reactor() -> Arc<dyn Convention> {
+    Arc::new(scala_bot::reactor::Reactor::new())
+}

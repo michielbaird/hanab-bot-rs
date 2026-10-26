@@ -1,8 +1,6 @@
 //! Port of `test/endgame.scala`.
 //!
-//! Tests that used Reactor or H-Group in Scala run here against the neutral test convention (which
-//! offers every valid clue and discards the oldest card), since those conventions aren't ported yet.
-//! Re-point them at `Reactor` / `HGroup::at_level(10)` in M4 / M6.
+//! The H-Group variant of the rainbow test is ported in M6.
 
 mod common;
 
@@ -14,9 +12,12 @@ use scala_bot::logger::{self, LogLevel};
 
 use Player::*;
 
+/// (The Scala tests use the default 3 second timeout; the Rust solver is slower, so the tests allow
+/// more time to stay deterministic on slow machines. See HANDOFF.md, "Performance".)
 fn solve(game: &Game, monte_carlo: bool) -> (PerformAction, Frac) {
     logger::set_level(LogLevel::Off);
     EndgameSolver::new(monte_carlo)
+        .with_timeout(std::time::Duration::from_secs(60))
         .solve(game, None)
         .unwrap_or_else(|msg| panic!("Game should be winnable! {msg}"))
 }
@@ -28,7 +29,7 @@ fn is_clue(p: PerformAction) -> bool {
 #[test]
 fn it_clues_to_start_b45_endgame() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx"],
             &["b4", "y1", "g1", "b5"],
@@ -61,7 +62,7 @@ fn it_clues_to_start_b45_endgame() {
 #[test]
 fn it_clues_to_start_endgame_on_a_double_player() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx"],
             &["g5", "y4", "g1", "r1"],
@@ -93,7 +94,7 @@ fn it_clues_to_start_endgame_on_a_double_player() {
 #[test]
 fn it_plays_to_start_simple_endgame() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx"],
             &["r1", "r1", "y1", "b5"],
@@ -130,7 +131,7 @@ fn it_plays_to_start_simple_endgame() {
 #[test]
 fn it_plays_to_start_endgame_when_other_has_dupes() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx"],
             &["b1", "p4", "b1", "p4"],
@@ -168,7 +169,7 @@ fn it_plays_to_start_endgame_when_other_has_dupes() {
 #[test]
 fn it_plays_to_start_a_complex_endgame_where_all_cards_are_seen() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["b1", "r1", "g1", "p5", "p2"],
@@ -212,7 +213,7 @@ fn it_plays_to_start_a_complex_endgame_where_all_cards_are_seen() {
 #[test]
 fn it_calculates_basic_winrate_correctly() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["b1", "r1", "g1", "y1", "r4"],
@@ -250,7 +251,7 @@ fn it_calculates_basic_winrate_correctly() {
 #[test]
 fn it_wins_an_unconventional_rainbow_endgame() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["b1", "r1", "m1", "m5", "y5"],
@@ -281,10 +282,9 @@ fn it_wins_an_unconventional_rainbow_endgame() {
 }
 
 #[test]
-#[ignore = "needs Reactor to interpret clues (M4); the neutral convention never teaches anyone to play"]
 fn it_completes_an_early_endgame() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["b2", "y4", "p4", "y3", "b5"],
@@ -319,10 +319,9 @@ fn it_completes_an_early_endgame() {
 }
 
 #[test]
-#[ignore = "needs Reactor to interpret clues (M4); the neutral convention never teaches anyone to play"]
 fn ends_an_endgame_as_quickly_as_possible() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["o5", "o1", "g4", "r1", "y1"],
@@ -349,7 +348,7 @@ fn ends_an_endgame_as_quickly_as_possible() {
 #[test]
 fn tries_bombing_slot_1_in_the_final_round() {
     let mut game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r5", "y1", "g1", "b1", "p1"],

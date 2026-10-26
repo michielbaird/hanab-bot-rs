@@ -1,6 +1,6 @@
 # Handoff: scala-bot → Rust rewrite
 
-Written at the end of M3 so another session can pick this up cold. Read this, then `PLAN.md` (milestones)
+Written at the end of M4 so another session can pick this up cold. Read this, then `PLAN.md` (milestones)
 and `PORTING_NOTES.md` (every deliberate difference from the Scala). Update this file at each checkpoint.
 
 ## The task
@@ -18,7 +18,7 @@ The user's instructions, in their words or close to it:
 
 | What | Path |
 |---|---|
-| The new crate (all work happens here) | `/workspace/scala-bot-rs` (git repo; commits: M0 `f6acadd`, M1 `d44b182`, M3 see `git log`) |
+| The new crate (all work happens here) | `/workspace/scala-bot-rs` (git repo; see `git log`: M0, M1, M3, M4 are separate commits) |
 | Scala source (the spec) | `/workspace/scala-bot` (v1.2.8; `src/scala_bot` ~16.6k lines, `src/test` ~12.7k lines) |
 | Older Rust port (reference only; Reactor only, ~9k lines) | `/workspace/rust-bot` |
 | Rust toolchain | `~/.cargo/bin` (rustc/cargo 1.99.1). `export PATH=$HOME/.cargo/bin:$PATH` |
@@ -42,7 +42,8 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 |---|---|
 | M0 scaffold: `FastBitSet`, `CertainMapEntry`, `Frac`, logger, util | done |
 | M1 core model: everything in `src/basics/` | done; 60 tests pass |
-| M3 endgame solver (+ `Game::analyze`) | done; 68 tests pass, 2 ignored (need Reactor) |
+| M3 endgame solver (+ `Game::analyze`) | done |
+| M4 Reactor | done; all 163 tests pass (93 are the ported `test/reactor/*`) |
 | M2 networking & tooling (bot, command, settings, console, replay, selfPlay) | not started (after M4) |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
@@ -51,7 +52,7 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 
 ### Decision
 
-The user agreed to the order **M3 → M4 → M2**. M3 is done and awaiting their go-ahead for M4.
+The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scala oddities in `FIX_LATER.md` (fix them only after the port is complete) and to continue. M3 and M4 are done; the next milestone is M2.
 
 ## Architecture (as built in M1)
 
@@ -87,25 +88,23 @@ The user agreed to the order **M3 → M4 → M2**. M3 is done and awaiting their
 - `tests/common/mod.rs` ports `test/util.scala` + `exAsserts.scala` (`setup`, `take_turn`, `take_turn_draw`,
   `parse_action`, `pre_clue`, `fully_known`, `has_poss`, `has_infs`, `has_status`). `setup` takes an
   `Arc<dyn Convention>`; once Reactor/H-Group exist, pass them instead of `neutral()`.
-- `empathy.rs` and `variants.rs` currently run against the `Neutral` convention (no interpretation).
-  **Re-point them at Reactor (and the two H-Group ones at `HGroup::at_level(10)`) when those land**, and make
-  sure they still pass.
-- Not yet exercised by any test (compiled only): `sarcastic.rs`, `fix.rs`, `clue_result.rs`, `eval.rs`,
-  `Game::navigate`, `Game::analyze` (needs a convention whose `take_action` works). A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
+- `empathy.rs`, `variants.rs` and `endgame.rs` run on Reactor. Two H-Group tests in `empathy.rs` still use `Neutral`.
+- Exercised only through Reactor so far: `sarcastic.rs`, `fix.rs`, `clue_result.rs`, `eval.rs`. Still untested: `Game::navigate`, `Game::analyze` (M2 tooling will cover them). A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
 
 ## Suggested next steps
 
-1. **M4 Reactor** (`src/scala_bot/reactor/*.scala`, ~2.2k lines; tests in `src/test/reactor/`, 9 files).
-   `/workspace/rust-bot/src/reactor*` is a useful cross-check but may be out of date; Scala wins.
-   Add `Ext::Reactor(ReactorData)` for `waiting`, `zcs_turn`, etc. (see the `Reactor` case class fields).
-   Then: re-point `tests/endgame.rs`, `tests/empathy.rs`, `tests/variants.rs` at Reactor, un-`#[ignore]` the two
-   endgame tests (a failure there is a real solver bug or a Reactor bug: the other 8 pass on `Neutral`), and
-   have Reactor's `take_action` call `EndgameSolver::new(true).solve(game, None)` (see `reactor.scala:456`).
-2. **M2** after that: `bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`,
-   `selfPlay.scala`, `analyze.scala`. rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio +
-   tokio-tungstenite + reqwest + serde_json). Logging into hanab.live needs the user's bot account (`.env`);
-   ask before writing anything that talks to the network.
-3. **M5, M6** per `PLAN.md`. H-Group is the long pole: `hgroup/hgroup.scala` alone is 1.2k lines.
+1. **M2** (`bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`, `selfPlay.scala`,
+   `analyze.scala`). rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio + tokio-tungstenite + reqwest +
+   serde_json). Logging into hanab.live needs the user's bot account (`.env`); ask before writing anything that talks to the
+   network. Self-play (`selfPlay.scala`) needs no network and is the best end-to-end check of Reactor + the solver: run it
+   across player counts and look for panics (`expect`s in the Reactor port; see `FIX_LATER.md` item 14) and stalls.
+2. **M5, M6** per `PLAN.md`. H-Group is the long pole: `hgroup/hgroup.scala` alone is 1.2k lines. When it lands:
+   `uses_refresh_after_play` must return `true` if it overrides `refresh_after_play`; re-point the two H-Group tests in
+   `tests/empathy.rs` and port the H-Group rainbow test in `test/endgame.scala`.
+3. **Performance (M7, but watch for it in M2).** The Reactor endgame tests are close to the solver's 3s timeout in a release
+   build, and `Game::clone` scales with game history. See "Performance" in `FIX_LATER.md`. `[profile.dev] opt-level = 2` is set
+   so `cargo test` is usable. Don't start by micro-optimising: profile first (there is no `perf`; a thread-local timer macro
+   around `Game::elim` / `update_hypo_stacks` worked).
 
 At every milestone: update this file, `PLAN.md`, `PORTING_NOTES.md`; run `cargo fmt`, `cargo clippy --all-targets`,
 `cargo test -j2`; commit; then summarise and **wait for the user's go-ahead** before the next milestone.

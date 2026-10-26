@@ -997,10 +997,14 @@ impl Player {
                     };
 
                     let _quiet = LevelGuard::at_most(LogLevel::Error);
-                    let prev = hypo.clone();
-                    hypo.on_play(&action);
                     let conv = Arc::clone(&hypo.conv);
-                    conv.refresh_after_play(&prev, hypo, &action);
+                    if conv.uses_refresh_after_play() {
+                        let prev = hypo.clone();
+                        hypo.on_play(&action);
+                        conv.refresh_after_play(&prev, hypo, &action);
+                    } else {
+                        hypo.on_play(&action);
+                    }
                     played.insert(order);
                 } else {
                     attempted.insert(order);

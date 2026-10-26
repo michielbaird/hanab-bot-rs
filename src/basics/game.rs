@@ -59,6 +59,7 @@ pub struct Base {
 pub enum Ext {
     #[default]
     None,
+    Reactor(crate::reactor::ReactorData),
 }
 
 /// A set of conventions: how clues, plays and discards are interpreted, and what action to take.
@@ -126,6 +127,12 @@ pub trait Convention: fmt::Debug + Send + Sync {
 
     /// Called after a play has been applied in a hypothetical game.
     fn refresh_after_play(&self, _prev: &Game, _game: &mut Game, _action: &PlayAction) {}
+
+    /// Whether [`refresh_after_play`](Self::refresh_after_play) does anything. When it doesn't, hypothetical
+    /// plays skip copying the game to hand it the previous state.
+    fn uses_refresh_after_play(&self) -> bool {
+        false
+    }
 
     /// All valid clues the giver can give (used in endgame solving).
     fn find_all_clues(&self, game: &Game, giver: usize) -> Vec<PerformAction>;

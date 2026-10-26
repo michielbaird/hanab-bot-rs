@@ -21,3 +21,32 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
    `assume = false` is what endgame play-selection actually wants.
 7. Scala's `solve` left the log level at Off after the `onlyAction` early return. Rust restores it (fixed
    by design, listed for completeness).
+
+## Reactor (M4)
+
+8. `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrites*
+   an existing waiting connection with `None` instead of leaving it alone. Probably meant `game.waiting.orElse(...)`.
+9. `interpret_discard`, Gentleman's Discard branch: the fold starts from `game`, not `g`, so the `check_missed`
+   (and `waiting`) changes made to `g` are thrown away.
+10. `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` is called with *order 0*, not slot 1
+    (`prev.state.hands(playerIndex)(0)`). It is false for almost every game, so the condition is nearly always met.
+11. `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` is passed the original
+    `meta` instead of the accumulated one, so only the last processed slot's `trash` flag survives (earlier ones are
+    dropped). The Rust resets to a snapshot to match.
+12. `calc_target_slot`: `indexOf` returns -1 when the reacting order isn't in the reacter's old hand, making the slot 0.
+13. `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in
+    Scala. The Rust treats "no old inference" as "different from the played identity".
+14. Many `.get` / `.head` / `indexWhere` calls that throw in Scala are `expect`s in Rust (e.g. `ref_discard`'s target index,
+    `delayed_plays`' `id.prev`, the `by` of a called-to-play card). They panic on a broken invariant. M2 should decide
+    whether the bot catches panics per action so one bad interpretation doesn't end the game.
+15. `eval_dc`, `advance`: several `.get`s on `state.deck(..).id()` assume the card is visible.
+16. `Convention::uses_refresh_after_play` is new (not in Scala): hypothetical plays only copy the game for conventions
+    that override `refresh_after_play`. H-Group must return `true`.
+
+## Performance (see HANDOFF.md)
+
+17. `Game::clone` is cheap at the start of a game (~3µs) but scales with history (`State::action_list`,
+    `last_actions`, `move_history`, `notes`, ... are deep-copied). Scala shared these structurally.
+    Candidates: `Arc`-wrap the rarely-mutated history, or `im`-style persistent vectors.
+18. `Player::update_hypo_stacks` clones the whole `Game` per call and `Game::elim` calls it for the common perspective
+    and every player. ~60% of solver time in the Reactor endgame tests.

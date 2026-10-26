@@ -29,6 +29,12 @@ Where the Rust differs from the Scala, and why. Update this as the port proceeds
 | `endgame/{solver,winnable,helper}.scala` | `src/endgame/{solver,winnable,helper}.rs` |
 | `Game.analyze` | `src/basics/game/analyze.rs` |
 | `test/endgame.scala` | `tests/endgame.rs` |
+| `reactor/reactor.scala` | `src/reactor.rs` (`Reactor` convention, `ReactorGame` trait, `take_action`, `update_turn`, ...) |
+| `reactor/interpretClue.scala` | `src/reactor/interpret_clue.rs` |
+| `reactor/interpretReaction.scala` | `src/reactor/interpret_reaction.rs` |
+| `reactor/interpretReactive.scala` | `src/reactor/interpret_reactive.rs` |
+| `reactor/stateEval.scala` | `src/reactor/state_eval.rs` |
+| `test/reactor/*.scala` | `tests/reactor/*.rs` (one test binary) |
 
 ## Deliberate deviations
 
@@ -124,7 +130,7 @@ assertions about possibilities. Re-point them at the real conventions in M4/M6.
   reported by `solve` as `timeout` instead of calling `.head` on it; `unwinnable_state` with an empty
   `remaining` skips the bottom-deck check; the "winning play" search in `winnable` ignores plays with an
   unknown id instead of calling `.get`.
-- **Faithfully kept oddities**: `optimize` doesn't reduce `rem_prob` after a *winnable* arrangement (only
+- **Faithfully kept oddities** (tracked in `FIX_LATER.md`): `optimize` doesn't reduce `rem_prob` after a *winnable* arrangement (only
   after a pre-filtered one); the pruning bound in the multi-arrangement loop starts at `1 - winrate` instead
   of `1 - first_prob`; the drawn `Card` in `winnable_if` has order `next_card_order + 1` though it is stored at
   `next_card_order`; `Game::analyze` calls the solver on the final game, not the replayed one. All look
@@ -138,3 +144,27 @@ assertions about possibilities. Re-point them at the real conventions in M4/M6.
 valid clue and to discard the oldest card. 8 of 10 ported tests pass. `it_completes_an_early_endgame` and
 `ends_an_endgame_as_quickly_as_possible` are `#[ignore]`d: they need clues to teach players what to play, which
 only a real convention does. The H-Group variant of the rainbow test is not ported until M6.
+
+## Reactor (M4)
+
+- **State.** Reactor-only fields (`waiting`, `zcs_turn`) live in `Ext::Reactor(ReactorData)`. `Reactor` is a unit struct
+  implementing `Convention`; `ReactorGame` is an extension trait on `Game` (`waiting()`, `zcs_turn()`, `chop()`,
+  `must_clue()`, `must_clue_as(player)`). `must_clue_as` replaces Scala's `game.withState(_.copy(currentPlayerIndex = ..)).mustClue`.
+- **Hooks mutate in place.** `interpret_clue/discard/play` write into `&mut Game`. Internally the interpretation helpers
+  (`interpret_stable`, `try_stable`, `interpret_reactive*`, `react_play/discard`, `target_play/discard`, ...) are
+  functional: they take `&Game` and return a new `Game`, because the Scala falls back to the original `game` in several
+  branches (`TryReactive`, `Mistake`).
+- **`take_action` is synchronous** (Scala returned `IO` only to run the endgame solver on a blocking thread).
+- **Meta/thought updates** use `common.update_thought(order, ..)` (marks dirty, like `withThought`) and direct writes to `game.meta[order]`.
+- **`delayed_plays`** builds its list the way Scala's prepending fold does (later entries first; `IdentitySet.map` is descending),
+  since `target_play` takes the *first* match.
+- **`maxBy` ties** are resolved to the first maximum throughout (`take_action`, `find_all_clues`).
+- Oddities that are kept on purpose are in `FIX_LATER.md` (items 8-16).
+- **New hook** `Convention::uses_refresh_after_play` (default `false`): avoids a game copy per hypothetical play.
+
+### Test coverage note (M4)
+
+All of `test/reactor/*.scala` (93 tests, 9 files) is ported and passes. `tests/empathy.rs` (the five Reactor tests),
+`tests/variants.rs` and `tests/endgame.rs` now run on Reactor. The two H-Group empathy tests still run on `Neutral`, and the
+H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 60s timeout (Scala's tests use the default 3s):
+`it_wins_an_unconventional_rainbow_endgame` and `it_completes_an_early_endgame` need ~2.6s and >3s respectively in a release build.

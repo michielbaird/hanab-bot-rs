@@ -8,7 +8,7 @@ use scala_bot::basics::clue::{ClueKind, ClueLike};
 #[test]
 fn understands_prism_touch() {
     let mut game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["g2", "b1", "r2", "r3", "g5"],
@@ -42,7 +42,7 @@ fn understands_prism_touch() {
 #[test]
 fn doesnt_clue_prism() {
     let game = setup(
-        neutral(),
+        reactor(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["g2", "b1", "r2", "r3", "g5"],
