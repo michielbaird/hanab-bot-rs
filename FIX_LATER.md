@@ -84,3 +84,15 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     it reports no differing moves, so the Scala bot plays all 30 actions of this game, including the t24 clue and the three
     bombs. The behaviour is inherited from the Scala conventions, not a port divergence. (Seeds do not reproduce across the two
     implementations: the Rust PRNG is not Java's, so `selfPlay seed=9` in Scala is a different game and scored 24.)
+
+## Performance findings (M7)
+
+29. H-Group `take_action` at 5 players does not finish its first decision in minutes (`self_play players=5 convention=HGroup1`). The Scala
+    bot does not finish a 5p game within 280 s either, so this is the algorithm: `advance`/`force_clue_value` branch over every clue of every
+    other player to depth ~4 (about 36 options per ply at 5p). Candidates: cap the lookahead depth or branching for >4 players, or prune clue
+    options. 2-4 players are fine. Reactor and (presumably) RefSieve handle 5p.
+30. Profile of 3p HGroup5 self-play (instrumented, 2 games): `Player::update_hypo_stacks` was ~70% of runtime; within it, `hypo_play` with
+    `refresh_after_play` (a full `Game::clone` for `prev`, then `refresh_wcs`, which clones again even when there are no waiting connections)
+    was ~70%. `uses_refresh_after_play` now takes the game and H-Group only says yes when waiting connections exist: 2 games went from 102 s to 52 s.
+    Remaining costs: `Game::clone` (~17 us each, ~480k calls per 2 games), the `thinks_playables` restart loop (~10 s), `refresh_wcs`.
+31. `SELF_PLAY_SLOW_MS=<ms>` makes `self_play` print every decision that takes at least that long (to stderr).

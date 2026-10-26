@@ -130,9 +130,9 @@ pub trait Convention: fmt::Debug + Send + Sync {
     /// Called after a play has been applied in a hypothetical game.
     fn refresh_after_play(&self, _prev: &Game, _game: &mut Game, _action: &PlayAction) {}
 
-    /// Whether [`refresh_after_play`](Self::refresh_after_play) does anything. When it doesn't, hypothetical
-    /// plays skip copying the game to hand it the previous state.
-    fn uses_refresh_after_play(&self) -> bool {
+    /// Whether [`refresh_after_play`](Self::refresh_after_play) does anything in this game. When it doesn't,
+    /// hypothetical plays skip copying the game to hand it the previous state.
+    fn uses_refresh_after_play(&self, _game: &Game) -> bool {
         false
     }
 

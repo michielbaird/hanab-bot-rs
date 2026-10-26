@@ -863,7 +863,6 @@ impl Player {
         if self.dirty.is_empty() {
             return;
         }
-
         let conv = Arc::clone(&game.conv);
         let mut hypo = game.clone();
         hypo.no_recurse = true;
@@ -887,7 +886,6 @@ impl Player {
                 if changed {
                     break;
                 }
-
                 let playables = {
                     let player = hypo.view(self);
                     let normal = if game.good_touch() {
@@ -998,7 +996,7 @@ impl Player {
 
                     let _quiet = LevelGuard::at_most(LogLevel::Error);
                     let conv = Arc::clone(&hypo.conv);
-                    if conv.uses_refresh_after_play() {
+                    if conv.uses_refresh_after_play(hypo) {
                         let prev = hypo.clone();
                         hypo.on_play(&action);
                         conv.refresh_after_play(&prev, hypo, &action);

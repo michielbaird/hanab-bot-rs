@@ -106,6 +106,10 @@ pub fn simulate_game(
         })
         .collect();
 
+    // Set SELF_PLAY_SLOW_MS to report turns whose decision takes at least that long.
+    let slow_ms: Option<u64> = std::env::var("SELF_PLAY_SLOW_MS")
+        .ok()
+        .and_then(|v| v.parse().ok());
     let mut actions: Vec<PerformAction> = Vec::new();
     let mut error = None;
 
@@ -113,7 +117,19 @@ pub fn simulate_game(
         let current = games[0].state.current_player_index;
 
         let step = catch_unwind(AssertUnwindSafe(|| -> Result<PerformAction, String> {
+            let started = std::time::Instant::now();
             let perform = games[current].take_action();
+            if let Some(limit) = slow_ms
+                && started.elapsed().as_millis() as u64 >= limit
+            {
+                eprintln!(
+                    "slow turn {} ({}): {:?} took {} ms",
+                    games[current].state.turn_count,
+                    games[current].state.names[current],
+                    perform,
+                    started.elapsed().as_millis()
+                );
+            }
 
             for game in &mut games {
                 let action = perform.to_action(&game.state, current, Some(deck), false);

@@ -1264,8 +1264,9 @@ impl Convention for HGroup {
         Ext::HGroup(Box::new(HGroupData::new(self.level, state.num_players)))
     }
 
-    fn uses_refresh_after_play(&self) -> bool {
-        true
+    fn uses_refresh_after_play(&self, game: &Game) -> bool {
+        // Without waiting connections, `refresh_wcs` has nothing to update.
+        !game.waiting().is_empty()
     }
 
     fn filter_playables(
