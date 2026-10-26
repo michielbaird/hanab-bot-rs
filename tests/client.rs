@@ -120,7 +120,7 @@ fn it_answers_chat_commands() {
     let s = sends(&outs);
     assert!(s[0].contains("scala-bot"));
     assert!(s[1].contains("Currently playing with Reactor1 conventions."));
-    // H-Group isn't ported yet, so the setting is refused rather than accepted and crashing later.
-    assert!(s[2].contains("not been ported"));
+    // H-Group is supported, so the setting is accepted.
+    assert!(s[2].contains("HGroup5"), "got {}", s[2]);
     assert!(s[3].contains("Fast mode is now on."));
 }

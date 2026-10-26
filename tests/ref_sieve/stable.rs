@@ -105,7 +105,7 @@ fn it_understands_a_ref_discard() {
 
 #[test]
 fn it_gives_a_ref_discard() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],

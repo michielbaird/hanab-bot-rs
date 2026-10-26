@@ -97,7 +97,7 @@ fn receives_a_self_colour_bluff() {
 
 #[test]
 fn prefers_to_scb_over_direct() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],

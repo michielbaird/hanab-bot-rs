@@ -63,11 +63,29 @@ pub enum TestVariant {
     DBrown5,
     DOrange5,
     PinkLPink6,
+    WhiteOnesDarkPrism5,
+    LightPinkGray5,
 }
 
 impl TestVariant {
     pub fn variant(self) -> Arc<Variant> {
         use TestVariant::*;
+        if self == WhiteOnesDarkPrism5 {
+            return Arc::new(
+                Variant::build(
+                    1562,
+                    "White-Ones & Dark Prism (5 Suits)",
+                    &["Red", "Yellow", "Green", "Blue", "Dark Prism"],
+                    Some(&['r', 'y', 'g', 'b', 'i']),
+                    scala_bot::basics::variant::VariantFlags {
+                        special_rank: Some(1),
+                        white_s: true,
+                        ..Default::default()
+                    },
+                )
+                .expect("valid variant"),
+            );
+        }
         let (id, name, suits, shorts): (u32, &str, &[&str], &[char]) = match self {
             NoVariant => (
                 0,
@@ -158,6 +176,13 @@ impl TestVariant {
                 "Dark Orange (5 Suits)",
                 &["Red", "Yellow", "Green", "Blue", "Dark Orange"],
                 &['r', 'y', 'g', 'b', 'o'],
+            ),
+            WhiteOnesDarkPrism5 => unreachable!(),
+            LightPinkGray5 => (
+                813,
+                "Light Pink & Gray (5 Suits)",
+                &["Red", "Yellow", "Green", "Light Pink", "Gray"],
+                &['r', 'y', 'g', 'i', 'a'],
             ),
             PinkLPink6 => (
                 1296,
@@ -799,4 +824,30 @@ pub fn reactor() -> Arc<dyn Convention> {
 
 pub fn ref_sieve() -> Arc<dyn Convention> {
     Arc::new(scala_bot::ref_sieve::RefSieve::new())
+}
+
+pub fn hgroup(level: usize) -> Arc<dyn Convention> {
+    Arc::new(scala_bot::hgroup::HGroup::at_level(level))
+}
+
+/// The `order1s` of the unknown 1s in a player's hand.
+pub fn ordered_1s(game: &Game, player: Player) -> Vec<usize> {
+    use scala_bot::hgroup::HGroupGame;
+    let unknown: Vec<usize> = game.state.hands[player.ordinal()]
+        .iter()
+        .copied()
+        .filter(|&o| game.unknown1(o))
+        .collect();
+    game.order1s(&unknown)
+}
+
+/// Sets the meta status of the card at the given (1-indexed) slot.
+pub fn set_status(
+    game: &mut Game,
+    player: Player,
+    slot: usize,
+    status: scala_bot::basics::CardStatus,
+) {
+    let order = game.state.hands[player.ordinal()][slot - 1];
+    game.meta[order].status = status;
 }

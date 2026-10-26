@@ -48,7 +48,7 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 | M2 networking & tooling | done: `self_play`, `replay`, `analyze`, `bot` binaries. Live login/handshake verified; a full live game has not been played (needs a second player) |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
-| M6a–d H-Group | not started |
+| M6a–d H-Group | **done**: all 453 `test/hgroup/**` tests ported and green (`tests/hgroup/`); `tests/empathy.rs` and the H-Group rainbow endgame test now run on H-Group |
 | M7 parity & polish | not started |
 
 ### Decision
@@ -89,7 +89,7 @@ The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scal
 - `tests/common/mod.rs` ports `test/util.scala` + `exAsserts.scala` (`setup`, `take_turn`, `take_turn_draw`,
   `parse_action`, `pre_clue`, `fully_known`, `has_poss`, `has_infs`, `has_status`). `setup` takes an
   `Arc<dyn Convention>`; once Reactor/H-Group exist, pass them instead of `neutral()`.
-- `empathy.rs`, `variants.rs` and `endgame.rs` run on Reactor. Two H-Group tests in `empathy.rs` still use `Neutral`.
+- `empathy.rs`, `variants.rs` and `endgame.rs` run on Reactor. 
 - Exercised only through Reactor so far: `sarcastic.rs`, `fix.rs`, `clue_result.rs`, `eval.rs`. Still untested: `Game::navigate`, `Game::analyze` (M2 tooling will cover them). A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
 
 ## Credentials
@@ -110,9 +110,7 @@ The user gave a test account for hanab.live (`michiel-test`; password in the unt
    serde_json). Logging into hanab.live needs the user's bot account (`.env`); ask before writing anything that talks to the
    network. Self-play (`selfPlay.scala`) needs no network and is the best end-to-end check of Reactor + the solver: run it
    across player counts and look for panics (`expect`s in the Reactor port; see `FIX_LATER.md` item 14) and stalls.
-2. **M5, M6** per `PLAN.md`. H-Group is the long pole: `hgroup/hgroup.scala` alone is 1.2k lines. When it lands:
-   `uses_refresh_after_play` must return `true` if it overrides `refresh_after_play`; re-point the two H-Group tests in
-   `tests/empathy.rs` and port the H-Group rainbow test in `test/endgame.scala`.
+2. **M7** (parity and polish) is next; see PLAN.md. M5 and M6 are done.
 3. **Performance (M7, but watch for it in M2).** The Reactor endgame tests are close to the solver's 3s timeout in a release
    build, and `Game::clone` scales with game history. See "Performance" in `FIX_LATER.md`. `[profile.dev] opt-level = 2` is set
    so `cargo test` is usable. Don't start by micro-optimising: profile first (there is no `perf`; a thread-local timer macro

@@ -5,6 +5,7 @@ pub mod client;
 pub mod collections;
 pub mod endgame;
 pub mod frac;
+pub mod hgroup;
 pub mod logger;
 pub mod reactor;
 pub mod ref_sieve;

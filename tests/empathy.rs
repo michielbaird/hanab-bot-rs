@@ -137,7 +137,7 @@ fn it_visibly_elims_mixed_cards() {
 #[test]
 fn it_elims_dark_cards_properly_1() {
     let mut game = setup(
-        neutral(), // HGroup.atLevel(10) in Scala; re-point in M6
+        hgroup(10),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "b1", "y1", "g1", "k5"],
@@ -167,7 +167,7 @@ fn it_elims_dark_cards_properly_1() {
 #[test]
 fn it_elims_dark_cards_properly_2() {
     let mut game = setup(
-        neutral(), // HGroup.atLevel(10) in Scala; re-point in M6
+        hgroup(10),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
             &["r1", "b1", "y1", "g1", "r4"],

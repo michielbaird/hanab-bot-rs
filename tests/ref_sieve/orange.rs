@@ -7,7 +7,7 @@ use Player::*;
 
 #[test]
 fn calls_an_orange_playable_to_discard() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],

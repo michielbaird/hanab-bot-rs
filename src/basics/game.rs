@@ -61,6 +61,7 @@ pub enum Ext {
     None,
     Reactor(crate::reactor::ReactorData),
     RefSieve(crate::ref_sieve::RefSieveData),
+    HGroup(Box<crate::hgroup::HGroupData>),
 }
 
 /// A set of conventions: how clues, plays and discards are interpreted, and what action to take.

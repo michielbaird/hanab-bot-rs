@@ -71,12 +71,12 @@ impl ConventionKind {
         ))
     }
 
-    /// The convention implementation. Fails for conventions that haven't been ported yet.
+    /// The convention implementation.
     pub fn build(self) -> Result<Arc<dyn Convention>, String> {
         match self {
             Self::Reactor => Ok(Arc::new(Reactor::new())),
             Self::RefSieve => Ok(Arc::new(RefSieve::new())),
-            other => Err(format!("{other} has not been ported to Rust yet.")),
+            Self::HGroup(level) => Ok(Arc::new(crate::hgroup::HGroup::at_level(level))),
         }
     }
 }

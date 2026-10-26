@@ -61,3 +61,10 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     there are no unique inferences. Kept (`NaN` compares false, so such an action is never chosen over a real one).
 23. `interpret_2p_locked_clue` (colour branch) checks `thinksTrash(game, target)` on the *new* game's common, so it sees inferences the clue
     just wrote; and `delayed_plays` there can build `Identity(suit, 6)` for a finished suit, whose ordinal aliases the next suit's 1.
+
+## H-Group (M6)
+
+24. Many Scala `.get` / `.head` calls that throw on a broken invariant are `expect`s in the Rust H-Group port (same policy as item 14).
+25. `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala `Vector.updated` would throw.
+26. `eval_action` for unknown-id plays/discards divides by the number of candidates even after a mistake (like item 22).
+27. H-Group self-play strength has not been compared with the Scala bot (deferred, see HANDOFF.md item 0).

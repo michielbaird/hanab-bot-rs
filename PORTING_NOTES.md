@@ -148,7 +148,7 @@ assertions about possibilities. Re-point them at the real conventions in M4/M6.
 `test/endgame.scala` ran on Reactor (and once H-Group). `tests/endgame.rs` runs on `Neutral`, extended to offer every
 valid clue and to discard the oldest card. 8 of 10 ported tests pass. `it_completes_an_early_endgame` and
 `ends_an_endgame_as_quickly_as_possible` are `#[ignore]`d: they need clues to teach players what to play, which
-only a real convention does. The H-Group variant of the rainbow test is not ported until M6.
+only a real convention does. The H-Group variant of the rainbow test was ported in M6 (`it_wins_an_unconventional_rainbow_endgame_in_h`).
 
 ## Reactor (M4)
 
@@ -197,7 +197,7 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - The Scala `IO.sleep(2.seconds)` race is `Out::Wait(2s - time spent choosing)` before the `action` send (no wait in `/fastmode`).
 - Panics inside message handling and action choosing are caught and logged (the message is dropped); this is the answer to
   FIX_LATER item 14 for the live bot.
-- `/settings`/`/setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them.
+- `/settings`/`/setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them (all three conventions are now buildable).
 - TLS is rustls (not the JVM's); HTTP uses blocking `reqwest` (login, variants, `/export/<id>`), so `GameData::fetch_id` and `replay id=...` work.
 - Not verified live: a complete game (needs a second player). Login, websocket and the lobby handshake were exercised against hanab.live.
 
@@ -213,3 +213,14 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - **Tests were converted by script** (`/tmp` helper, not committed): hands, options and `takeTurn`/`hasInfs`/`hasStatus`/simple asserts
   are mechanical, and the 25 non-trivial asserts were translated by hand. All 87 tests are present (counted against the Scala).
 - Items kept from Scala that look unintended are in `FIX_LATER.md` (19-23).
+
+## M6: H-Group
+
+- `src/hgroup.rs` + `src/hgroup/*.rs` mirror `hgroup/*.scala` file for file (`interpret_clue`, `connect`, `conn_helper`, `occams`,
+  `stalling`, `special_clues`, `update_wcs`, `interpret_cm`, `interpret_dc`, `state_eval`). Per-game state is `Ext::HGroup(Box<HGroupData>)`;
+  convention-specific helpers are on the `HGroupGame` extension trait.
+- Helpers that fall back to the original game take `&Game` and return a new `Game`; hooks assign `*game = result`.
+- `SavedCtx` (the Scala closure captured by `importantFinesse`) stores `prev`, `game`, `action` and the focus, and is re-run via `as_ctx()`.
+- `HGroup` returns `true` from `uses_refresh_after_play`.
+- Tests: `tests/hgroup/*.rs` are 1:1 ports (453 tests). Most were converted mechanically, the rest by hand. Scala tests that build a custom
+  variant use `TestVariant::{WhiteOnesDarkPrism5, LightPinkGray5}`.

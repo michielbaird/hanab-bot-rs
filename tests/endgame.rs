@@ -378,3 +378,38 @@ fn tries_bombing_slot_1_in_the_final_round() {
         }
     );
 }
+
+#[test]
+fn it_wins_an_unconventional_rainbow_endgame_in_h() {
+    let game = setup(
+        hgroup(10),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["b1", "r1", "m1", "m5", "y5"],
+            &["b1", "r1", "g1", "y1", "m4"],
+        ],
+        Setup {
+            play_stacks: Some(vec![5, 4, 5, 5, 3]),
+            clue_tokens: 1,
+            variant: TestVariant::Rainbow5,
+            discarded: &[
+                "r2", "r3", "y2", "y3", "g2", "g3", "b2", "b3", "b4", "m2", "m3", "m4",
+            ], // Missing: y1, g1, m1, r4, y4, g4
+            init: Box::new(|g| {
+                pre_clue(g, Bob, 4, &["5"]);
+                pre_clue(g, Bob, 5, &["5"]);
+                pre_clue(g, Cathy, 5, &["4", "yellow", "blue"]);
+            }),
+            ..Setup::default()
+        },
+    );
+
+    assert_eq!(game.state.cards_left, 1);
+
+    let (perform, winrate) = solve(&game, true);
+    assert_eq!(winrate, Frac::ONE);
+    assert!(matches!(
+        perform,
+        PerformAction::Colour { target: 1, value } if value != Colour::Yellow.ordinal()
+    ));
+}

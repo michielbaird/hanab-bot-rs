@@ -7,7 +7,7 @@ use Player::*;
 
 #[test]
 fn prefers_to_give_direct_ranks() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
@@ -86,7 +86,7 @@ fn understands_playable_fill_ins_are_not_referential() {
 
 #[test]
 fn doesn_t_give_unloaded_clues_that_connect_through_own_hand() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
@@ -169,7 +169,7 @@ fn it_interprets_a_layered_gd() {
 
 #[test]
 fn it_counts_dupes_as_bad_touch() {
-    let mut game = setup(
+    let game = setup(
         ref_sieve(),
         &[
             &["xx", "xx", "xx", "xx", "xx"],
