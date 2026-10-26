@@ -100,3 +100,8 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     **Update (item 29):** `advance` now stops after `MAX_LOOKAHEAD_5P = 1` plies when there are more than 4 players (a deliberate difference from
     Scala; 2-4 players are unchanged). 5p HGroup1 seed 300 now finishes (perfect), and 6 games of HGroup5 5p averaged 22.8 (2 perfect, no
     crashes), roughly 1-3 minutes per game. Quality at 5p vs. a deeper lookahead has not been measured.
+
+32. `Game::clone` is cheaper now: H-Group's `Ext` data, `State::action_list` and `Game::notes` are `Arc`s copied on write (`Arc::make_mut`).
+    A clone went from 137 to 73 allocations (~55 us to ~5 us in `tests/clone_probe.rs`), and 2 games of HGroup5 self-play from 102 s to 27 s
+    in total (with the `refresh_after_play` change, item 30). Remaining clone cost: `State` (deck, discard stacks, names), the players'
+    `thoughts` vectors and `meta`. The `thinks_playables` restart loop in `update_hypo_stacks` is still untouched.

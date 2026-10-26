@@ -69,7 +69,7 @@ pub fn interpret_stable(
         let mut hypo = prev.clone();
         let turn = hypo.state.turn_count;
         add_action(
-            &mut hypo.state.action_list,
+            std::sync::Arc::make_mut(&mut hypo.state.action_list),
             Action::Clue(action.clone()),
             turn,
         );

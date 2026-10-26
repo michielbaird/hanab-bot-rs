@@ -91,7 +91,7 @@ pub struct State {
 
     pub our_player_index: usize,
     /// The actions taken on each turn.
-    pub action_list: Vec<Vec<Action>>,
+    pub action_list: Arc<Vec<Vec<Action>>>,
     pub current_player_index: usize,
     pub options: TableOptions,
 }
@@ -143,7 +143,7 @@ impl State {
             holder_of: Vec::new(),
             held_orders: FastBitSet::EMPTY,
             our_player_index,
-            action_list: Vec::new(),
+            action_list: Arc::new(Vec::new()),
             current_player_index: 0,
             options,
             names,

@@ -405,7 +405,11 @@ impl Game {
 
         let prev = self.clone();
         let turn_count = self.state.turn_count;
-        add_action(&mut self.state.action_list, action.clone(), turn_count);
+        add_action(
+            Arc::make_mut(&mut self.state.action_list),
+            action.clone(),
+            turn_count,
+        );
         let conv = Arc::clone(&self.conv);
 
         match action {
@@ -519,7 +523,7 @@ impl Game {
                     ),
                 );
             }
-            self.notes.insert(
+            Arc::make_mut(&mut self.notes).insert(
                 order,
                 Note {
                     turn,
@@ -542,7 +546,7 @@ impl Game {
 
         let turn = hypo.state.turn_count;
         add_action(
-            &mut hypo.state.action_list,
+            Arc::make_mut(&mut hypo.state.action_list),
             Action::Clue(action.clone()),
             turn,
         );

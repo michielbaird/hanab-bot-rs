@@ -484,7 +484,7 @@ impl BotClient {
             && game.in_progress
             && msg.notes.first().is_none_or(String::is_empty)
         {
-            game.notes.insert(
+            std::sync::Arc::make_mut(&mut game.notes).insert(
                 0,
                 Note {
                     turn: 0,

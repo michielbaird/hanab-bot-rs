@@ -61,7 +61,7 @@ pub enum Ext {
     None,
     Reactor(crate::reactor::ReactorData),
     RefSieve(crate::ref_sieve::RefSieveData),
-    HGroup(Box<crate::hgroup::HGroupData>),
+    HGroup(Arc<crate::hgroup::HGroupData>),
 }
 
 /// A set of conventions: how clues, plays and discards are interpreted, and what action to take.
@@ -192,7 +192,7 @@ pub struct Game {
     pub future: Vec<IdentitySet>,
     /// Whether the game is "catching up" on game actions (i.e. if true, it shouldn't send websocket messages).
     pub catchup: bool,
-    pub notes: HashMap<usize, Note>,
+    pub notes: Arc<HashMap<usize, Note>>,
     /// The last game action taken by each player, if they exist.
     pub last_actions: Vec<Option<Action>>,
     /// The interpretation of each move so far.
@@ -238,7 +238,7 @@ impl Game {
             deck_ids: vec![None; total],
             future: vec![state.all_ids; total],
             catchup: false,
-            notes: HashMap::new(),
+            notes: Arc::new(HashMap::new()),
             last_actions: vec![None; state.num_players],
             move_history: Vec::new(),
             queued_cmds: Vec::new(),
@@ -278,7 +278,7 @@ impl Game {
                 vec![self.state.all_ids; total]
             },
             catchup: false,
-            notes: HashMap::new(),
+            notes: Arc::new(HashMap::new()),
             last_actions: vec![None; self.state.num_players],
             move_history: Vec::new(),
             queued_cmds: Vec::new(),

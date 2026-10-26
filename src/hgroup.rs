@@ -295,7 +295,7 @@ impl HGroupGame for Game {
 
     fn hg_mut(&mut self) -> &mut HGroupData {
         match &mut self.ext {
-            Ext::HGroup(data) => data,
+            Ext::HGroup(data) => Arc::make_mut(data),
             other => panic!("expected an H-Group game, found {other:?}"),
         }
     }
@@ -1261,7 +1261,7 @@ impl Convention for HGroup {
     }
 
     fn new_ext(&self, state: &State) -> Ext {
-        Ext::HGroup(Box::new(HGroupData::new(self.level, state.num_players)))
+        Ext::HGroup(Arc::new(HGroupData::new(self.level, state.num_players)))
     }
 
     fn uses_refresh_after_play(&self, game: &Game) -> bool {
