@@ -83,6 +83,7 @@ struct InitMessage {
     table_id: usize,
     player_names: Vec<String>,
     our_player_index: usize,
+    seed: String,
     options: TableOptions,
 }
 
@@ -174,6 +175,8 @@ pub struct BotClient {
     feedback: FeedbackStore,
     /// The table where the feedback instructions were last announced.
     intro_table: Option<usize>,
+    /// The seed of the current game (it determines the deal), saved with feedback.
+    seed: Option<String>,
     /// The current game, if any.
     pub game: Option<Game>,
 }
@@ -214,6 +217,7 @@ impl BotClient {
             last_requester: None,
             feedback: FeedbackStore::new(config.feedback_file.clone()),
             intro_table: None,
+            seed: None,
             game: None,
             config,
         }
@@ -548,6 +552,7 @@ impl BotClient {
         self.table_id = Some(msg.table_id);
         self.restored_settings = false;
         self.game = Some(game);
+        self.seed = Some(msg.seed.clone()).filter(|s| !s.is_empty());
 
         if self.config.feedback_intro
             && self.feedback.is_enabled()
@@ -807,14 +812,19 @@ impl BotClient {
             context.variant = Some(state.variant.name.clone());
             context.players = state.names.clone();
             context.turn = Some(state.turn_count);
-            let actions: Vec<String> = state
+            context.seed = self.seed.clone();
+            // The whole game so far, so it can be replayed from the seed.
+            context.actions = state
                 .action_list
                 .iter()
-                .flatten()
-                .filter(|a| a.is_player_action())
-                .map(|a| a.fmt(state))
+                .enumerate()
+                .flat_map(|(turn, actions)| {
+                    actions
+                        .iter()
+                        .filter(|a| a.is_player_action())
+                        .map(move |a| format!("t{turn} {}", a.fmt(state)))
+                })
                 .collect();
-            context.recent_actions = actions[actions.len().saturating_sub(10)..].to_vec();
         }
         context
     }

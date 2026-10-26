@@ -274,16 +274,37 @@ fn it_saves_feedback_with_the_game_context() {
     client.handle_msg(&pm("alice", "/feedback"));
     // Not in a game yet: saved without a table.
     client.handle_msg(&pm("alice", "/feedback hello there"));
+    let mut replies = pm_replies(&drain(&mut rx));
 
     let init = json!({
         "tableID": 7, "playerNames": ["bot", "alice"], "ourPlayerIndex": 0, "replay": false,
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
     client.handle_msg(&format!("init {init}"));
+
+    client.handle_msg(r#"noteListPlayer {"tableID": 7, "notes": ["", "", "", "", ""]}"#);
+
+    // The deal, then alice (the human) plays a card.
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order, "suitIndex": -1, "rank": -1}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "suitIndex": suit, "rank": rank}));
+    }
+    list.push(json!({"type": "turn", "num": 0, "currentPlayerIndex": 1}));
+    list.push(json!({"type": "play", "playerIndex": 1, "order": 5, "suitIndex": 1, "rank": 1}));
+    list.push(json!({"type": "draw", "playerIndex": 1, "order": 10, "suitIndex": 4, "rank": 3}));
+    list.push(json!({"type": "turn", "num": 1, "currentPlayerIndex": 0}));
+    client.handle_msg(&format!(
+        "gameActionList {}",
+        json!({"tableID": 7, "list": list})
+    ));
+    let _ = drain(&mut rx); // the bot's own move
+
     client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
     client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
 
-    let replies = pm_replies(&drain(&mut rx));
+    replies.extend(pm_replies(&drain(&mut rx)));
     assert!(replies[0].starts_with("Usage:"), "{replies:?}");
     assert!(replies[1].starts_with("Thanks"));
     assert!(replies[2].starts_with("Thanks"));
@@ -303,6 +324,13 @@ fn it_saves_feedback_with_the_game_context() {
     assert_eq!(saved[1]["variant"], "No Variant");
     assert_eq!(saved[1]["players"], json!(["bot", "alice"]));
     assert_eq!(saved[1]["bot"], "bot");
+    assert_eq!(saved[1]["seed"], "x");
+    let actions = saved[1]["actions"].as_array().unwrap();
+    assert!(
+        actions[0].as_str().unwrap().contains("alice plays"),
+        "{actions:?}"
+    );
+    assert!(saved[0]["actions"].as_array().unwrap().is_empty());
 }
 
 #[test]
