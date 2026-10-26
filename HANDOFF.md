@@ -98,8 +98,13 @@ The user gave a test account for hanab.live (`michiel-test`; password in the unt
 
 ## Suggested next steps
 
-0. **Parity check for RefSieve.** Self-play (6 games each, seeds 0-5) gave perfect games 2/6 (2p), 4/6 (3p), 2/6 (4p) with one strikeout in 2p, far below Reactor (about 100% in 3-5p). No panics. I could not tell whether that is the Scala bot's real strength or a porting bug. The only way to know is to build the Scala bot (`~/tools` has a JDK and scala-cli; `make build`) and run its `selfPlay` on the same variants. The user declined that build in the first session, so ask before doing it (memory: build with the JVM options in the Makefile).
-
+0. **TODO, deferred by the user: build the Scala bot and compare self-play.** RefSieve self-play (6 games each, seeds 0-5) gave perfect games
+   2/6 (2p), 4/6 (3p), 2/6 (4p) with one strikeout in 2p, far below Reactor (about 100% in 3-5p). No panics. It is unknown whether
+   that matches the Scala bot or hides a porting bug (in the 2p strikeout, Bob bombed a card the common inferences said was b3).
+   Plan: `~/tools/bin/scala-cli` + JDK 25 (`JAVA_HOME=~/tools/jdk`), build `scala_bot.selfPlay` from `/workspace/scala-bot` with a small
+   heap (`--server=false`, about 512m; the container is memory-tight), run `games=... players=... convention=RefSieve`, and compare with
+   `self_play` here. The user stopped the first build attempt and said to come back to it later: **ask before starting it**.
+   The ported RefSieve tests were re-verified against the Scala sources (all strings, turns, assertions and numbers match for all 87).
 1. **M2** (`bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`, `selfPlay.scala`,
    `analyze.scala`). rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio + tokio-tungstenite + reqwest +
    serde_json). Logging into hanab.live needs the user's bot account (`.env`); ask before writing anything that talks to the
