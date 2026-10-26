@@ -13,6 +13,11 @@ name = "scala_bot"
 verbose-logs = []
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [profile.release]
 debug = false
+
+[dev-dependencies]
+regex = "1.13.1"

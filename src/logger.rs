@@ -41,6 +41,33 @@ pub fn level() -> LogLevel {
     }
 }
 
+/// Sets the runtime log level until dropped, then restores the previous one.
+///
+/// Replaces the Scala pattern of `val level = Logger.level; Logger.setLevel(..); ...; Logger.setLevel(level)`.
+pub struct LevelGuard(LogLevel);
+
+impl LevelGuard {
+    /// Lowers the level to at most `level`.
+    pub fn at_most(level: LogLevel) -> Self {
+        let prev = self::level();
+        set_level(prev.min(level));
+        Self(prev)
+    }
+
+    /// Sets the level to exactly `level`.
+    pub fn set(level: LogLevel) -> Self {
+        let prev = self::level();
+        set_level(level);
+        Self(prev)
+    }
+}
+
+impl Drop for LevelGuard {
+    fn drop(&mut self) {
+        set_level(self.0);
+    }
+}
+
 #[doc(hidden)]
 #[inline]
 pub fn enabled(level: LogLevel) -> bool {
