@@ -168,3 +168,17 @@ All of `test/reactor/*.scala` (93 tests, 9 files) is ported and passes. `tests/e
 `tests/variants.rs` and `tests/endgame.rs` now run on Reactor. The two H-Group empathy tests still run on `Neutral`, and the
 H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 60s timeout (Scala's tests use the default 3s):
 `it_wins_an_unconventional_rainbow_endgame` and `it_completes_an_early_endgame` need ~2.6s and >3s respectively in a release build.
+
+## Tooling (M2, offline part)
+
+- `settings.scala` -> `src/settings.rs` (`ConventionKind` + `Display`/`parse`, `info_note`). `ConventionKind::build()` fails for
+  RefSieve/HGroup until they are ported. The Scala convention patterns are unanchored (a string merely *containing* `rs`
+  is RefSieve); that is kept.
+- `bot.scala`'s `parseArgs`/`readEnv` -> `tools/args.rs`. `selfPlay.scala` -> `tools/self_play.rs` + `src/bin/self_play.rs`;
+  `replay.scala`/`analyze.scala` -> `tools/game_data.rs` (+ `bin/replay.rs`, `bin/analyze.rs`); `console.scala` -> `tools/console.rs`.
+- **Seeds do not match Scala's.** The shuffle is a small in-crate SplitMix64 (`Rng`), not `scala.util.Random`.
+- **Variants offline.** `load_variant` has built-ins for "No Variant" and "6 Suits"; anything else needs
+  `variants=<variants.json> colours=<colors.json>` (the documents behind `variant::VARIANTS_URL` / `COLOURS_URL`).
+- **Self-play catches panics** per move (`catch_unwind`) and reports them in `GameSummary::error`, ending the game like the Scala
+  bot's `try/catch` does (`endgameTurns = Some(0)`). Threads default to 2 (`threads=`) because of the memory cap.
+- `GameData::fetch_id` (download by id) is not implemented: it needs the network.

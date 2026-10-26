@@ -35,7 +35,7 @@ Each milestone ends with a checkpoint: what's done, test pass counts, deviations
 |---|---|---|---|
 | M0 | Scaffold | lib/ (minus IdentitySet), logger, util | crate builds; FastBitSet, CertainMapEntry, Frac, logger, util tested. **Done.** |
 | M1 | Core model (incl. IdentitySet) | basics/, lib/IdentitySet | Variant, Card, Clue, State, Action, Player, elim, Game compile; top-level `empathy` and `variants` tests pass. **Done** (`analyze` deferred to M3) |
-| M2 | Networking & tooling | bot, command, settings, console, replay, analyze, selfPlay | bot logs into hanab.live (needs your account/.env), joins a table and plays legal moves with a stub convention; replay + self-play binaries run |
+| M2 | Networking & tooling (offline tooling **done**: self-play, replay, analyze, console, settings; networking pending) | bot, command, settings, console, replay, analyze, selfPlay | bot logs into hanab.live (needs your account/.env), joins a table and plays legal moves with a stub convention; replay + self-play binaries run |
 | M3 | Endgame | endgame/ | `endgame` tests pass; solver speed within reasonable range of Scala. **Done** except 2 tests that need Reactor (ignored, re-enable in M4) and the H-Group rainbow test (M6) |
 | M4 | Reactor | reactor/ | `test/reactor/*` pass. **Done** (93 tests) |
 | M5 | Referential Sieve | refSieve/ | `test/refSieve/*` pass (incl. 2-player) |

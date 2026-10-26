@@ -44,7 +44,7 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 | M1 core model: everything in `src/basics/` | done; 60 tests pass |
 | M3 endgame solver (+ `Game::analyze`) | done |
 | M4 Reactor | done; all 163 tests pass (93 are the ported `test/reactor/*`) |
-| M2 networking & tooling (bot, command, settings, console, replay, selfPlay) | not started (after M4) |
+| M2 networking & tooling | offline tooling done (`self_play`, `replay`, `analyze` binaries); `command.scala`/`bot.scala` (server protocol, websocket) not started |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
 | M6a–d H-Group | not started |
