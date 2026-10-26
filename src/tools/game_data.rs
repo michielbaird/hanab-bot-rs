@@ -21,6 +21,16 @@ pub struct GameData {
 }
 
 impl GameData {
+    /// Downloads an exported game from the server (blocking).
+    pub fn fetch_id(hostname: &str, id: &str) -> Result<Self, String> {
+        let url = format!("https://{hostname}/export/{id}");
+        let text = reqwest::blocking::get(&url)
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.text())
+            .map_err(|e| format!("{url}: {e}"))?;
+        Self::parse(&serde_json::from_str(&text).map_err(|e| e.to_string())?)
+    }
+
     pub fn from_file(path: &str) -> Result<Self, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
         Self::parse(&serde_json::from_str(&text).map_err(|e| e.to_string())?)
@@ -189,11 +199,12 @@ pub fn parse_replay_args<S: AsRef<str>>(raw: &[S]) -> Result<ReplayArgs, String>
 
     let data = match (args.get("file"), args.get("id")) {
         (Some(file), _) => GameData::from_file(file)?,
-        (None, Some(_)) => {
-            return Err(
-                "Fetching games by id needs network access, which isn't wired up yet; export the game and pass file=<path>."
-                    .to_string(),
-            );
+        (None, Some(id)) => {
+            let env = super::args::full_env(&args);
+            let hostname = env
+                .get("HANABI_HOSTNAME")
+                .map_or("hanab.live", String::as_str);
+            GameData::fetch_id(hostname, id)?
         }
         (None, None) => return Err("Must provide either id or file argument.".to_string()),
     };

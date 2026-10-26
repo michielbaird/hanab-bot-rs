@@ -44,7 +44,7 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 | M1 core model: everything in `src/basics/` | done; 60 tests pass |
 | M3 endgame solver (+ `Game::analyze`) | done |
 | M4 Reactor | done; all 163 tests pass (93 are the ported `test/reactor/*`) |
-| M2 networking & tooling | offline tooling done (`self_play`, `replay`, `analyze` binaries); `command.scala`/`bot.scala` (server protocol, websocket) not started |
+| M2 networking & tooling | done: `self_play`, `replay`, `analyze`, `bot` binaries. Live login/handshake verified; a full live game has not been played (needs a second player) |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
 | M6a–d H-Group | not started |
@@ -90,6 +90,10 @@ The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scal
   `Arc<dyn Convention>`; once Reactor/H-Group exist, pass them instead of `neutral()`.
 - `empathy.rs`, `variants.rs` and `endgame.rs` run on Reactor. Two H-Group tests in `empathy.rs` still use `Neutral`.
 - Exercised only through Reactor so far: `sarcastic.rs`, `fix.rs`, `clue_result.rs`, `eval.rs`. Still untested: `Game::navigate`, `Game::analyze` (M2 tooling will cover them). A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
+
+## Credentials
+
+The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
 
 ## Suggested next steps
 

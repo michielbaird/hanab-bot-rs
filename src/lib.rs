@@ -1,6 +1,7 @@
 //! A Rust port of [scala-bot](https://github.com/will-hanabi-bot/scala-bot).
 
 pub mod basics;
+pub mod client;
 pub mod collections;
 pub mod endgame;
 pub mod frac;

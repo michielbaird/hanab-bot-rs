@@ -182,3 +182,16 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - **Self-play catches panics** per move (`catch_unwind`) and reports them in `GameSummary::error`, ending the game like the Scala
   bot's `try/catch` does (`endgameTurns = Some(0)`). Threads default to 2 (`threads=`) because of the memory cap.
 - `GameData::fetch_id` (download by id) is not implemented: it needs the network.
+
+## Client (M2, networked part)
+
+- `command.scala`'s `BotClient` -> `src/client.rs`, sans-IO: `handle_msg(&str)` pushes `Out::Send(String)` / `Out::Wait(Duration)`
+  onto a tokio unbounded channel (so analysis threads can reply later). `bin/bot.rs` owns the websocket: it spaces sends by 500ms,
+  pings every 30s, times out after 2 minutes of silence, logs in again and retries up to 5 times with `2 << attempt` second backoff.
+  `BotClient` runs on its own OS thread because choosing an action can take seconds.
+- The Scala `IO.sleep(2.seconds)` race is `Out::Wait(2s - time spent choosing)` before the `action` send (no wait in `/fastmode`).
+- Panics inside message handling and action choosing are caught and logged (the message is dropped); this is the answer to
+  FIX_LATER item 14 for the live bot.
+- `/settings`/`/setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them.
+- TLS is rustls (not the JVM's); HTTP uses blocking `reqwest` (login, variants, `/export/<id>`), so `GameData::fetch_id` and `replay id=...` work.
+- Not verified live: a complete game (needs a second player). Login, websocket and the lobby handshake were exercised against hanab.live.
