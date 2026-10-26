@@ -123,3 +123,15 @@ Check in mid-milestone for M6a (the other large one) and whenever a real design 
 ## Licence
 
 The Scala repo is GPLv3, so this port is a derivative work and stays GPLv3 (`LICENSE` copied in, `Cargo.toml` says so).
+
+## Scala parity (measured)
+
+Scala bot built with scala-cli + JDK 25 (`--server=false --java-opt=-Xmx1200m`); decks differ between the implementations
+(different PRNGs), so these are statistical comparisons over 30 games, 3 players, No Variant:
+
+| Convention | Rust avg / perfect | Scala avg / perfect |
+|---|---|---|
+| HGroup5 (seeds 100-129) | 24.43 / 22 | 24.33 / 22 |
+| RefSieve (seeds 200-229) | 23.67 / 17 (1 strikeout) | 24.37 / 17 |
+
+Rust HGroup12 (10 games): 24.3 avg, 6 perfect. Scala `analyze` agrees with every move of the Rust HGroup5 seed-9 strikeout game (FIX_LATER 28).

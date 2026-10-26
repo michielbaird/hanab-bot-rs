@@ -79,3 +79,8 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     with the mover's own view. Unknown whether the Scala bot does the same: needs the Scala parity build (HANDOFF item 0).
     Suspects: `interp_clue` for a clue that touches no new cards below level 6 (tempo clues), and the stalling/`unacceptable_clue`
     checks that should stop Cathy giving a clue her own simulation does not read as a play.
+
+    **Update:** built the Scala bot (scala-cli, JDK 25) and ran `scala_bot.analyze file=investigations/hgroup5_seed9_3p.json convention=HGroup5`:
+    it reports no differing moves, so the Scala bot plays all 30 actions of this game, including the t24 clue and the three
+    bombs. The behaviour is inherited from the Scala conventions, not a port divergence. (Seeds do not reproduce across the two
+    implementations: the Rust PRNG is not Java's, so `selfPlay seed=9` in Scala is a different game and scored 24.)
