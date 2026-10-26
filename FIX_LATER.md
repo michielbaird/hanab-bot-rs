@@ -68,3 +68,14 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
 25. `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala `Vector.updated` would throw.
 26. `eval_action` for unknown-id plays/discards divides by the number of candidates even after a mistake (like item 22).
 27. H-Group self-play strength has not been compared with the Scala bot (deferred, see HANDOFF.md item 0).
+
+## Open investigation: HGroup5 seed 9 (3p) strikeout, `investigations/hgroup5_seed9_3p.json`
+
+28. `self_play games=1 seed=9 convention=HGroup5` strikes out at score 10 (turns 25, 26, 29 are blind plays of unclued new cards).
+    Turn 24: Cathy re-clues Alice's already-clued 5s ("5 to Alice", no new cards touched, 1-2 clues left, early game over).
+    Alice's game marks her slot 1 (order 26) `finessed` with inferred [g4,p4] (reasoning turn 24); Cathy's own game leaves the same card
+    plain `none` (she sees it is y1). Giver and receiver interpret the clue differently, and every later blind play follows from
+    that. Same pattern at t27 (Alice sees a finesse for Bob's slot 1 too). `analyze` is silent because each move is consistent
+    with the mover's own view. Unknown whether the Scala bot does the same: needs the Scala parity build (HANDOFF item 0).
+    Suspects: `interp_clue` for a clue that touches no new cards below level 6 (tempo clues), and the stalling/`unacceptable_clue`
+    checks that should stop Cathy giving a clue her own simulation does not read as a play.
