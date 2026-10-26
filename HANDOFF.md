@@ -93,7 +93,7 @@ The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scal
 
 ## Credentials
 
-The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
+The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only. The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
 
 ## Suggested next steps
 
