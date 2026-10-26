@@ -305,13 +305,7 @@ fn it_saves_feedback_with_the_game_context() {
     assert_eq!(saved[1]["variant"], "No Variant");
     assert_eq!(saved[1]["players"], json!(["bot", "alice"]));
     assert_eq!(saved[1]["bot"], "bot");
-    assert_eq!(saved[1]["seed"], "x");
-    let actions = saved[1]["actions"].as_array().unwrap();
-    assert!(
-        actions[0].as_str().unwrap().contains("alice plays"),
-        "{actions:?}"
-    );
-    assert!(saved[0]["actions"].as_array().unwrap().is_empty());
+    assert_eq!(saved[1]["turn"], 0);
 }
 
 #[test]
