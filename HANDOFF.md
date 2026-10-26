@@ -135,3 +135,12 @@ Scala bot built with scala-cli + JDK 25 (`--server=false --java-opt=-Xmx1200m`);
 | RefSieve (seeds 200-229) | 23.67 / 17 (1 strikeout) | 24.37 / 17 |
 
 Rust HGroup12 (10 games): 24.3 avg, 6 perfect. Scala `analyze` agrees with every move of the Rust HGroup5 seed-9 strikeout game (FIX_LATER 28).
+
+## M7 sweep and performance (measured on an idle machine)
+
+- Crash sweep (no panics or cut-short games anywhere): HGroup1-12 at 2-4 players (3 games each), RefSieve and Reactor1 at 2-5 players,
+  and HGroup12 / RefSieve / Reactor1 on Rainbow, Black, White, Pink, Brown, Prism, Muddy Rainbow, Orange and 6 Suits (3 players, 3 games each;
+  needs `variants=<variants.json> colours=<suits.json>`). Only failures: H-Group at 5 players (fixed, FIX_LATER 29) and
+  `RefSieve players=5`, which still does not finish within 15 minutes (same lookahead blow-up, not yet capped).
+- Speed, HGroup5 3p self-play: one thread plays a game in about 10.7 s (51 s before the M7 optimizations). 4 games on 4 threads: 70 s wall
+  (Rust) vs 616 s wall (Scala, different decks, includes JVM start-up), roughly 9x.
