@@ -105,3 +105,8 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     A clone went from 137 to 73 allocations (~55 us to ~5 us in `tests/clone_probe.rs`), and 2 games of HGroup5 self-play from 102 s to 27 s
     in total (with the `refresh_after_play` change, item 30). Remaining clone cost: `State` (deck, discard stacks, names), the players'
     `thoughts` vectors and `meta`. The `thinks_playables` restart loop in `update_hypo_stacks` is still untouched.
+
+33. `update_hypo_stacks` computed `thinks_trash` for every player on every loop iteration only to filter for inverted suits. It is now skipped
+    when the variant has no inverted suit: the playable-check time dropped from 9.6 s to 1.1 s and `update_hypo_stacks` from 22.3 s to 9.8 s
+    (2 games of HGroup5, contended machine). `order_trash` is generally expensive; other hot callers of `thinks_trash` may benefit from caching.
+    Remaining in `update_hypo_stacks`: ~4 us per hypothetical play (`on_play`, plus `prev` clone and `refresh_wcs` when connections are waiting).

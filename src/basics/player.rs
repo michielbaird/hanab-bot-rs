@@ -894,8 +894,13 @@ impl Player {
                         player.obvious_playables(&hypo, i)
                     };
 
-                    // This player knows that the card is inverted
-                    let inverted = player.thinks_trash(&hypo, i).into_iter().filter(|&o| {
+                    // This player knows that the card is inverted (only possible in variants with inverted suits)
+                    let inverted_trash = if hypo.state.variant.inverted {
+                        player.thinks_trash(&hypo, i)
+                    } else {
+                        Vec::new()
+                    };
+                    let inverted = inverted_trash.into_iter().filter(|&o| {
                         player.thoughts[o]
                             .id()
                             .is_some_and(|id| hypo.state.is_inverted(id))
