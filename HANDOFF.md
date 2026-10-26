@@ -41,19 +41,19 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 | Milestone | State |
 |---|---|
 | M0 scaffold: `FastBitSet`, `CertainMapEntry`, `Frac`, logger, util | done |
-| M1 core model: everything in `src/basics/` | done; 60 tests pass |
+| M1 core model: everything in `src/basics/` | done |
+| M2 networking & tooling | done: `self_play`, `replay`, `analyze`, `bot` binaries. One live game played (HGroup2, won) |
 | M3 endgame solver (+ `Game::analyze`) | done |
 | M4 Reactor | done (93 ported tests) |
-| M5 Referential Sieve | done (87 ported tests); all 250 tests pass |
-| M2 networking & tooling | done: `self_play`, `replay`, `analyze`, `bot` binaries. Live login/handshake verified; a full live game has not been played (needs a second player) |
-| M4 Reactor | not started |
-| M5 Referential Sieve | not started |
-| M6a–d H-Group | **done**: all 453 `test/hgroup/**` tests ported and green (`tests/hgroup/`); `tests/empathy.rs` and the H-Group rainbow endgame test now run on H-Group |
-| M7 parity & polish | not started |
+| M5 Referential Sieve | done (87 ported tests) |
+| M6 H-Group (levels 1-12) | done: all 453 `test/hgroup/**` tests ported and green (`tests/hgroup/`); `tests/empathy.rs` and the H-Group rainbow endgame test run on H-Group |
+| M7 parity & polish | mostly done: Scala parity measured, crash sweep clean, performance work (see below). Open items at the end of this file |
+
+All tests pass (`cargo test -j2`); `cargo fmt` is clean.
 
 ### Decision
 
-The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scala oddities in `FIX_LATER.md` (fix them only after the port is complete) and to continue. M3 and M4 are done; the next milestone is M2.
+Order followed: M3, M4, M2, M5, M6, then M7. Scala oddities are noted in `FIX_LATER.md` (fix only after the port is complete).
 
 ## Architecture (as built in M1)
 
@@ -94,31 +94,31 @@ The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scal
 
 ## Credentials
 
-The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only. The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
+The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only (the user said yes once for a live session on the day M7 started; that does not carry over). The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
 
 ## Suggested next steps
 
-0. **TODO, deferred by the user: build the Scala bot and compare self-play.** RefSieve self-play (6 games each, seeds 0-5) gave perfect games
-   2/6 (2p), 4/6 (3p), 2/6 (4p) with one strikeout in 2p, far below Reactor (about 100% in 3-5p). No panics. It is unknown whether
-   that matches the Scala bot or hides a porting bug (in the 2p strikeout, Bob bombed a card the common inferences said was b3).
-   Plan: `~/tools/bin/scala-cli` + JDK 25 (`JAVA_HOME=~/tools/jdk`), build `scala_bot.selfPlay` from `/workspace/scala-bot` with a small
-   heap (`--server=false`, about 512m; the container is memory-tight), run `games=... players=... convention=RefSieve`, and compare with
-   `self_play` here. The user stopped the first build attempt and said to come back to it later: **ask before starting it**.
-   The ported RefSieve tests were re-verified against the Scala sources (all strings, turns, assertions and numbers match for all 87).
-1. **M2** (`bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`, `selfPlay.scala`,
-   `analyze.scala`). rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio + tokio-tungstenite + reqwest +
-   serde_json). Logging into hanab.live needs the user's bot account (`.env`); ask before writing anything that talks to the
-   network. Self-play (`selfPlay.scala`) needs no network and is the best end-to-end check of Reactor + the solver: run it
-   across player counts and look for panics (`expect`s in the Reactor port; see `FIX_LATER.md` item 14) and stalls.
-2. **M7** (parity and polish) is next; see PLAN.md. M5 and M6 are done.
-3. **Performance (M7, but watch for it in M2).** The Reactor endgame tests are close to the solver's 3s timeout in a release
-   build, and `Game::clone` scales with game history. See "Performance" in `FIX_LATER.md`. `[profile.dev] opt-level = 2` is set
-   so `cargo test` is usable. Don't start by micro-optimising: profile first (there is no `perf`; a thread-local timer macro
-   around `Game::elim` / `update_hypo_stacks` worked).
+1. **Open performance items** (see `FIX_LATER.md` 29-33): `Game::elim` is still ~55% of self-play time, mostly the per-player
+   `update_hypo_stacks` (`hypo_play` + `refresh_wcs` when connections are waiting). RefSieve and H-Group at 5 players use a lookahead
+   cap that Scala does not have (`MAX_LOOKAHEAD_5P`); the Scala bot cannot finish 5p H-Group games at all.
+2. **RefSieve at 5 players** averages only ~18.7 with the capped lookahead (6 games). Not compared with Scala (it does not finish).
+   RefSieve on Pink and Muddy Rainbow averaged ~20 in 3-game samples; worth a larger sample.
+3. **More live games** (HGroup12, Reactor1, RefSieve; higher log level). One HGroup2 game has been won live. Ask before logging in.
+4. **`benchmark` tool** (`benchmark.scala`) is not ported.
+5. Open correctness investigation: none known. HGroup5 seed 9 (`investigations/`) is behaviour the Scala bot shares.
+6. After the port is accepted: work through `FIX_LATER.md` (Scala oddities to fix, 1-28).
 
-At every milestone: update this file, `PLAN.md`, `PORTING_NOTES.md`; run `cargo fmt`, `cargo clippy --all-targets`,
-`cargo test -j2`; commit; then summarise and **wait for the user's go-ahead** before the next milestone.
-Check in mid-milestone for M6a (the other large one) and whenever a real design question comes up.
+Useful commands (release build, `-j2`):
+
+- `self_play games=10 seed=0 players=3 variant="No Variant" convention=HGroup12 threads=2` (variants other than No Variant / 6 Suits need
+  `variants=<variants.json> colours=<suits.json>`, see `VARIANTS_URL` / `COLOURS_URL` in `src/basics/variant.rs`). `SELF_PLAY_SLOW_MS=<ms>`
+  prints slow decisions. Seeds do not reproduce the Scala bot's shuffles.
+- `analyze file=seeds/N.json convention=...` and `replay file=... index=N` for exported games.
+- Scala build for comparison: `JAVA_HOME=~/tools/jdk scala-cli run /workspace/scala-bot --server=false --java-opt=-Xmx1200m
+  --main-class scala_bot.selfPlay -- games=... convention=...` (also `scala_bot.analyze`). Takes ~10 minutes to compile the first time.
+- `cargo test --test clone_probe -- --ignored --nocapture` prints allocations and time per `Game` part.
+
+At every milestone: update this file, `PLAN.md`, `PORTING_NOTES.md`; run `cargo fmt`, `cargo clippy --all-targets`, `cargo test -j2`; commit.
 
 ## Licence
 

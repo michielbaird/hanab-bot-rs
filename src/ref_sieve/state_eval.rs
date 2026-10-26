@@ -197,6 +197,9 @@ fn force_clue_value(orig: &Game, game: &Game, offset: usize, only: Option<usize>
     }
 }
 
+/// How many plies the lookahead goes in games with more than 4 players.
+const MAX_LOOKAHEAD_5P: usize = 1;
+
 /// Predicts the value of the game after the player `offset` turns from us acts.
 pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
     let (state, common, meta) = (&game.state, &game.common, &game.meta);
@@ -210,7 +213,12 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
         None
     };
 
-    if player_index == state.our_player_index || state.endgame_turns == Some(0) {
+    // Not in the Scala bot: with 5+ players the branching (every clue of every other player) makes
+    // the full lookahead effectively endless, so it is cut short.
+    if player_index == state.our_player_index
+        || state.endgame_turns == Some(0)
+        || (state.num_players > 4 && offset > MAX_LOOKAHEAD_5P)
+    {
         return eval_game(orig, game);
     }
 

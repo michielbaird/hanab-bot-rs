@@ -39,11 +39,11 @@ Each milestone ends with a checkpoint: what's done, test pass counts, deviations
 | M3 | Endgame | endgame/ | `endgame` tests pass; solver speed within reasonable range of Scala. **Done** except 2 tests that need Reactor (ignored, re-enable in M4) and the H-Group rainbow test (done in M6) |
 | M4 | Reactor | reactor/ | `test/reactor/*` pass. **Done** (93 tests) |
 | M5 | Referential Sieve | refSieve/ | `test/refSieve/*` pass (incl. 2-player). **Done** (87 tests); self-play win rate not yet compared with Scala |
-| M6a | H-Group core (L1-4) | hgroup: hgroup, interpretClue, connect, connHelper | `test/hgroup/level1`, `level2*`, `level3`, `level4` pass |
-| M6b | H-Group stalling, Occam, WCs (L5-8) | stalling, occams, updateWcs | `level5*`, `level6`-`level8` pass |
-| M6c | H-Group CM/DC/special clues (L9-12) | interpretCm, interpretDc, specialClues | `level9`-`level11*` pass |
-| M6d | H-Group variants | stateEval + variant tests | `test/hgroup/variants/*` pass |
-| M7 | Parity & polish | all | full test suite green; self-play games complete without panics for all three conventions; README updated |
+| M6a | H-Group core (L1-4) | hgroup: hgroup, interpretClue, connect, connHelper | `test/hgroup/level1`, `level2*`, `level3`, `level4` pass. **Done** |
+| M6b | H-Group stalling, Occam, WCs (L5-8) | stalling, occams, updateWcs | `level5*`, `level6`-`level8` pass. **Done** |
+| M6c | H-Group CM/DC/special clues (L9-12) | interpretCm, interpretDc, specialClues | `level9`-`level11*` pass. **Done** |
+| M6d | H-Group variants | stateEval + variant tests | `test/hgroup/variants/*` pass. **Done** (453 tests in total) |
+| M7 | Parity & polish | all | full test suite green; self-play games complete without panics for all three conventions; README updated. **Mostly done**: crash sweep clean, Scala parity measured (HGroup5, RefSieve), ~9x faster than Scala and ~50x less memory; open items in HANDOFF.md |
 
 Check-ins also happen mid-milestone for M1 and M6a (the two largest), and whenever I hit a real design question.
 

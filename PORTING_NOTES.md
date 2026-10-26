@@ -224,3 +224,14 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - `HGroup` returns `true` from `uses_refresh_after_play`.
 - Tests: `tests/hgroup/*.rs` are 1:1 ports (453 tests). Most were converted mechanically, the rest by hand. Scala tests that build a custom
   variant use `TestVariant::{WhiteOnesDarkPrism5, LightPinkGray5}`.
+
+## M7: performance and parity
+
+- `Game::clone` is hot (hypothetical games everywhere), so the rarely mutated parts are `Arc`s copied on write: `Ext::HGroup(Arc<HGroupData>)`
+  (`hg_mut` does `Arc::make_mut`), `State::action_list` and `Game::notes`. Mutate them through `Arc::make_mut`.
+- `Convention::uses_refresh_after_play(&self, &Game)`: when false, hypothetical plays skip the `prev` copy (H-Group: only when connections are waiting).
+- `update_hypo_stacks` only scans for inverted-suit trash when the variant has an inverted suit.
+- 5+ players: H-Group and RefSieve `advance` stop after `MAX_LOOKAHEAD_5P = 1` plies (not in Scala, which does not finish such games).
+- Memory: Rust peaks at ~8 MB (1 thread) to ~15 MB (4 threads) for HGroup5 self-play; the Scala bot peaked at ~795 MB for the same 4 games
+  (JVM, `-Xmx1200m`).
+- `self_play` silences the panic hook; a panicking game shows up as "(game cut short: ...)" and in "Games cut short by an error".
