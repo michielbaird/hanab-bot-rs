@@ -1,8 +1,10 @@
 //! The hanab.live bot.
 //!
 //! Usage: `bot index=0` (reads `HANABI_USERNAME<index>`, `HANABI_PASSWORD<index>` and the other
-//! `HANABI_*` settings from the environment and `./.env`).
+//! `HANABI_*` settings from the environment and `./.env`). `bot index=0,1,2` hosts several bots in one
+//! process, each with its own login, connection and decision thread.
 //! Console commands (stdin): `hand <name> [from]`, `nav <turn|+|++|-|-->`, `state`, `username`.
+//! With several bots, prefix a command with the bot's index or username: `1 hand Bob`.
 
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -81,7 +83,7 @@ async fn run_connection(
     let (ws, _) = tokio_tungstenite::connect_async(request)
         .await
         .map_err(|e| e.to_string())?;
-    println!("connected!");
+    println!("[{username}] connected!");
     let (mut write, mut read) = ws.split();
 
     let (out_tx, mut out_rx): (_, UnboundedReceiver<Out>) = unbounded_channel();
@@ -164,24 +166,93 @@ async fn run_connection(
     result
 }
 
+/// What every bot in the process shares.
+struct Net {
+    http_base: String,
+    ws_url: String,
+    config: BotConfig,
+}
+
+struct BotSpec {
+    index: usize,
+    username: String,
+    password: String,
+}
+
+/// Keeps one bot logged in and connected, reconnecting with a back-off when the connection drops.
+async fn supervise(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result<(), String> {
+    let username = spec.username.clone();
+    let mut attempt: u32 = 0;
+
+    loop {
+        let (base, user, pass) = (
+            net.http_base.clone(),
+            spec.username.clone(),
+            spec.password.clone(),
+        );
+        let cookie = tokio::task::spawn_blocking(move || login(&base, &user, &pass))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let (result, connected) = match cookie {
+            Ok(cookie) => (
+                run_connection(
+                    &net.ws_url,
+                    &cookie,
+                    net.config.clone(),
+                    &username,
+                    &console,
+                )
+                .await,
+                true,
+            ),
+            Err(e) => (Err(e), false),
+        };
+
+        let Err(err) = result else { return Ok(()) };
+        if attempt >= MAX_RETRIES {
+            return Err(format!("[{username}] {err}"));
+        }
+
+        // A connection that got established resets the retry counter.
+        let next = if connected { 0 } else { attempt + 1 };
+        println!("[{username}] Connection lost (attempt {attempt}/{MAX_RETRIES}): {err}");
+        tokio::time::sleep(Duration::from_secs(2 << attempt)).await;
+        attempt = next;
+    }
+}
+
 fn main() -> Result<(), String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&raw)?;
     let env: HashMap<String, String> = full_env(&args);
 
-    let index: usize = args
+    let indices: Vec<usize> = args
         .get("index")
         .map_or("0", String::as_str)
-        .parse()
-        .map_err(|_| "index must be a number")?;
-    let username = env
-        .get(&format!("HANABI_USERNAME{index}"))
-        .ok_or_else(|| format!("Missing HANABI_USERNAME{index} env variable!"))?
-        .clone();
-    let password = env
-        .get(&format!("HANABI_PASSWORD{index}"))
-        .ok_or_else(|| format!("Missing HANABI_PASSWORD{index} env variable!"))?
-        .clone();
+        .split(',')
+        .map(|i| {
+            i.trim()
+                .parse()
+                .map_err(|_| "index must be a number or a comma-separated list of numbers")
+        })
+        .collect::<Result<_, _>>()?;
+
+    let specs: Vec<BotSpec> = indices
+        .iter()
+        .map(|&index| {
+            let get = |key: &str| {
+                env.get(&format!("{key}{index}"))
+                    .cloned()
+                    .ok_or_else(|| format!("Missing {key}{index} env variable!"))
+            };
+            Ok(BotSpec {
+                index,
+                username: get("HANABI_USERNAME")?,
+                password: get("HANABI_PASSWORD")?,
+            })
+        })
+        .collect::<Result<_, String>>()?;
 
     let use_ssl = env.get("SSL_DISABLED").map_or("1", String::as_str) == "1";
     let hostname = env
@@ -199,32 +270,60 @@ fn main() -> Result<(), String> {
         }
     };
     let custom_port = port != 443 && port != 80;
-    let http_base = format!(
-        "{}://{hostname}:{port}",
-        if use_ssl { "https" } else { "http" }
-    );
-    let ws_url = format!(
-        "{}://{hostname}{}/ws",
-        if use_ssl { "wss" } else { "ws" },
-        if custom_port {
-            format!(":{port}")
-        } else {
-            String::new()
-        }
-    );
+    let net = Arc::new(Net {
+        http_base: format!(
+            "{}://{hostname}:{port}",
+            if use_ssl { "https" } else { "http" }
+        ),
+        ws_url: format!(
+            "{}://{hostname}{}/ws",
+            if use_ssl { "wss" } else { "ws" },
+            if custom_port {
+                format!(":{port}")
+            } else {
+                String::new()
+            }
+        ),
+        config: BotConfig::from_env(&env),
+    });
 
+    // The variant and suit definitions are loaded once and shared by every bot in the process.
     Variant::init(&fetch(VARIANTS_URL)?, &fetch(COLOURS_URL)?)?;
 
-    let config = BotConfig::from_env(&env);
-    let console: ConsoleSink = Arc::new(Mutex::new(None));
+    let consoles: Vec<(usize, String, ConsoleSink)> = specs
+        .iter()
+        .map(|spec| {
+            (
+                spec.index,
+                spec.username.clone(),
+                Arc::new(Mutex::new(None)),
+            )
+        })
+        .collect();
 
-    // Console input, forwarded to whichever connection is current.
+    // Console input, forwarded to the bot it names (or the only bot).
     {
-        let console = Arc::clone(&console);
+        let consoles = consoles.clone();
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines().map_while(Result::ok) {
-                match parse_command(line.trim()) {
-                    Ok(cmd) => match &*console.lock().unwrap() {
+                let line = line.trim();
+                let (target, command) = match consoles.as_slice() {
+                    [only] => (Some(only), line),
+                    _ => {
+                        let (who, rest) = line.split_once(' ').unwrap_or((line, ""));
+                        let found = consoles
+                            .iter()
+                            .find(|(i, name, _)| i.to_string() == who || name == who);
+                        (found, rest)
+                    }
+                };
+
+                let Some((_, _, sink)) = target else {
+                    println!("unknown bot (prefix commands with a bot's index or username)");
+                    continue;
+                };
+                match parse_command(command) {
+                    Ok(cmd) => match &*sink.lock().unwrap() {
                         Some(tx) => {
                             let _ = tx.send(ClientIn::Console(cmd));
                         }
@@ -243,32 +342,32 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     runtime.block_on(async {
-        let mut attempt: u32 = 0;
+        let handles: Vec<_> = specs
+            .into_iter()
+            .zip(consoles)
+            .enumerate()
+            .map(|(n, (spec, (_, _, console)))| {
+                let net = Arc::clone(&net);
+                tokio::spawn(async move {
+                    // Stagger the logins.
+                    tokio::time::sleep(Duration::from_secs(n as u64)).await;
+                    supervise(spec, net, console).await
+                })
+            })
+            .collect();
 
-        loop {
-            let (base, user, pass) = (http_base.clone(), username.clone(), password.clone());
-            let cookie = tokio::task::spawn_blocking(move || login(&base, &user, &pass))
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let (result, connected) = match cookie {
-                Ok(cookie) => (
-                    run_connection(&ws_url, &cookie, config.clone(), &username, &console).await,
-                    true,
-                ),
-                Err(e) => (Err(e), false),
-            };
-
-            let Err(err) = result else { return Ok(()) };
-            if attempt >= MAX_RETRIES {
-                return Err(err);
+        // Runs until every bot has stopped for good; the last error is reported.
+        let mut failure = None;
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    println!("{e}");
+                    failure = Some(e);
+                }
+                Err(e) => failure = Some(e.to_string()),
             }
-
-            // A connection that got established resets the retry counter.
-            let next = if connected { 0 } else { attempt + 1 };
-            println!("Connection lost (attempt {attempt}/{MAX_RETRIES}): {err}");
-            tokio::time::sleep(Duration::from_secs(2 << attempt)).await;
-            attempt = next;
         }
+        failure.map_or(Ok(()), Err)
     })
 }

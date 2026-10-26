@@ -12,7 +12,14 @@ cargo run --release --bin self_play -- games=10 players=3 convention=HGroup5
 
 # the hanab.live bot: put HANABI_USERNAME0 / HANABI_PASSWORD0 (and optionally HANABI_HOSTNAME) in ./.env
 cargo run --release --bin bot -- index=0
+
+# several bots in one process (HANABI_USERNAME0/1/2 ...): one login, connection and decision thread each
+cargo run --release --bin bot -- index=0,1,2
 ```
+
+Hosting several bots in one process shares the (small) variant tables and the runtime; a bot's memory is a few MB.
+With several bots, console commands take the bot's index or username first (`1 hand Bob`). Logging in the live bot is compiled out unless
+you build with `--features verbose-logs`.
 
 Then PM the bot `/settings HGroup5` (or `Reactor1`, `RefSieve`, ...), and create a table and invite or `/join` it.
 Other tools: `replay`, `analyze` (exported games).

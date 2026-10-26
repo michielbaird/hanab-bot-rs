@@ -124,3 +124,65 @@ fn it_answers_chat_commands() {
     assert!(s[2].contains("HGroup5"), "got {}", s[2]);
     assert!(s[3].contains("Fast mode is now on."));
 }
+
+/// Joins a 2-player table as `name` and returns the first action the client sends.
+fn first_action(name: &str, table_id: usize) -> String {
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+
+    client.handle_msg(&format!(
+        r#"welcome {{"userID": 1, "username": "{name}", "playingAtTables": [], "randomTableName": "x"}}"#
+    ));
+    let init = json!({
+        "tableID": table_id, "playerNames": [name, "human"], "ourPlayerIndex": 0, "replay": false,
+        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
+    });
+    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!(
+        r#"noteListPlayer {{"tableID": {table_id}, "notes": ["", "", "", "", ""]}}"#
+    ));
+
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order, "suitIndex": -1, "rank": -1}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "suitIndex": suit, "rank": rank}));
+    }
+    list.push(json!({"type": "turn", "num": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&format!(
+        "gameActionList {}",
+        json!({"tableID": table_id, "list": list})
+    ));
+
+    drain(&mut rx)
+        .iter()
+        .filter_map(|o| match o {
+            Out::Send(s) if s.starts_with("action ") => Some(s.clone()),
+            _ => None,
+        })
+        .next_back()
+        .unwrap_or_else(|| panic!("{name} sent no action"))
+}
+
+#[test]
+fn several_clients_in_one_process_do_not_interfere() {
+    init_variants();
+
+    // Each bot decides on its own thread, as in `bot index=0,1,2`.
+    let threads: Vec<_> = (0..3)
+        .map(|i| {
+            std::thread::spawn(move || {
+                logger::set_level(LogLevel::Off);
+                (i, first_action(&format!("bot{i}"), 10 + i))
+            })
+        })
+        .collect();
+
+    for thread in threads {
+        let (i, action) = thread.join().unwrap();
+        assert!(
+            action.contains(&format!(r#""tableID":{}"#, 10 + i)),
+            "bot{i} acted on the wrong table: {action}"
+        );
+    }
+}

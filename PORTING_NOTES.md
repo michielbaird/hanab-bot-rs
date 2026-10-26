@@ -235,3 +235,13 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - Memory: Rust peaks at ~8 MB (1 thread) to ~15 MB (4 threads) for HGroup5 self-play; the Scala bot peaked at ~795 MB for the same 4 games
   (JVM, `-Xmx1200m`).
 - `self_play` silences the panic hook; a panicking game shows up as "(game cut short: ...)" and in "Games cut short by an error".
+
+## Several bots in one process
+
+- `bot index=0,1,2` runs one `supervise` task per account (login, reconnect with back-off) and one `BotClient` + decision thread per
+  connection; they share only the immutable variant registry (`Variant::init`, once) and the tokio runtime. A bot that gives up does not stop the others.
+- The log level is per thread (`logger::set_level`, `LevelGuard`); `logger::set_default_level` sets the process-wide default. A process-wide
+  level raced between bots (one bot's temporary quieting could be restored by another).
+- Live-bot logging is compiled out unless the `verbose-logs` feature is on, so the default `bot` prints little more than connection events and
+  sent commands. Log lines from `BotClient` itself are not prefixed with the bot's name.
+- Tested only without a network (`several_clients_in_one_process_do_not_interfere`): the multi-account path has not been run against hanab.live.

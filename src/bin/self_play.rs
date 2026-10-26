@@ -40,7 +40,7 @@ fn main() -> Result<(), String> {
     std::fs::create_dir_all("seeds")
         .map_err(|e| format!("failed to create seeds directory: {e}"))?;
 
-    logger::set_level(LogLevel::Off);
+    logger::set_default_level(LogLevel::Off);
     let variant = load_variant(&get("variant", "No Variant"), &args)?;
     let conv = convention.build()?;
     let deck = full_deck(&variant);
