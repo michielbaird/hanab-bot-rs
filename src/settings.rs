@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::basics::Convention;
 use crate::reactor::Reactor;
+use crate::ref_sieve::RefSieve;
 
 pub const BOT_VERSION: &str = "v1.2.8 (scala-bot-rs)";
 pub const MAX_H_LEVEL: usize = 12;
@@ -74,6 +75,7 @@ impl ConventionKind {
     pub fn build(self) -> Result<Arc<dyn Convention>, String> {
         match self {
             Self::Reactor => Ok(Arc::new(Reactor::new())),
+            Self::RefSieve => Ok(Arc::new(RefSieve::new())),
             other => Err(format!("{other} has not been ported to Rust yet.")),
         }
     }

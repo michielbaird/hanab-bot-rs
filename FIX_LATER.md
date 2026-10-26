@@ -50,3 +50,14 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     Candidates: `Arc`-wrap the rarely-mutated history, or `im`-style persistent vectors.
 18. `Player::update_hypo_stacks` clones the whole `Game` per call and `Game::elim` calls it for the common perspective
     and every player. ~60% of solver time in the Reactor endgame tests.
+
+## Referential Sieve (M5)
+
+19. `interpret_discard` (2p): `prev.isTouched(0)` is called with *order 0*, not slot 1, and the log line does `prev.chop(..).get`
+    (throws in Scala when there is no chop; the Rust prints the `Option`).
+20. `interpret_discard`, Gentleman's Discard: starts from `game` again, like Reactor (item 9).
+21. `eval_action` on a clue multiplies the result by `mult` regardless of its sign (Reactor only scales positive results).
+22. `eval_action` on an unknown-id play divides the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and is `NaN` when
+    there are no unique inferences. Kept (`NaN` compares false, so such an action is never chosen over a real one).
+23. `interpret_2p_locked_clue` (colour branch) checks `thinksTrash(game, target)` on the *new* game's common, so it sees inferences the clue
+    just wrote; and `delayed_plays` there can build `Identity(suit, 6)` for a finished suit, whose ordinal aliases the next suit's 1.

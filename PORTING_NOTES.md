@@ -35,6 +35,11 @@ Where the Rust differs from the Scala, and why. Update this as the port proceeds
 | `reactor/interpretReactive.scala` | `src/reactor/interpret_reactive.rs` |
 | `reactor/stateEval.scala` | `src/reactor/state_eval.rs` |
 | `test/reactor/*.scala` | `tests/reactor/*.rs` (one test binary) |
+| `refSieve/refSieve.scala` | `src/ref_sieve.rs` (`RefSieve` convention, `RefSieveGame` trait) |
+| `refSieve/interpretClue.scala` | `src/ref_sieve/interpret_clue.rs` (+ `interpret_clue_impl`, the body of `RefSieve.interpretClue`) |
+| `refSieve/connect.scala` | `src/ref_sieve/connect.rs` |
+| `refSieve/stateEval.scala` | `src/ref_sieve/state_eval.rs` |
+| `test/refSieve/**` | `tests/ref_sieve/*.rs` (one test binary; mechanically converted, then checked) |
 
 ## Deliberate deviations
 
@@ -195,3 +200,16 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - `/settings`/`/setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them.
 - TLS is rustls (not the JVM's); HTTP uses blocking `reqwest` (login, variants, `/export/<id>`), so `GameData::fetch_id` and `replay id=...` work.
 - Not verified live: a complete game (needs a second player). Login, websocket and the lobby handshake were exercised against hanab.live.
+
+## Referential Sieve (M5)
+
+- **State.** `Ext::RefSieve(RefSieveData { waiting, zcs_turn, locked_shifts })`. `waiting` is only ever appended to (nothing reads it yet,
+  as in Scala). `RefSieveGame` (extension trait on `Game`) has `chop`, `must_clue(player)`, `find_finesse`, `check_2p_ptd`, `unlock_promise`.
+- **Connections** use the shared `basics::connection::Connection` enum: Scala's `KnownConn`/`PlayableConn`/`PromptConn`/`FinesseConn`
+  map to `Known`/`Playable`/`Prompt`/`Finesse` with the defaulted fields filled in.
+- **Ordering.** `target_play` walks the inferences in *descending* order (Scala's `withFilter` on an `IdentitySet` prepends).
+- `find_connecting`: a candidate prompt that turns out wrong yields `None` and does *not* fall back to a finesse (Scala's
+  `Option[Option[_]].getOrElse`). Kept.
+- **Tests were converted by script** (`/tmp` helper, not committed): hands, options and `takeTurn`/`hasInfs`/`hasStatus`/simple asserts
+  are mechanical, and the 25 non-trivial asserts were translated by hand. All 87 tests are present (counted against the Scala).
+- Items kept from Scala that look unintended are in `FIX_LATER.md` (19-23).

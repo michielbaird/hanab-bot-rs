@@ -796,3 +796,7 @@ fn _keep(_: FastBitSet) {}
 pub fn reactor() -> Arc<dyn Convention> {
     Arc::new(scala_bot::reactor::Reactor::new())
 }
+
+pub fn ref_sieve() -> Arc<dyn Convention> {
+    Arc::new(scala_bot::ref_sieve::RefSieve::new())
+}

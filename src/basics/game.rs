@@ -60,6 +60,7 @@ pub enum Ext {
     #[default]
     None,
     Reactor(crate::reactor::ReactorData),
+    RefSieve(crate::ref_sieve::RefSieveData),
 }
 
 /// A set of conventions: how clues, plays and discards are interpreted, and what action to take.

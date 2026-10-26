@@ -43,7 +43,8 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 | M0 scaffold: `FastBitSet`, `CertainMapEntry`, `Frac`, logger, util | done |
 | M1 core model: everything in `src/basics/` | done; 60 tests pass |
 | M3 endgame solver (+ `Game::analyze`) | done |
-| M4 Reactor | done; all 163 tests pass (93 are the ported `test/reactor/*`) |
+| M4 Reactor | done (93 ported tests) |
+| M5 Referential Sieve | done (87 ported tests); all 250 tests pass |
 | M2 networking & tooling | done: `self_play`, `replay`, `analyze`, `bot` binaries. Live login/handshake verified; a full live game has not been played (needs a second player) |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
@@ -96,6 +97,8 @@ The user agreed to the order **M3 → M4 → M2** and said to keep notes on Scal
 The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only. The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
 
 ## Suggested next steps
+
+0. **Parity check for RefSieve.** Self-play (6 games each, seeds 0-5) gave perfect games 2/6 (2p), 4/6 (3p), 2/6 (4p) with one strikeout in 2p, far below Reactor (about 100% in 3-5p). No panics. I could not tell whether that is the Scala bot's real strength or a porting bug. The only way to know is to build the Scala bot (`~/tools` has a JDK and scala-cli; `make build`) and run its `selfPlay` on the same variants. The user declined that build in the first session, so ask before doing it (memory: build with the JVM options in the Makefile).
 
 1. **M2** (`bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`, `selfPlay.scala`,
    `analyze.scala`). rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio + tokio-tungstenite + reqwest +
