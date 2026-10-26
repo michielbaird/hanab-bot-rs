@@ -96,3 +96,7 @@ Add new entries as they are found while porting (file, what, why it looks wrong,
     was ~70%. `uses_refresh_after_play` now takes the game and H-Group only says yes when waiting connections exist: 2 games went from 102 s to 52 s.
     Remaining costs: `Game::clone` (~17 us each, ~480k calls per 2 games), the `thinks_playables` restart loop (~10 s), `refresh_wcs`.
 31. `SELF_PLAY_SLOW_MS=<ms>` makes `self_play` print every decision that takes at least that long (to stderr).
+
+    **Update (item 29):** `advance` now stops after `MAX_LOOKAHEAD_5P = 1` plies when there are more than 4 players (a deliberate difference from
+    Scala; 2-4 players are unchanged). 5p HGroup1 seed 300 now finishes (perfect), and 6 games of HGroup5 5p averaged 22.8 (2 perfect, no
+    crashes), roughly 1-3 minutes per game. Quality at 5p vs. a deeper lookahead has not been measured.

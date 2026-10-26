@@ -16,6 +16,9 @@ use crate::logger::{self, LevelGuard, LogLevel};
 use crate::util::{VisibleOpts, indent, visible_find};
 use crate::{log_highlight, log_info, log_warn};
 
+/// How many plies the lookahead goes in games with more than 4 players.
+const MAX_LOOKAHEAD_5P: usize = 1;
+
 pub fn get_result(game: &Game, hypo: &Game, action: &ClueAction, log: bool) -> f64 {
     let (common, state) = (&game.common, &game.state);
     let ClueAction {
@@ -262,7 +265,10 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             .to_owned()
     };
 
+    // Not in the Scala bot: with 5+ players the branching (every clue of every other player) makes
+    // the full lookahead effectively endless, so it is cut short.
     let stop_lookahead = state.endgame_turns == Some(0)
+        || (state.num_players > 4 && offset > MAX_LOOKAHEAD_5P)
         || (player_index == our
             && (offset > 3 || (state.num_players > 2 && orig.state.clue_tokens > 2)))
         || (orig.hg().in_early_game
