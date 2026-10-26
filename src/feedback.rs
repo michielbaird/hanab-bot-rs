@@ -1,5 +1,5 @@
 //! Player feedback for the live bot: `/feedback <message>` in a PM is appended to a JSON-lines file together
-//! with what the bot knew about the game at the time, so odd behaviour can be looked at later.
+//! with enough context (table, players, turn, convention) to find the game in the bot's history on hanab.live.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
@@ -33,10 +33,6 @@ pub struct Context {
     pub variant: Option<String>,
     pub players: Vec<String>,
     pub turn: Option<usize>,
-    /// The seed of the current game, which determines the deal.
-    pub seed: Option<String>,
-    /// Every action in the current game so far (`t<turn> <description>`), oldest first.
-    pub actions: Vec<String>,
 }
 
 pub struct FeedbackStore {
@@ -125,8 +121,6 @@ fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Val
         "variant": context.variant,
         "players": context.players,
         "turn": context.turn,
-        "seed": context.seed,
-        "actions": context.actions,
     })
 }
 
@@ -152,7 +146,6 @@ mod tests {
             convention: "HGroup5".to_string(),
             table_id: Some(7),
             turn: Some(12),
-            actions: vec!["t3 Bob plays r1".to_string()],
             ..Context::default()
         };
 
@@ -170,7 +163,7 @@ mod tests {
         assert_eq!(lines[0]["from"], "alice");
         assert_eq!(lines[0]["text"], "it \"bombed\" a 5");
         assert_eq!(lines[0]["table_id"], 7);
-        assert_eq!(lines[0]["actions"][0], "t3 Bob plays r1");
+        assert_eq!(lines[0]["turn"], 12);
     }
 
     #[test]

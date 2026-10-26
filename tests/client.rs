@@ -282,25 +282,6 @@ fn it_saves_feedback_with_the_game_context() {
     });
     client.handle_msg(&format!("init {init}"));
 
-    client.handle_msg(r#"noteListPlayer {"tableID": 7, "notes": ["", "", "", "", ""]}"#);
-
-    // The deal, then alice (the human) plays a card.
-    let mut list: Vec<Value> = (0..5)
-        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order, "suitIndex": -1, "rank": -1}))
-        .collect();
-    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
-        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "suitIndex": suit, "rank": rank}));
-    }
-    list.push(json!({"type": "turn", "num": 0, "currentPlayerIndex": 1}));
-    list.push(json!({"type": "play", "playerIndex": 1, "order": 5, "suitIndex": 1, "rank": 1}));
-    list.push(json!({"type": "draw", "playerIndex": 1, "order": 10, "suitIndex": 4, "rank": 3}));
-    list.push(json!({"type": "turn", "num": 1, "currentPlayerIndex": 0}));
-    client.handle_msg(&format!(
-        "gameActionList {}",
-        json!({"tableID": 7, "list": list})
-    ));
-    let _ = drain(&mut rx); // the bot's own move
-
     client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
     client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
 

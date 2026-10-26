@@ -31,7 +31,7 @@ and Scala-vs-Rust differences, and `FIX_LATER.md` for Scala oddities noted durin
 
 When a game starts the bot tells the table: *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
 /pm <bot> /feedback <what happened>"*. `/feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
-convention and version, the table, variant, players, turn, the game's seed and every action so far (enough to replay the game). Messages are limited to 1000 characters and 5 per person per hour.
+convention and version, the table, variant, players and turn. The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
 
 | Environment variable | Effect |
 |---|---|
