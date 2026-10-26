@@ -306,6 +306,8 @@ fn it_saves_feedback_with_the_game_context() {
     assert_eq!(saved[1]["players"], json!(["bot", "alice"]));
     assert_eq!(saved[1]["bot"], "bot");
     assert_eq!(saved[1]["turn"], 0);
+    assert_eq!(saved[1]["seed"], "x");
+    assert_eq!(saved[0]["seed"], Value::Null);
 }
 
 #[test]

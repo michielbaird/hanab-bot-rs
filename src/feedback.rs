@@ -33,6 +33,8 @@ pub struct Context {
     pub variant: Option<String>,
     pub players: Vec<String>,
     pub turn: Option<usize>,
+    /// The seed of the current game, which determines the deal.
+    pub seed: Option<String>,
 }
 
 pub struct FeedbackStore {
@@ -121,6 +123,7 @@ fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Val
         "variant": context.variant,
         "players": context.players,
         "turn": context.turn,
+        "seed": context.seed,
     })
 }
 
