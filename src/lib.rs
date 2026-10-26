@@ -4,6 +4,7 @@ pub mod basics;
 pub mod client;
 pub mod collections;
 pub mod endgame;
+pub mod feedback;
 pub mod frac;
 pub mod hgroup;
 pub mod logger;

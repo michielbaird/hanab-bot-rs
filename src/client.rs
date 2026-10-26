@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender as Sender;
 
@@ -17,6 +18,7 @@ use crate::basics::action::Action;
 use crate::basics::game::Note;
 use crate::basics::state::TableOptions;
 use crate::basics::{Game, State, Variant};
+use crate::feedback::{Context as FeedbackContext, FeedbackError, FeedbackStore, MAX_LENGTH};
 use crate::settings::{
     BOT_VERSION, ConventionKind, MAX_H_LEVEL, info_note, parse_convention_from_note,
 };
@@ -103,6 +105,10 @@ pub struct BotConfig {
     pub leave_replay_if_only_bots: bool,
     pub bot_name_prefixes: Vec<String>,
     pub hostname: String,
+    /// Where `/feedback` messages are appended (JSON lines). `None` turns the command off.
+    pub feedback_file: Option<PathBuf>,
+    /// Whether to tell the table, when a game starts, how to send feedback.
+    pub feedback_intro: bool,
 }
 
 impl Default for BotConfig {
@@ -111,6 +117,8 @@ impl Default for BotConfig {
             leave_replay_if_only_bots: true,
             bot_name_prefixes: Vec::new(),
             hostname: "hanab.live".to_string(),
+            feedback_file: Some(PathBuf::from("feedback.jsonl")),
+            feedback_intro: true,
         }
     }
 }
@@ -136,6 +144,13 @@ impl BotConfig {
                 .get("HANABI_HOSTNAME")
                 .cloned()
                 .unwrap_or_else(|| "hanab.live".to_string()),
+            // HANABI_FEEDBACK_FILE=off (or empty) disables the /feedback command.
+            feedback_file: match env.get("HANABI_FEEDBACK_FILE").map(String::as_str) {
+                None => Some(PathBuf::from("feedback.jsonl")),
+                Some("" | "off") => None,
+                Some(path) => Some(PathBuf::from(path)),
+            },
+            feedback_intro: env.get("HANABI_FEEDBACK_INTRO").map_or("1", String::as_str) == "1",
         }
     }
 
@@ -156,6 +171,9 @@ pub struct BotClient {
     fast_mode: bool,
     leave_pregame_if_only_bots: bool,
     last_requester: Option<String>,
+    feedback: FeedbackStore,
+    /// The table where the feedback instructions were last announced.
+    intro_table: Option<usize>,
     /// The current game, if any.
     pub game: Option<Game>,
 }
@@ -185,7 +203,6 @@ impl BotClient {
     pub fn new(config: BotConfig, out: Sender<Out>) -> Self {
         Self {
             out,
-            config,
             info: None,
             table_id: None,
             game_started: false,
@@ -195,7 +212,10 @@ impl BotClient {
             fast_mode: false,
             leave_pregame_if_only_bots: true,
             last_requester: None,
+            feedback: FeedbackStore::new(config.feedback_file.clone()),
+            intro_table: None,
             game: None,
+            config,
         }
     }
 
@@ -529,6 +549,18 @@ impl BotClient {
         self.restored_settings = false;
         self.game = Some(game);
 
+        if self.config.feedback_intro
+            && self.feedback.is_enabled()
+            && self.intro_table != Some(msg.table_id)
+        {
+            self.intro_table = Some(msg.table_id);
+            if let Some(name) = self.info.as_ref().map(|i| i.username.clone()) {
+                self.send_chat(&format!(
+                    "I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with: /pm {name} /feedback <what happened>"
+                ));
+            }
+        }
+
         // We will receive the 'noteListPlayer' next. This is when we can restore the settings.
         self.send_cmd("getGameInfo2", &json!({"tableID": msg.table_id}));
         Ok(())
@@ -573,7 +605,7 @@ impl BotClient {
     }
 
     fn send_help(&self, who: &str) {
-        self.send_pm(who, "Commands: /analyze, /bugreport, /doc, /fastmode, /help, /join, /leave, /settings, /start, /stay, /terminate, /version. See https://github.com/will-hanabi-bot/scala-bot#supported-commands for more info.");
+        self.send_pm(who, "Commands: /analyze, /bugreport, /doc, /fastmode, /feedback, /help, /join, /leave, /settings, /start, /stay, /terminate, /version. See https://github.com/will-hanabi-bot/scala-bot#supported-commands for more info.");
     }
 
     fn check_supported_settings(&self, table: &Table) {
@@ -738,8 +770,10 @@ impl BotClient {
                     self.send_pm(who, "H-Group: https://hanabi.github.io/reference")
                 }
             }
+        } else if starts("/feedback") {
+            self.feedback_command(who, msg);
         } else if starts("/bugreport") {
-            self.send_pm(who, "The bots aren't perfect! Please report bugs on the issue tracker: https://github.com/will-hanabi-bot/scala-bot/issues");
+            self.send_pm(who, "The bots aren't perfect! This is a Rust port: send feedback with /feedback <what happened>. Bugs in the original Scala bot go on its issue tracker: https://github.com/will-hanabi-bot/scala-bot/issues");
         } else if starts("/stay") {
             match self.table_id {
                 Some(_) => {
@@ -752,6 +786,69 @@ impl BotClient {
                 None => self.send_pm(who, "Cannot set /stay, as the bot is not in a table."),
             }
         }
+    }
+
+    /// What the bot knows about the current game, saved with each piece of feedback.
+    fn feedback_context(&self) -> FeedbackContext {
+        let mut context = FeedbackContext {
+            bot: self
+                .info
+                .as_ref()
+                .map(|i| i.username.clone())
+                .unwrap_or_default(),
+            version: BOT_VERSION.to_string(),
+            convention: self.convention.to_string(),
+            table_id: self.table_id,
+            ..FeedbackContext::default()
+        };
+
+        if let Some(game) = &self.game {
+            let state = &game.state;
+            context.variant = Some(state.variant.name.clone());
+            context.players = state.names.clone();
+            context.turn = Some(state.turn_count);
+            let actions: Vec<String> = state
+                .action_list
+                .iter()
+                .flatten()
+                .filter(|a| a.is_player_action())
+                .map(|a| a.fmt(state))
+                .collect();
+            context.recent_actions = actions[actions.len().saturating_sub(10)..].to_vec();
+        }
+        context
+    }
+
+    fn feedback_command(&mut self, who: &str, msg: &str) {
+        let text = msg.strip_prefix("/feedback").unwrap_or_default();
+
+        if !self.feedback.is_enabled() {
+            self.send_pm(who, "Feedback isn't enabled on this bot.");
+            return;
+        }
+
+        let context = self.feedback_context();
+        let reply = match self.feedback.record(who, text, &context) {
+            Ok(()) => {
+                "Thanks, your feedback has been saved along with the state of the current game."
+                    .to_string()
+            }
+            Err(FeedbackError::Empty) => {
+                "Usage: /feedback <what happened>. Mention the table or turn if you can."
+                    .to_string()
+            }
+            Err(FeedbackError::TooLong) => {
+                format!("That's too long, please keep feedback under {MAX_LENGTH} characters.")
+            }
+            Err(FeedbackError::TooFrequent) => {
+                "You've sent a lot of feedback recently, please try again later.".to_string()
+            }
+            Err(FeedbackError::Io(e)) => {
+                log_error!("couldn't save feedback from {who}: {e}");
+                "Sorry, the feedback couldn't be saved.".to_string()
+            }
+        };
+        self.send_pm(who, &reply);
     }
 
     fn analyze_command(&self, who: &str, msg: &str) {

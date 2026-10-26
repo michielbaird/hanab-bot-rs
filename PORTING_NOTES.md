@@ -245,3 +245,9 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - Live-bot logging is compiled out unless the `verbose-logs` feature is on, so the default `bot` prints little more than connection events and
   sent commands. Log lines from `BotClient` itself are not prefixed with the bot's name.
 - Tested only without a network (`several_clients_in_one_process_do_not_interfere`): the multi-account path has not been run against hanab.live.
+
+## Feedback (not in the Scala bot)
+
+`src/feedback.rs` (`FeedbackStore`: validation, per-sender rate limit, JSON-lines append) and `BotClient::feedback_command`. The game-start
+announcement is sent once per table (`intro_table`). `/help` and `/bugreport` mention `/feedback`. Several bots in one process may share the
+file: each line is written with a single append-mode write; the rate limit is per bot.

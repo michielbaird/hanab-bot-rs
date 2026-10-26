@@ -26,3 +26,14 @@ Other tools: `replay`, `analyze` (exported games).
 
 See `HANDOFF.md` for the current state and how to continue, `PLAN.md` for the milestones, `PORTING_NOTES.md` for the design
 and Scala-vs-Rust differences, and `FIX_LATER.md` for Scala oddities noted during the port.
+
+## Feedback
+
+When a game starts the bot tells the table: *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
+/pm <bot> /feedback <what happened>"*. `/feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
+convention and version, the table, variant, players, turn and the last 10 actions. Messages are limited to 1000 characters and 5 per person per hour.
+
+| Environment variable | Effect |
+|---|---|
+| `HANABI_FEEDBACK_FILE` | file to append to (default `feedback.jsonl`; `off` or empty turns `/feedback` off) |
+| `HANABI_FEEDBACK_INTRO` | `0` stops the announcement at the start of each game (default `1`) |

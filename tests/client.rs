@@ -41,7 +41,11 @@ fn it_plays_through_the_game_start_handshake() {
     init_variants();
 
     let (tx, mut rx) = unbounded_channel();
-    let mut client = BotClient::new(BotConfig::default(), tx);
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
 
     client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
     assert_eq!(client.username(), Some("bot"));
@@ -128,7 +132,11 @@ fn it_answers_chat_commands() {
 /// Joins a 2-player table as `name` and returns the first action the client sends.
 fn first_action(name: &str, table_id: usize) -> String {
     let (tx, mut rx) = unbounded_channel();
-    let mut client = BotClient::new(BotConfig::default(), tx);
+    let config = BotConfig {
+        feedback_file: None,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
 
     client.handle_msg(&format!(
         r#"welcome {{"userID": 1, "username": "{name}", "playingAtTables": [], "randomTableName": "x"}}"#
@@ -185,4 +193,132 @@ fn several_clients_in_one_process_do_not_interfere() {
             "bot{i} acted on the wrong table: {action}"
         );
     }
+}
+
+fn feedback_file(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("scala-bot-rs-client-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+fn pm(who: &str, msg: &str) -> String {
+    format!(
+        "chat {}",
+        json!({"msg": msg, "who": who, "room": "lobby", "recipient": "bot"})
+    )
+}
+
+/// The text of every PM the client sent, in order.
+fn pm_replies(outs: &[Out]) -> Vec<String> {
+    sends(outs)
+        .iter()
+        .filter_map(|s| s.strip_prefix("chatPM "))
+        .map(|args| {
+            serde_json::from_str::<Value>(args).unwrap()["msg"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn it_announces_how_to_send_feedback_once_per_game() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(feedback_file("intro.jsonl")),
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    let init = json!({
+        "tableID": 7, "playerNames": ["bot", "human"], "ourPlayerIndex": 0, "replay": false,
+        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
+    });
+    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("init {init}")); // e.g. after a rejoin
+    let outs = drain(&mut rx);
+    let chats: Vec<&str> = sends(&outs)
+        .into_iter()
+        .filter(|s| s.starts_with("chat "))
+        .collect();
+
+    assert_eq!(chats.len(), 1);
+    assert!(chats[0].contains("Rust port"));
+    assert!(chats[0].contains("/pm bot /feedback"));
+    assert!(chats[0].contains(r#""room":"table7""#));
+}
+
+#[test]
+fn it_saves_feedback_with_the_game_context() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let path = feedback_file("saved.jsonl");
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(path.clone()),
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // No feedback text: usage.
+    client.handle_msg(&pm("alice", "/feedback"));
+    // Not in a game yet: saved without a table.
+    client.handle_msg(&pm("alice", "/feedback hello there"));
+
+    let init = json!({
+        "tableID": 7, "playerNames": ["bot", "alice"], "ourPlayerIndex": 0, "replay": false,
+        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
+    });
+    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
+    client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
+
+    let replies = pm_replies(&drain(&mut rx));
+    assert!(replies[0].starts_with("Usage:"), "{replies:?}");
+    assert!(replies[1].starts_with("Thanks"));
+    assert!(replies[2].starts_with("Thanks"));
+    assert!(replies[3].contains("too long"));
+
+    let saved: Vec<Value> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(saved.len(), 2);
+    assert_eq!(saved[0]["text"], "hello there");
+    assert_eq!(saved[0]["table_id"], Value::Null);
+    assert_eq!(saved[1]["text"], "you should have played slot 2");
+    assert_eq!(saved[1]["from"], "alice");
+    assert_eq!(saved[1]["table_id"], 7);
+    assert_eq!(saved[1]["variant"], "No Variant");
+    assert_eq!(saved[1]["players"], json!(["bot", "alice"]));
+    assert_eq!(saved[1]["bot"], "bot");
+}
+
+#[test]
+fn it_can_have_feedback_turned_off() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: None,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+    client.handle_msg(&pm("alice", "/feedback hello"));
+
+    let outs = drain(&mut rx);
+    assert_eq!(pm_replies(&outs), ["Feedback isn't enabled on this bot."]);
 }
