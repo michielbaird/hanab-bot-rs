@@ -189,11 +189,20 @@ impl Convention for Neutral {
         unimplemented!("the neutral convention never acts")
     }
     fn update_turn(&self, _game: &mut Game, _action: &TurnAction) {}
-    fn find_all_clues(&self, _game: &Game, _giver: usize) -> Vec<PerformAction> {
-        Vec::new()
+    /// Every clue that touches at least one card, to each other player in turn order.
+    fn find_all_clues(&self, game: &Game, giver: usize) -> Vec<PerformAction> {
+        let state = &game.state;
+        (1..state.num_players)
+            .map(|offset| (giver + offset) % state.num_players)
+            .flat_map(|target| state.all_valid_clues(target))
+            .map(|clue| PerformAction::from_clue(&clue))
+            .collect()
     }
-    fn find_all_discards(&self, _game: &Game, _player_index: usize) -> Vec<PerformAction> {
-        Vec::new()
+    /// Discards the oldest card.
+    fn find_all_discards(&self, game: &Game, player_index: usize) -> Vec<PerformAction> {
+        vec![PerformAction::Discard {
+            target: *game.state.hands[player_index].last().unwrap(),
+        }]
     }
     fn eval_action(&self, _game: &Game, _action: &Action) -> f64 {
         0.0

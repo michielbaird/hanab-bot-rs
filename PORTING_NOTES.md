@@ -26,6 +26,9 @@ Where the Rust differs from the Scala, and why. Update this as the port proceeds
 | `utils.visibleFind` | `util::visible_find` |
 | `test/util.scala`, `test/exAsserts.scala` | `tests/common/mod.rs` |
 | `test/empathy.scala`, `test/variants.scala` | `tests/empathy.rs`, `tests/variants.rs` |
+| `endgame/{solver,winnable,helper}.scala` | `src/endgame/{solver,winnable,helper}.rs` |
+| `Game.analyze` | `src/basics/game/analyze.rs` |
+| `test/endgame.scala` | `tests/endgame.rs` |
 
 ## Deliberate deviations
 
@@ -96,10 +99,42 @@ Where the Rust differs from the Scala, and why. Update this as the port proceeds
 - `ConvData::reason` compares against the *oldest* reasoning entry (`lastOption` on a prepended list), as Scala does.
   It looks unintended, but changing it could change behaviour.
 - `take_action` is synchronous (Scala returned `IO`); revisit in M2 if the bot needs it async.
-- `Game::analyze` is not ported yet; it needs the endgame solver (M3).
 
 ### Test coverage note
 
 `empathy` and `variants` were written against Reactor/H-Group in Scala. Until those exist they run
 against `tests/common::Neutral` (no interpretation, just empathy), which is enough for their
 assertions about possibilities. Re-point them at the real conventions in M4/M6.
+
+## Endgame solver (M3)
+
+- **`RemainingMap` is a `[u8; 30]` indexed by identity ordinal** (`Copy`, cheap to hash), not an immutable `Map`.
+  Scala's `Map` iterates in insertion order up to 4 entries and by hash after that, so tie-breaks (which of
+  several equally good actions or arrangements comes first, which trash id counts as "the" trash id) were
+  unspecified there. Rust iterates by ordinal, so results are deterministic. Winrates are unaffected.
+- **No generic `EndgameSolver[G]`.** `Game` is concrete, so `EndgameSolver` isn't generic; `winnable_if`,
+  `winnable_simpler`, `clueless_winnable` and `advance_state` are plain functions on `State`.
+- **Arrangements are expanded eagerly**, layer by layer (Scala used lazy iterators). Same set, same order,
+  same deadline checks before each expansion.
+- **Monte Carlo grouping** keeps first-seen order (Scala's `Map.valuesIterator` order is unspecified) before the
+  stable sort by probability.
+- **Log level** is restored by a `LevelGuard` on every return path. The Scala solver left logging off when it
+  returned from the `onlyAction` branch.
+- **Defensive deviations** where Scala would throw: `optimize` returning an empty action list on timeout is
+  reported by `solve` as `timeout` instead of calling `.head` on it; `unwinnable_state` with an empty
+  `remaining` skips the bottom-deck check; the "winning play" search in `winnable` ignores plays with an
+  unknown id instead of calling `.get`.
+- **Faithfully kept oddities**: `optimize` doesn't reduce `rem_prob` after a *winnable* arrangement (only
+  after a pre-filtered one); the pruning bound in the multi-arrangement loop starts at `1 - winrate` instead
+  of `1 - first_prob`; the drawn `Card` in `winnable_if` has order `next_card_order + 1` though it is stored at
+  `next_card_order`; `Game::analyze` calls the solver on the final game, not the replayed one. All look
+  unintended, but none changes a result in the tests, and changing them would change behaviour.
+- **Parallel collections**: the Scala solver doesn't use any (the handoff note was wrong); it is single-threaded.
+- `thinks_playables` has `assume = true` by default in Scala; the solver passes `true` explicitly.
+
+### Test coverage note (M3)
+
+`test/endgame.scala` ran on Reactor (and once H-Group). `tests/endgame.rs` runs on `Neutral`, extended to offer every
+valid clue and to discard the oldest card. 8 of 10 ported tests pass. `it_completes_an_early_endgame` and
+`ends_an_endgame_as_quickly_as_possible` are `#[ignore]`d: they need clues to teach players what to play, which
+only a real convention does. The H-Group variant of the rainbow test is not ported until M6.

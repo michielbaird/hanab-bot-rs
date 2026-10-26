@@ -2,6 +2,7 @@
 
 pub mod basics;
 pub mod collections;
+pub mod endgame;
 pub mod frac;
 pub mod logger;
 pub mod util;

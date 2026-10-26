@@ -12,6 +12,7 @@ use super::player::Player;
 use super::state::State;
 use super::variant::NamePattern;
 
+mod analyze;
 mod replay;
 mod update;
 

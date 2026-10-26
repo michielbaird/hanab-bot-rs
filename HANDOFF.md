@@ -1,6 +1,6 @@
 # Handoff: scala-bot → Rust rewrite
 
-Written at the end of M1 so another session can pick this up cold. Read this, then `PLAN.md` (milestones)
+Written at the end of M3 so another session can pick this up cold. Read this, then `PLAN.md` (milestones)
 and `PORTING_NOTES.md` (every deliberate difference from the Scala). Update this file at each checkpoint.
 
 ## The task
@@ -18,7 +18,7 @@ The user's instructions, in their words or close to it:
 
 | What | Path |
 |---|---|
-| The new crate (all work happens here) | `/workspace/scala-bot-rs` (git repo, 2 commits: M0 `f6acadd`, M1 `d44b182`) |
+| The new crate (all work happens here) | `/workspace/scala-bot-rs` (git repo; commits: M0 `f6acadd`, M1 `d44b182`, M3 see `git log`) |
 | Scala source (the spec) | `/workspace/scala-bot` (v1.2.8; `src/scala_bot` ~16.6k lines, `src/test` ~12.7k lines) |
 | Older Rust port (reference only; Reactor only, ~9k lines) | `/workspace/rust-bot` |
 | Rust toolchain | `~/.cargo/bin` (rustc/cargo 1.99.1). `export PATH=$HOME/.cargo/bin:$PATH` |
@@ -42,18 +42,16 @@ copied or pushed somewhere.** There is no git remote configured. `/workspace/sca
 |---|---|
 | M0 scaffold: `FastBitSet`, `CertainMapEntry`, `Frac`, logger, util | done |
 | M1 core model: everything in `src/basics/` | done; 60 tests pass |
-| M2 networking & tooling (bot, command, settings, console, replay, selfPlay) | not started |
-| M3 endgame solver (+ `Game::analyze`) | not started |
+| M3 endgame solver (+ `Game::analyze`) | done; 68 tests pass, 2 ignored (need Reactor) |
+| M2 networking & tooling (bot, command, settings, console, replay, selfPlay) | not started (after M4) |
 | M4 Reactor | not started |
 | M5 Referential Sieve | not started |
 | M6a–d H-Group | not started |
 | M7 parity & polish | not started |
 
-### Open decision (waiting on the user)
+### Decision
 
-I proposed swapping the order to **M3 → M4 → M2**: the bot loop and self-play can't be exercised without a
-real convention, and Reactor gives real behavioural tests early. The user had not answered when this file was
-written. If they've answered since, follow that; otherwise ask once, and default to M3 → M4 → M2.
+The user agreed to the order **M3 → M4 → M2**. M3 is done and awaiting their go-ahead for M4.
 
 ## Architecture (as built in M1)
 
@@ -93,22 +91,21 @@ written. If they've answered since, follow that; otherwise ask once, and default
   **Re-point them at Reactor (and the two H-Group ones at `HGroup::at_level(10)`) when those land**, and make
   sure they still pass.
 - Not yet exercised by any test (compiled only): `sarcastic.rs`, `fix.rs`, `clue_result.rs`, `eval.rs`,
-  `Game::navigate`. A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
+  `Game::navigate`, `Game::analyze` (needs a convention whose `take_action` works). A bug in these will surface in M4/M6; check them first when a convention test misbehaves.
 
 ## Suggested next steps
 
-1. **M3 endgame** (`src/scala_bot/endgame/{solver,winnable,helper}.scala`, ~1k lines; tests in
-   `src/test/endgame.scala`, 360 lines). Note the solver uses Scala parallel collections and `Frac`;
-   `winnable.scala:142` calls `withDiscard(id, target)` with a possibly invalid `target`, so check whether
-   `State::add_discard` needs to accept "no order". Then port `Game::analyze` (in `basics/Game.scala`).
-2. **M4 Reactor** (`src/scala_bot/reactor/*.scala`, ~2.2k lines; tests in `src/test/reactor/`, 9 files).
+1. **M4 Reactor** (`src/scala_bot/reactor/*.scala`, ~2.2k lines; tests in `src/test/reactor/`, 9 files).
    `/workspace/rust-bot/src/reactor*` is a useful cross-check but may be out of date; Scala wins.
    Add `Ext::Reactor(ReactorData)` for `waiting`, `zcs_turn`, etc. (see the `Reactor` case class fields).
-3. **M2** after that: `bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`,
+   Then: re-point `tests/endgame.rs`, `tests/empathy.rs`, `tests/variants.rs` at Reactor, un-`#[ignore]` the two
+   endgame tests (a failure there is a real solver bug or a Reactor bug: the other 8 pass on `Neutral`), and
+   have Reactor's `take_action` call `EndgameSolver::new(true).solve(game, None)` (see `reactor.scala:456`).
+2. **M2** after that: `bot.scala`, `command.scala`, `settings.scala`, `console.scala`, `replay.scala`,
    `selfPlay.scala`, `analyze.scala`. rust-bot's `websocket.rs`/`command.rs` are a starting point (tokio +
    tokio-tungstenite + reqwest + serde_json). Logging into hanab.live needs the user's bot account (`.env`);
    ask before writing anything that talks to the network.
-4. **M5, M6** per `PLAN.md`. H-Group is the long pole: `hgroup/hgroup.scala` alone is 1.2k lines.
+3. **M5, M6** per `PLAN.md`. H-Group is the long pole: `hgroup/hgroup.scala` alone is 1.2k lines.
 
 At every milestone: update this file, `PLAN.md`, `PORTING_NOTES.md`; run `cargo fmt`, `cargo clippy --all-targets`,
 `cargo test -j2`; commit; then summarise and **wait for the user's go-ahead** before the next milestone.
