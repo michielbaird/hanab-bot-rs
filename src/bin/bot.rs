@@ -86,7 +86,17 @@ async fn run_connection(
     println!("[{username}] connected!");
     let (mut write, mut read) = ws.split();
 
-    let (out_tx, mut out_rx): (_, UnboundedReceiver<Out>) = unbounded_channel();
+    // The client talks through a std channel (it has no async dependencies); a thread forwards its output to the
+    // async sender task, and stops when the client is dropped.
+    let (out_tx, std_out_rx) = std::sync::mpsc::channel::<Out>();
+    let (async_out_tx, mut out_rx): (_, UnboundedReceiver<Out>) = unbounded_channel();
+    std::thread::spawn(move || {
+        for out in std_out_rx {
+            if async_out_tx.send(out).is_err() {
+                break;
+            }
+        }
+    });
     let (in_tx, in_rx) = mpsc::channel::<ClientIn>();
     *console.lock().unwrap() = Some(in_tx.clone());
 

@@ -108,6 +108,10 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     for g4), yet that game finished 25/25 with that discard. Treat endgame comments about people with suspicion; for the bots' own moves
     they are meaningful. Possible fix: solve from the true hand (the analysis knows the whole deck) rather than the hidden-hand view.
 
+38. **kept** The library does not depend on tokio or any network crate (`net` feature, see PORTING_NOTES.md). Not yet automated: nothing in CI
+    stops a network dependency creeping back into the default-feature-free build (there is no CI yet). Also open: `/analyze` in chat and
+    `GameData::fetch_id` just fail without `net`; an embedder might prefer a hook (a trait the app implements to fetch an export).
+
 ## D. Other resolved items
 
 7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.
