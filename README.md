@@ -27,6 +27,44 @@ Other tools: `replay`, `analyze` (exported games).
 See `HANDOFF.md` for the current state and how to continue, `PLAN.md` for the milestones, `PORTING_NOTES.md` for the design
 and Scala-vs-Rust differences, and `FIX_LATER.md` for Scala oddities noted during the port.
 
+## Using it as a library
+
+The `net` feature (on by default) is everything that touches the network: the `bot` and `analyze_history` binaries, which use tokio, a websocket
+client and an HTTP client, and downloading a game by replay id. Without it the crate depends on serde and nothing else, so it can be embedded in
+another program (an app, a different transport) that owns the connection:
+
+```toml
+hanab-bot-rs = { git = "https://github.com/michielbaird/hanab-bot-rs", default-features = false }
+```
+
+```rust
+use std::sync::mpsc;
+use hanab_bot::basics::Variant;
+use hanab_bot::client::{BotClient, BotConfig, Out};
+
+// Once per process: the contents of hanab.live's variants.json and suits.json (fetched by you).
+Variant::init(&variants_json, &suits_json)?;
+
+let (tx, rx) = mpsc::channel();
+let mut client = BotClient::new(BotConfig::default(), tx);
+
+// For every text message the websocket delivers (this can take seconds when the bot is choosing a move,
+// so call it from a worker thread, not a UI thread):
+client.handle_msg(&text);
+
+// Whatever the bot wants to say back, in order:
+for out in rx.try_iter() {
+    match out {
+        Out::Send(text) => { /* write it to the websocket */ }
+        Out::Wait(pause) => { /* wait this long before the next one (the bot paces its moves) */ }
+    }
+}
+```
+
+Logging into hanab.live (the `POST /login` that returns the session cookie) and the websocket itself are the embedder's job; `src/bin/bot.rs`
+shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `/analyze`
+chat command needs the `net` feature and answers that it is unavailable without it.
+
 ## Docker
 
 ```

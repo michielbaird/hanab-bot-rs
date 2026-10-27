@@ -28,6 +28,7 @@ pub struct GameData {
 
 impl GameData {
     /// Downloads an exported game from the server (blocking).
+    #[cfg(feature = "net")]
     pub fn fetch_id(hostname: &str, id: &str) -> Result<Self, String> {
         let url = format!("https://{hostname}/export/{id}");
         let text = reqwest::blocking::get(&url)
@@ -35,6 +36,15 @@ impl GameData {
             .and_then(|r| r.text())
             .map_err(|e| format!("{url}: {e}"))?;
         Self::parse(&serde_json::from_str(&text).map_err(|e| e.to_string())?)
+    }
+
+    /// Without the `net` feature nothing can be downloaded; load the export from a file instead.
+    #[cfg(not(feature = "net"))]
+    pub fn fetch_id(_hostname: &str, _id: &str) -> Result<Self, String> {
+        Err(
+            "this build has no network support (the `net` feature), so games can't be downloaded"
+                .to_string(),
+        )
     }
 
     pub fn from_file(path: &str) -> Result<Self, String> {

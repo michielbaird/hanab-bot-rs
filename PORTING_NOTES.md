@@ -251,3 +251,11 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 `src/feedback.rs` (`FeedbackStore`: validation, per-sender rate limit, JSON-lines append) and `BotClient::feedback_command`. The game-start
 announcement is sent once per table (`intro_table`). `/help` and `/bugreport` mention `/feedback`. Several bots in one process may share the
 file: each line is written with a single append-mode write; the rate limit is per bot.
+
+## Library without tokio
+
+`BotClient` hands its output to a `std::sync::mpsc::Sender<Out>`, so the library has no async dependency. Everything that needs the network is
+behind the `net` feature (default): tokio, tokio-tungstenite, futures-util and reqwest are optional dependencies, the `bot` and `analyze_history`
+binaries have `required-features = ["net"]`, `tools::history` is compiled only with it, and `GameData::fetch_id` returns an error without it.
+`src/bin/bot.rs` keeps tokio for the websocket: a small thread forwards the client's std channel into the async sender task.
+Check the claim with `cargo tree --no-default-features -e normal` (serde and serde_json only) and `cargo test --no-default-features`.

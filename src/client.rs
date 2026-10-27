@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use serde::Deserialize;
 use serde_json::{Value, json};

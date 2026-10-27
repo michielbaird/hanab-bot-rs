@@ -7,7 +7,7 @@ use hanab_bot::basics::Variant;
 use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::logger::{self, LogLevel};
 use serde_json::{Value, json};
-use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use std::sync::mpsc::{Receiver, channel as unbounded_channel};
 
 fn init_variants() {
     let colours = json!([
@@ -21,7 +21,7 @@ fn init_variants() {
     Variant::init(&variants.to_string(), &colours.to_string()).unwrap();
 }
 
-fn drain(rx: &mut UnboundedReceiver<Out>) -> Vec<Out> {
+fn drain(rx: &mut Receiver<Out>) -> Vec<Out> {
     let mut out = Vec::new();
     while let Ok(o) = rx.try_recv() {
         out.push(o);
