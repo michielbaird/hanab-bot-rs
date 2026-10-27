@@ -121,18 +121,18 @@ pub struct GameReport {
     pub datetime: String,
     pub seed: String,
     pub players: Vec<String>,
-    /// The players that are bots.
+    /// The bots at the table (ours, and others recognized by their notes) with the version and convention each wrote.
     pub bots: Vec<String>,
     pub convention: String,
-    /// Whether the convention came from a note the bot wrote (otherwise the fallback was used).
+    /// The convention of our first bot at the table. Whether it came from the bot's note (otherwise the fallback).
     pub convention_from_note: bool,
     pub variant: String,
     pub score: usize,
     pub max_score: usize,
     pub strikes: usize,
-    /// Disagreements with the bots' own moves.
+    /// Disagreements with our bots' own moves (each analyzed with the convention it played).
     pub own: Vec<Disagreement>,
-    /// Disagreements with everyone else's moves.
+    /// Disagreements with everyone else's moves (other bots with theirs, people with the primary convention).
     pub others: Vec<Disagreement>,
     /// Set when the game couldn't be analyzed.
     pub error: Option<String>,
@@ -221,50 +221,121 @@ fn analyze_into(
     report.variant = data.options.variant_name.clone();
     report.players = data.players.clone();
 
-    let is_bot = |name: &str| options.bots.iter().any(|b| b.eq_ignore_ascii_case(name));
-    let bot_indices: Vec<usize> = (0..data.players.len())
-        .filter(|&i| is_bot(&data.players[i]))
-        .collect();
-    report.bots = bot_indices
-        .iter()
-        .map(|&i| data.players[i].clone())
+    let ours = |name: &str| options.bots.iter().any(|b| b.eq_ignore_ascii_case(name));
+
+    // A bot writes its settings on its first card. Bots by other people may be at the table too, each possibly
+    // playing a different convention, so every bot is analyzed with its own.
+    let note_of = |i: usize| {
+        data.notes
+            .get(i)
+            .into_iter()
+            .flatten()
+            .find(|note| note.contains("[INFO: "))
+            .cloned()
+    };
+    struct Bot {
+        index: usize,
+        ours: bool,
+        convention: ConventionKind,
+        from_note: bool,
+    }
+    let bots: Vec<Bot> = (0..data.players.len())
+        .filter_map(|index| {
+            let note = note_of(index);
+            let convention = note.as_deref().and_then(parse_convention_from_note);
+            let ours = ours(&data.players[index]);
+            (ours || convention.is_some()).then(|| Bot {
+                index,
+                ours,
+                convention: convention.unwrap_or(options.fallback),
+                from_note: convention.is_some(),
+            })
+        })
         .collect();
 
-    // A bot writes its settings on its first card.
-    let from_note = (0..data.players.len())
-        .filter_map(|i| data.notes.get(i))
-        .flatten()
-        .find_map(|note| parse_convention_from_note(note));
-    report.convention_from_note = from_note.is_some();
-    let convention = from_note.unwrap_or(options.fallback);
-    report.convention = convention.to_string();
+    report.bots = bots
+        .iter()
+        .map(|b| {
+            let version = note_of(b.index)
+                .and_then(|n| {
+                    let start = n.find("[INFO: ")? + "[INFO: ".len();
+                    let end = n[start..].find(']')? + start;
+                    Some(n[start..end].to_string())
+                })
+                .unwrap_or_else(|| "no note".to_string());
+            format!(
+                "{}{}: {}",
+                data.players[b.index],
+                if b.ours { "" } else { " (not ours)" },
+                if b.from_note {
+                    version
+                } else {
+                    format!("{} (fallback)", b.convention)
+                }
+            )
+        })
+        .collect();
+
+    // The convention the summary files the game under: the first of our bots.
+    let primary = bots
+        .iter()
+        .find(|b| b.ours)
+        .or(bots.first())
+        .map_or((options.fallback, false), |b| (b.convention, b.from_note));
+    report.convention = primary.0.to_string();
+    report.convention_from_note = primary.1;
 
     let variant: Arc<Variant> = Variant::get(&data.options.variant_name)?;
-    let game = build_game(convention, &data, variant, 0, false)?;
-    report.score = game.state.score();
-    report.max_score = game.state.max_score();
-    report.strikes = game.state.strikes;
 
-    for comment in game.analyze_comments() {
-        let disagreement = Disagreement {
-            turn: comment.turn,
-            player: data.players[comment.player_index].clone(),
-            mistake: comment.mistake,
-            text: comment.text,
-        };
-        if bot_indices.contains(&comment.player_index) {
-            report.own.push(disagreement);
-        } else {
-            report.others.push(disagreement);
+    // One run per distinct convention; each run answers for the players using it. The primary run also
+    // covers everyone who isn't a bot.
+    let mut conventions = vec![primary.0];
+    for bot in &bots {
+        if !conventions.contains(&bot.convention) {
+            conventions.push(bot.convention);
         }
     }
+
+    for (n, &convention) in conventions.iter().enumerate() {
+        let game = build_game(convention, &data, Arc::clone(&variant), 0, false)?;
+        if n == 0 {
+            report.score = game.state.score();
+            report.max_score = game.state.max_score();
+            report.strikes = game.state.strikes;
+        }
+
+        for comment in game.analyze_comments() {
+            let bot = bots.iter().find(|b| b.index == comment.player_index);
+            let counts = match bot {
+                Some(bot) => bot.convention == convention,
+                None => n == 0,
+            };
+            if !counts {
+                continue;
+            }
+
+            let disagreement = Disagreement {
+                turn: comment.turn,
+                player: data.players[comment.player_index].clone(),
+                mistake: comment.mistake,
+                text: comment.text,
+            };
+            if bot.is_some_and(|b| b.ours) {
+                report.own.push(disagreement);
+            } else {
+                report.others.push(disagreement);
+            }
+        }
+    }
+    report.own.sort_by_key(|d| d.turn);
+    report.others.sort_by_key(|d| d.turn);
     Ok(())
 }
 
 /// One game's details as text.
 pub fn render_game(report: &GameReport, host: &str) -> String {
     let mut out = format!(
-        "Game {} ({}), {} ({}), seed {}\nPlayers: {} (bots: {})\nScore {}/{}, {} strike(s)\n{}\n",
+        "Game {} ({}), {} ({}), seed {}\nPlayers: {}\nBots: {}\nScore {}/{}, {} strike(s)\n{}\n",
         report.id,
         report.datetime,
         report.convention,
@@ -275,7 +346,7 @@ pub fn render_game(report: &GameReport, host: &str) -> String {
         },
         report.seed,
         report.players.join(", "),
-        report.bots.join(", "),
+        report.bots.join("; "),
         report.score,
         report.max_score,
         report.strikes,
