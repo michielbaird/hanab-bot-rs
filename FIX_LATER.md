@@ -17,8 +17,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 2. **fixed** `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` started at `1 - winrate` instead of `1 - first.prob`.
 3. **open** `winnable_if` (`winnable.rs`): the drawn `Card` is created with order `next_card_order + 1` but stored at
    `next_card_order`. Only the `order` field is wrong; probably harmless.
-4. **open** `Game::analyze` (`basics/game/analyze.rs`): endgame winrates call `solver.solve(self, ..)` on the *final* game, not the replayed
-   game `g`, so every endgame comment compares winrates from the wrong position. (Matters for `analyze_history`.)
+4. **fixed** `Game::analyze` (`basics/game/analyze.rs`) computed endgame winrates from the *final* game, not the replayed game `g`, so every
+   endgame comment compared winrates from the wrong position. It now solves from `g`; the time per winrate is 500 ms, or
+   `ANALYZE_ENDGAME_TIMEOUT_MS`. Caveat found while checking (item 37).
 5. **open (low)** `RemainingMap` iteration order (ordinal) differs from Scala's unspecified `Map` order; only affects tie-breaks.
 6. **open (low)** `thinks_playables` in the solver is called with `assume = true` (Scala default). Check whether `assume = false` is what
    endgame play-selection wants.
@@ -100,6 +101,12 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     machine), so endgames may be played from a partial search. `HANABI_ENDGAME_TIMEOUT_MS` (live bot) raises the limit
     (`endgame::solver::set_default_timeout`). The real fix is a faster search: most of its time is in `Game::simulate_action`, i.e. the
     clone/`elim`/`update_hypo_stacks` costs of section C.
+
+37. **open** Endgame "mistake!" comments from `analyze` can be spurious for people: the solver works from the commenting player's
+    point of view with the bot's *conventional* inferences, so a person who deviated from the bot's conventions can hold a hand the model
+    thinks impossible and every action of theirs scores 0. Example: replay 2045738, turn 56 (MichielBaird discards b3, winrate 0 vs. 1
+    for g4), yet that game finished 25/25 with that discard. Treat endgame comments about people with suspicion; for the bots' own moves
+    they are meaningful. Possible fix: solve from the true hand (the analysis knows the whole deck) rather than the hidden-hand view.
 
 ## D. Other resolved items
 

@@ -289,7 +289,9 @@ fn main() -> Result<(), String> {
 
     // How long the endgame solver may think (the default is 3000 ms, as in the Scala bot).
     if let Some(ms) = env.get("HANABI_ENDGAME_TIMEOUT_MS") {
-        let ms: u64 = ms.parse().map_err(|_| "HANABI_ENDGAME_TIMEOUT_MS must be a number")?;
+        let ms: u64 = ms
+            .parse()
+            .map_err(|_| "HANABI_ENDGAME_TIMEOUT_MS must be a number")?;
         scala_bot::endgame::solver::set_default_timeout(Duration::from_millis(ms));
     }
 

@@ -19,6 +19,16 @@ pub struct AnalysisComment {
     pub text: String,
 }
 
+/// How long each endgame winrate may take: 500 ms, or `ANALYZE_ENDGAME_TIMEOUT_MS`. (A search that runs out of time
+/// counts as a winrate of 0, so a busy machine can produce spurious "mistake!" comments with the short default.)
+fn endgame_timeout() -> Duration {
+    let ms = std::env::var("ANALYZE_ENDGAME_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    Duration::from_millis(ms)
+}
+
 impl AnalysisComment {
     pub fn fmt(&self) -> String {
         format!("turn {}: {}", self.turn, self.text)
@@ -122,12 +132,11 @@ impl Game {
                                     });
                                 }
                             } else {
-                                // (As in the Scala bot, the winrates are computed from the final game,
-                                // not from `g`.)
+                                // The winrates are computed from the position at this move.
                                 let winrate = |perform: PerformAction| {
-                                    let mut solver = EndgameSolver::new(true)
-                                        .with_timeout(Duration::from_millis(500));
-                                    match solver.solve(self, Some(perform)) {
+                                    let mut solver =
+                                        EndgameSolver::new(true).with_timeout(endgame_timeout());
+                                    match solver.solve(&g, Some(perform)) {
                                         Err(_) => Frac::ZERO,
                                         Ok((_, winrate)) if winrate < Frac::new(1, 100) => {
                                             Frac::ZERO
