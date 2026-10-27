@@ -28,8 +28,8 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 8. **open** `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrites* an
    existing waiting connection with `None`. Probably meant `game.waiting.orElse(...)`.
-9. **open** `interpret_discard`, Gentleman's Discard branch: the fold starts from `game`, not `g`, so the `check_missed` (and `waiting`)
-   changes made to `g` are thrown away.
+9. **fixed** `interpret_discard`, Gentleman's Discard branch: the fold started from `game` instead of `g`, so the `check_missed` changes
+   made to `g` were thrown away. It now continues from `g`.
 10. **fixed** `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` was called with *order 0*, not the discarded card, so the
     condition was nearly always met. It now asks whether the discarded slot-1 card was touched (`is_touched(order)`).
 11. **open** `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` is passed the original `meta`
@@ -42,7 +42,7 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 19. **fixed (partly)** `interpret_discard` (2p): the same `isTouched(0)` bug as item 10, fixed the same way. Still open: the log line does
     `prev.chop(..).get` (throws in Scala when there is no chop; the Rust prints the `Option`).
-20. **open** `interpret_discard`, Gentleman's Discard: starts from `game` again, like Reactor (item 9).
+20. **resolved** RefSieve's Gentleman's Discard branch: `g` is still an untouched copy of `game` there, so it was never a problem.
 21. **open** `eval_action` on a clue multiplies the result by `mult` regardless of its sign (Reactor only scales positive results).
 22. **open** `eval_action` on an unknown-id play divides the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and is `NaN`
     when there are no unique inferences (`NaN` compares false, so such an action is never chosen over a real one).

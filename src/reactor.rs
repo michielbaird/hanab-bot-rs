@@ -480,8 +480,7 @@ impl Convention for Reactor {
                 DiscardResult::GentlemansDiscard {
                     orders: targets, ..
                 } => {
-                    // (As in the Scala bot, this starts over from `game`, discarding `g`'s changes.)
-                    let mut acc = game.clone();
+                    let mut acc = g;
                     let mut hypo_state = game.state.clone();
                     let last = targets.last().copied();
 
@@ -522,7 +521,7 @@ impl Convention for Reactor {
         } else {
             g.with_move(DiscardInterp::None.into(), false);
 
-                let reset_ctd = prev.state.hands[player_index][0] == order
+            let reset_ctd = prev.state.hands[player_index][0] == order
                 && !prev.is_touched(order)
                 && prev.chop(player_index).is_some_and(|o| {
                     o < order && game.meta[o].status == CardStatus::CalledToDiscard
