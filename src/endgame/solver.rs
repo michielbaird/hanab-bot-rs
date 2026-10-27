@@ -1,5 +1,14 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+/// How long a new solver may search, in milliseconds (3 s, as in the Scala bot, unless [`set_default_timeout`] says otherwise).
+static DEFAULT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(3000);
+
+/// Changes the time limit of solvers created from now on (process-wide).
+pub fn set_default_timeout(timeout: Duration) {
+    DEFAULT_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::Relaxed);
+}
 
 use super::helper::{GameArr, gen_arrs, trivially_winnable, unwinnable_state};
 use super::winnable::{SimpleResult, clueless_winnable, winnable_if};
@@ -152,7 +161,7 @@ impl EndgameSolver {
         Self {
             success_rate: HashMap::new(),
             monte_carlo,
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS.load(Ordering::Relaxed)),
         }
     }
 
@@ -525,7 +534,8 @@ impl EndgameSolver {
                 );
 
                 let mut winrate = first_winrate;
-                let mut rem_prob = Frac::ONE - first_winrate;
+                // The probability still to be tested is everything but the first arrangement.
+                let mut rem_prob = Frac::ONE - first.prob;
 
                 for hypo in &hypos[1..] {
                     if winrate + rem_prob < best_winrate {
@@ -1129,6 +1139,8 @@ impl EndgameSolver {
                         winrate = new_winrate;
                     }
                 }
+                // This arrangement is settled, whatever the result.
+                rem_prob = new_prob;
             }
 
             let entry = self.success_rate.entry(depth).or_default();

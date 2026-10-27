@@ -11,11 +11,10 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 ### Endgame solver
 
-1. **open** `EndgameSolver::optimize` (`solver.rs`): `rem_prob` is only reduced for arrangements rejected before search, not after a
-   winnable/unwinnable search result. The pruning bound `winrate + rem_prob < best` is therefore looser than intended, so the solver
-   searches more than it needs to (and often hits its 3 s timeout live). Fix = subtract `prob` in every branch.
-2. **open** `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` starts at `1 - winrate` (the action's winrate from the first
-   arrangement) instead of `1 - first_prob`. Same effect as 1.
+1. **fixed** `EndgameSolver::optimize` (`solver.rs`) only reduced `rem_prob` for arrangements rejected before search, so the pruning bound
+   `winrate + rem_prob < best` was looser than intended. It is now reduced after every arrangement. The solver returns the same answers
+   (all endgame tests pass); the measured speed-up on the tests was within noise (one test 19 s -> 15-18 s, another 7.5 s -> 8.5 s of CPU).
+2. **fixed** `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` started at `1 - winrate` instead of `1 - first.prob`.
 3. **open** `winnable_if` (`winnable.rs`): the drawn `Card` is created with order `next_card_order + 1` but stored at
    `next_card_order`. Only the `order` field is wrong; probably harmless.
 4. **open** `Game::analyze` (`basics/game/analyze.rs`): endgame winrates call `solver.solve(self, ..)` on the *final* game, not the replayed
@@ -96,6 +95,11 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 32. **resolved** See 17 (102 s -> 27 s in total for 2 games of HGroup5 self-play).
 33. **resolved** `update_hypo_stacks` computed `thinks_trash` every iteration only to filter for inverted suits; now skipped without inverted
     suits (22.3 s -> 9.8 s). `order_trash` is generally expensive; other hot callers of `thinks_trash` may benefit from caching.
+
+36. **open** The endgame solver often runs into its 3 s limit in self-play (65 decisions of 2.9 s or more in 6 HGroup3 games on a busy
+    machine), so endgames may be played from a partial search. `HANABI_ENDGAME_TIMEOUT_MS` (live bot) raises the limit
+    (`endgame::solver::set_default_timeout`). The real fix is a faster search: most of its time is in `Game::simulate_action`, i.e. the
+    clone/`elim`/`update_hypo_stacks` costs of section C.
 
 ## D. Other resolved items
 
