@@ -1,7 +1,7 @@
 //! Analyzes the games bots have played on hanab.live.
 //!
 //! Usage: `analyze_history users=bot1,bot2,bot3 [since=2026-10-27] [limit=200] [threads=2] [out=analysis]
-//!         [convention=HGroup3] [feedback=feedback.jsonl] [force=1] [variants=<json> colours=<json>]`
+//!         [convention=HGroup3] [feedback=feedback.jsonl (default: $HANABI_FEEDBACK_FILE)] [force=1] [variants=<json> colours=<json>]`
 //!
 //! The games come from the public history of each user. Each replay is fetched, analyzed with the convention the
 //! bot wrote in its first-card note (or `convention`, the fallback), and written to `<out>/<id>.json` and
@@ -134,7 +134,14 @@ fn main() -> Result<(), String> {
     let mut reports = results.into_inner().unwrap();
     reports.sort_by_key(|r| std::cmp::Reverse(r.id));
 
-    let feedback: Vec<serde_json::Value> = get("feedback")
+    // The feedback file: `feedback=<path>`, or the one the bot writes (HANABI_FEEDBACK_FILE) if it exists.
+    let feedback_path = get("feedback").map(String::from).or_else(|| {
+        env.get("HANABI_FEEDBACK_FILE")
+            .filter(|path| Path::new(path).exists())
+            .cloned()
+    });
+    let feedback: Vec<serde_json::Value> = feedback_path
+        .as_deref()
         .map(|path| {
             std::fs::read_to_string(path)
                 .map_err(|e| format!("{path}: {e}"))

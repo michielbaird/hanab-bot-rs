@@ -35,8 +35,13 @@ docker compose logs -f bots
 docker compose run --rm analyze users=bot1,bot2,bot3 since=2026-10-27   # analyze the bots' games
 ```
 
-The image runs as an unprivileged user with `/data` as its working directory; `feedback.jsonl` and the analysis output live in the `bot-data` volume.
-Edit `command:` in `docker-compose.yml` to host a different set of accounts (`index=0` for one).
+Or without compose: `docker run -d -e PUID=1026 -e PGID=100 --env-file .env -v /volume1/docker/hanab:/data hanab-bot-rs bot index=0,1,2`.
+
+- **Command:** the image has no default command; give the program and its arguments (`bot index=0,1,2`, or `bot index=0` for one account).
+- **User:** the container starts as root only to make `/data` belong to `PUID:PGID` (default `10001:10001`), then drops to that user. Set both to
+  the owner of the data folder on the host (on a NAS, the UID/GID of the account that owns the share). If the platform already starts the
+  container as a non-root user (`--user`, compose `user:`), the entrypoint just runs the command as that user.
+- **Data:** `/data` is the working directory; `feedback.jsonl` and the analysis output (`/data/analysis`) live there.
 
 ## Feedback
 

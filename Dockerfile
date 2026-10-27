@@ -18,17 +18,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 --home-dir /data --create-home bot
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /usr/local/bin/
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-USER bot
 WORKDIR /data
 # Feedback reports (and analysis output) are written under /data; mount a volume there to keep them.
 ENV HANABI_FEEDBACK_FILE=/data/feedback.jsonl
 VOLUME /data
 
+# The entrypoint starts as root, makes /data belong to PUID:PGID (default 10001:10001), drops to that user and
+# runs the command you give it, for example `bot index=0,1,2` (there is no default command).
 # Credentials and settings come from the environment (HANABI_USERNAME0, HANABI_PASSWORD0, ...).
-# `index=0,1,2` hosts three accounts in one process.
-ENTRYPOINT ["bot"]
-CMD ["index=0"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

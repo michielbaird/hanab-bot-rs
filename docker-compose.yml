@@ -1,26 +1,33 @@
 # One container hosting all the bots. Put the accounts in .env, in the same format as the Scala bot's:
 #   HANABI_USERNAME0=...  HANABI_PASSWORD0=...  HANABI_USERNAME1=...  (and optionally HANABI_HOSTNAME, ...)
+# PUID / PGID (below) are the user and group the bots run as, so the files in /data belong to you on the host.
 services:
   bots:
     build: .
     image: hanab-bot-rs
-    command: ["index=0,1,2"]
+    # The container has no default command: say which bot accounts to host (`index=0` for just one).
+    command: ["bot", "index=0,1,2"]
     env_file: .env
     environment:
+      PUID: "${PUID:-10001}"
+      PGID: "${PGID:-10001}"
       HANABI_FEEDBACK_FILE: /data/feedback.jsonl
     volumes:
-      - bot-data:/data
+      - bot-data:/data   # or a host folder, e.g. /volume1/docker/hanab-bots:/data
     restart: unless-stopped
     mem_limit: 256m
 
   # Analyze the bots' games from hanab.live's history:
   #   docker compose run --rm analyze users=bot1,bot2,bot3 since=2026-10-27
-  # The summary is in /data/analysis/summary.md (read it with `docker compose run --rm --entrypoint cat analyze /data/analysis/summary.md`).
+  # The summary is /data/analysis/summary.md; the feedback file is picked up from HANABI_FEEDBACK_FILE.
   analyze:
     image: hanab-bot-rs
     profiles: ["tools"]
-    entrypoint: ["analyze_history"]
-    command: ["feedback=/data/feedback.jsonl", "out=/data/analysis"]
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh", "analyze_history"]
+    environment:
+      PUID: "${PUID:-10001}"
+      PGID: "${PGID:-10001}"
+      HANABI_FEEDBACK_FILE: /data/feedback.jsonl
     volumes:
       - bot-data:/data
 
