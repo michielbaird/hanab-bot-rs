@@ -144,3 +144,10 @@ Rust HGroup12 (10 games): 24.3 avg, 6 perfect. Scala `analyze` agrees with every
   `RefSieve players=5`, which still does not finish within 15 minutes (same lookahead blow-up, not yet capped).
 - Speed, HGroup5 3p self-play: one thread plays a game in about 10.7 s (51 s before the M7 optimizations). 4 games on 4 threads: 70 s wall
   (Rust) vs 616 s wall (Scala, different decks, includes JVM start-up), roughly 9x.
+
+## Verified live (2026-10-27)
+
+Deployed by the user from the Docker image on a NAS (PUID/PGID set): two bots on this Rust port and one Scala bot side by side, the
+multi-account host (`bot index=...`), the game-start `/feedback` announcement and the `/feedback` command (entries appear in `feedback.jsonl`)
+all work. Still unwatched: how the bots behave over days of real games (use `analyze_history`, see README) and the `kind: error` fallback path
+(only tested without a network).
