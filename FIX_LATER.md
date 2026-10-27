@@ -1,112 +1,104 @@
-# Oddities to fix after the port is done
+# Oddities and follow-ups
 
-Places where the Scala looks unintended but the Rust keeps the behaviour, so parity checks stay meaningful.
-Fix these only once the port is complete and green, one at a time, re-running self-play/tests after each.
-Add new entries as they are found while porting (file, what, why it looks wrong, risk).
+The port is finished and now diverges from the Scala bot on purpose ("forking mode"): anything below can be fixed, one at a
+time, re-running the tests (`cargo test -j2`) and a self-play sweep after each. Item numbers are stable (other docs refer to them).
 
-## Endgame (M3)
+Status: **open**, **fixed**, **resolved** (nothing to fix) or **kept** (a deliberate difference from Scala).
 
-1. `EndgameSolver::optimize` (`solver.rs`): `rem_prob` is only reduced for arrangements rejected before search,
-   not after a winnable/unwinnable search result. The pruning bound `winrate + rem_prob < best` is therefore
-   looser than intended. Fix = subtract `prob` in every branch. Risk: prunes more, may change tie-breaking.
-2. `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` starts at `1 - winrate` (the action's winrate from
-   the first arrangement) instead of `1 - first_prob`. Same effect as 1: bound is too loose.
-3. `winnable_if` (`winnable.rs`): the drawn `Card` is created with order `next_card_order + 1` but stored at
+## A. Scala oddities still in the Rust (open)
+
+Places where the Scala looks unintended and the Rust copied the behaviour so parity stayed measurable.
+
+### Endgame solver
+
+1. **open** `EndgameSolver::optimize` (`solver.rs`): `rem_prob` is only reduced for arrangements rejected before search, not after a
+   winnable/unwinnable search result. The pruning bound `winrate + rem_prob < best` is therefore looser than intended, so the solver
+   searches more than it needs to (and often hits its 3 s timeout live). Fix = subtract `prob` in every branch.
+2. **open** `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` starts at `1 - winrate` (the action's winrate from the first
+   arrangement) instead of `1 - first_prob`. Same effect as 1.
+3. **open** `winnable_if` (`winnable.rs`): the drawn `Card` is created with order `next_card_order + 1` but stored at
    `next_card_order`. Only the `order` field is wrong; probably harmless.
-4. `Game::analyze` (`basics/game/analyze.rs`): endgame winrates call `solver.solve(self, ..)` on the *final*
-   game, not the replayed game `g`, so every endgame comment compares winrates from the wrong position.
-5. `RemainingMap` iteration order (ordinal) differs from Scala's unspecified `Map` order. Not a bug, but tests
-   that depend on a specific tie-break among equal actions could differ from the Scala bot.
-6. `thinks_playables` in the solver is called with `assume = true` (Scala default). Check whether
-   `assume = false` is what endgame play-selection actually wants.
-7. Scala's `solve` left the log level at Off after the `onlyAction` early return. Rust restores it (fixed
-   by design, listed for completeness).
+4. **open** `Game::analyze` (`basics/game/analyze.rs`): endgame winrates call `solver.solve(self, ..)` on the *final* game, not the replayed
+   game `g`, so every endgame comment compares winrates from the wrong position. (Matters for `analyze_history`.)
+5. **open (low)** `RemainingMap` iteration order (ordinal) differs from Scala's unspecified `Map` order; only affects tie-breaks.
+6. **open (low)** `thinks_playables` in the solver is called with `assume = true` (Scala default). Check whether `assume = false` is what
+   endgame play-selection wants.
 
-## Reactor (M4)
+### Reactor
 
-8. `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrites*
-   an existing waiting connection with `None` instead of leaving it alone. Probably meant `game.waiting.orElse(...)`.
-9. `interpret_discard`, Gentleman's Discard branch: the fold starts from `game`, not `g`, so the `check_missed`
-   (and `waiting`) changes made to `g` are thrown away.
-10. `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` is called with *order 0*, not slot 1
-    (`prev.state.hands(playerIndex)(0)`). It is false for almost every game, so the condition is nearly always met.
-11. `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` is passed the original
-    `meta` instead of the accumulated one, so only the last processed slot's `trash` flag survives (earlier ones are
-    dropped). The Rust resets to a snapshot to match.
-12. `calc_target_slot`: `indexOf` returns -1 when the reacting order isn't in the reacter's old hand, making the slot 0.
-13. `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in
-    Scala. The Rust treats "no old inference" as "different from the played identity".
-14. Many `.get` / `.head` / `indexWhere` calls that throw in Scala are `expect`s in Rust (e.g. `ref_discard`'s target index,
-    `delayed_plays`' `id.prev`, the `by` of a called-to-play card). They panic on a broken invariant. M2 should decide
-    whether the bot catches panics per action so one bad interpretation doesn't end the game.
-15. `eval_dc`, `advance`: several `.get`s on `state.deck(..).id()` assume the card is visible.
-16. `Convention::uses_refresh_after_play` is new (not in Scala): hypothetical plays only copy the game for conventions
-    that override `refresh_after_play`. H-Group must return `true`.
+8. **open** `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrites* an
+   existing waiting connection with `None`. Probably meant `game.waiting.orElse(...)`.
+9. **open** `interpret_discard`, Gentleman's Discard branch: the fold starts from `game`, not `g`, so the `check_missed` (and `waiting`)
+   changes made to `g` are thrown away.
+10. **open** `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` is called with *order 0*, not slot 1
+    (`prev.state.hands(playerIndex)(0)`). False for almost every game, so the condition is nearly always met.
+11. **open** `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` is passed the original `meta`
+    instead of the accumulated one, so only the last processed slot's `trash` flag survives.
+12. **open** `calc_target_slot`: `indexOf` returns -1 when the reacting order isn't in the reacter's old hand, making the slot 0.
+13. **open** `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in Scala.
+    The Rust treats "no old inference" as "different from the played identity".
 
-## Performance (see HANDOFF.md)
+### Referential Sieve
 
-17. `Game::clone` is cheap at the start of a game (~3µs) but scales with history (`State::action_list`,
-    `last_actions`, `move_history`, `notes`, ... are deep-copied). Scala shared these structurally.
-    Candidates: `Arc`-wrap the rarely-mutated history, or `im`-style persistent vectors.
-18. `Player::update_hypo_stacks` clones the whole `Game` per call and `Game::elim` calls it for the common perspective
-    and every player. ~60% of solver time in the Reactor endgame tests.
+19. **open** `interpret_discard` (2p): `prev.isTouched(0)` is called with *order 0*, not slot 1 (as item 10), and the log line does
+    `prev.chop(..).get` (throws in Scala when there is no chop; the Rust prints the `Option`).
+20. **open** `interpret_discard`, Gentleman's Discard: starts from `game` again, like Reactor (item 9).
+21. **open** `eval_action` on a clue multiplies the result by `mult` regardless of its sign (Reactor only scales positive results).
+22. **open** `eval_action` on an unknown-id play divides the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and is `NaN`
+    when there are no unique inferences (`NaN` compares false, so such an action is never chosen over a real one).
+23. **open** `interpret_2p_locked_clue` (colour branch) checks `thinksTrash(game, target)` on the *new* game's common, so it sees
+    inferences the clue just wrote; and `delayed_plays` there can build `Identity(suit, 6)` for a finished suit, whose ordinal aliases the
+    next suit's 1.
 
-## Referential Sieve (M5)
+### H-Group
 
-19. `interpret_discard` (2p): `prev.isTouched(0)` is called with *order 0*, not slot 1, and the log line does `prev.chop(..).get`
-    (throws in Scala when there is no chop; the Rust prints the `Option`).
-20. `interpret_discard`, Gentleman's Discard: starts from `game` again, like Reactor (item 9).
-21. `eval_action` on a clue multiplies the result by `mult` regardless of its sign (Reactor only scales positive results).
-22. `eval_action` on an unknown-id play divides the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and is `NaN` when
-    there are no unique inferences. Kept (`NaN` compares false, so such an action is never chosen over a real one).
-23. `interpret_2p_locked_clue` (colour branch) checks `thinksTrash(game, target)` on the *new* game's common, so it sees inferences the clue
-    just wrote; and `delayed_plays` there can build `Identity(suit, 6)` for a finished suit, whose ordinal aliases the next suit's 1.
+25. **open (low)** `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala
+    `Vector.updated` would throw.
+26. **open** `eval_action` for unknown-id plays/discards divides by the number of candidates even after a mistake (like item 22).
+28. **open, design question** *Giver and receiver read a clue differently* (`investigations/hgroup5_seed9_3p.json`, `self_play seed=9
+    convention=HGroup5`, 3p): at turn 24 Cathy re-clues Alice's already-clued 5s (no new cards touched, early game over). Alice's game
+    marks her slot 1 `finessed` with inferred [g4,p4]; Cathy's own game leaves the card plain (she sees it is y1). Every later blind play
+    (turns 25, 26, 29) follows and the game strikes out at 10. The Scala bot plays the same 30 actions (its `analyze` agrees with all of them), so
+    this is inherited convention behaviour. Suspects: `interp_clue` for a clue that touches no new cards below level 6 (tempo clues), and
+    the checks (`unacceptable_clue`, stalling) that should stop Cathy giving a clue her own simulation does not read as a play. Needs a
+    convention-level decision, not a mechanical fix.
 
-## H-Group (M6)
+### Panics (policy)
 
-24. Many Scala `.get` / `.head` calls that throw on a broken invariant are `expect`s in the Rust H-Group port (same policy as item 14).
-25. `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala `Vector.updated` would throw.
-26. `eval_action` for unknown-id plays/discards divides by the number of candidates even after a mistake (like item 22).
-27. H-Group self-play strength has not been compared with the Scala bot (deferred, see HANDOFF.md item 0).
+14. **kept** Many `.get` / `.head` / `indexWhere` calls that throw in Scala are `expect`s in Rust (`ref_discard`'s target index,
+    `delayed_plays`' `id.prev`, the `by` of a called-to-play card, ...). The client catches panics per action
+    (see item 34 for what it does next).
+15. **kept** `eval_dc`, `advance`: several `.get`s on `state.deck(..).id()` assume the card is visible.
+24. **kept** Same policy for the H-Group port.
 
-## Open investigation: HGroup5 seed 9 (3p) strikeout, `investigations/hgroup5_seed9_3p.json`
+## B. Robustness (open)
 
-28. `self_play games=1 seed=9 convention=HGroup5` strikes out at score 10 (turns 25, 26, 29 are blind plays of unclued new cards).
-    Turn 24: Cathy re-clues Alice's already-clued 5s ("5 to Alice", no new cards touched, 1-2 clues left, early game over).
-    Alice's game marks her slot 1 (order 26) `finessed` with inferred [g4,p4] (reasoning turn 24); Cathy's own game leaves the same card
-    plain `none` (she sees it is y1). Giver and receiver interpret the clue differently, and every later blind play follows from
-    that. Same pattern at t27 (Alice sees a finesse for Bob's slot 1 too). `analyze` is silent because each move is consistent
-    with the mover's own view. Unknown whether the Scala bot does the same: needs the Scala parity build (HANDOFF item 0).
-    Suspects: `interp_clue` for a clue that touches no new cards below level 6 (tempo clues), and the stalling/`unacceptable_clue`
-    checks that should stop Cathy giving a clue her own simulation does not read as a play.
+34. **open** When `take_action` panics, `BotClient::take_turn` only logs "panic while choosing an action!" and returns without acting, so the
+    table waits on the bot until someone kicks it. It should make a safe fallback move (discard the oldest unclued card, or a clue at 8 clue
+    tokens), tell the table, and record the failure (turn, convention, seed, panic message) where `/feedback` entries go.
 
-    **Update:** built the Scala bot (scala-cli, JDK 25) and ran `scala_bot.analyze file=investigations/hgroup5_seed9_3p.json convention=HGroup5`:
-    it reports no differing moves, so the Scala bot plays all 30 actions of this game, including the t24 clue and the three
-    bombs. The behaviour is inherited from the Scala conventions, not a port divergence. (Seeds do not reproduce across the two
-    implementations: the Rust PRNG is not Java's, so `selfPlay seed=9` in Scala is a different game and scored 24.)
+## C. Performance (history and what remains)
 
-## Performance findings (M7)
+17. **resolved** `Game::clone` scaled with history. H-Group's `Ext` data, `State::action_list` and `Game::notes` are now `Arc`s copied on
+    write; a clone went from 137 to 73 allocations (~55 us to ~5 us, `tests/clone_probe.rs`). Remaining clone cost: `State` (deck, discard
+    stacks, names), the players' `thoughts` and `meta`.
+18. **resolved (mostly)** `update_hypo_stacks` cloned the game per call: see 30, 32, 33. It is still ~75% of `Game::elim`, which is ~55% of
+    self-play time (mostly the per-player hypothetical plays).
+16. **resolved** `Convention::uses_refresh_after_play(&self, &Game)` is new (not in Scala): hypothetical plays only copy the game when it
+    returns true. H-Group says so only when connections are waiting.
+29. **kept** H-Group at 5+ players: the full lookahead (`advance`/`force_clue_value` over every clue of every other player, ~36 options per ply)
+    does not finish its first decision in minutes, in Scala either. `advance` now stops after `MAX_LOOKAHEAD_5P = 1` plies (RefSieve too).
+    2-4 players are unchanged. Quality at 5p vs. a deeper lookahead is unmeasured (RefSieve 5p averages ~18.7 over 6 games, H-Group 5p
+    ~22.8). Candidates: prune the clue options instead of cutting depth.
+30. **resolved** `hypo_play` copied the game twice per hypothetical play even with nothing waiting (102 s -> 52 s for 2 games).
+31. **kept** `SELF_PLAY_SLOW_MS=<ms>` makes `self_play` print every decision that takes at least that long (to stderr).
+32. **resolved** See 17 (102 s -> 27 s in total for 2 games of HGroup5 self-play).
+33. **resolved** `update_hypo_stacks` computed `thinks_trash` every iteration only to filter for inverted suits; now skipped without inverted
+    suits (22.3 s -> 9.8 s). `order_trash` is generally expensive; other hot callers of `thinks_trash` may benefit from caching.
 
-29. H-Group `take_action` at 5 players does not finish its first decision in minutes (`self_play players=5 convention=HGroup1`). The Scala
-    bot does not finish a 5p game within 280 s either, so this is the algorithm: `advance`/`force_clue_value` branch over every clue of every
-    other player to depth ~4 (about 36 options per ply at 5p). Candidates: cap the lookahead depth or branching for >4 players, or prune clue
-    options. 2-4 players are fine. Reactor and (presumably) RefSieve handle 5p.
-30. Profile of 3p HGroup5 self-play (instrumented, 2 games): `Player::update_hypo_stacks` was ~70% of runtime; within it, `hypo_play` with
-    `refresh_after_play` (a full `Game::clone` for `prev`, then `refresh_wcs`, which clones again even when there are no waiting connections)
-    was ~70%. `uses_refresh_after_play` now takes the game and H-Group only says yes when waiting connections exist: 2 games went from 102 s to 52 s.
-    Remaining costs: `Game::clone` (~17 us each, ~480k calls per 2 games), the `thinks_playables` restart loop (~10 s), `refresh_wcs`.
-31. `SELF_PLAY_SLOW_MS=<ms>` makes `self_play` print every decision that takes at least that long (to stderr).
+## D. Other resolved items
 
-    **Update (item 29):** `advance` now stops after `MAX_LOOKAHEAD_5P = 1` plies when there are more than 4 players (a deliberate difference from
-    Scala; 2-4 players are unchanged). 5p HGroup1 seed 300 now finishes (perfect), and 6 games of HGroup5 5p averaged 22.8 (2 perfect, no
-    crashes), roughly 1-3 minutes per game. Quality at 5p vs. a deeper lookahead has not been measured.
-
-32. `Game::clone` is cheaper now: H-Group's `Ext` data, `State::action_list` and `Game::notes` are `Arc`s copied on write (`Arc::make_mut`).
-    A clone went from 137 to 73 allocations (~55 us to ~5 us in `tests/clone_probe.rs`), and 2 games of HGroup5 self-play from 102 s to 27 s
-    in total (with the `refresh_after_play` change, item 30). Remaining clone cost: `State` (deck, discard stacks, names), the players'
-    `thoughts` vectors and `meta`. The `thinks_playables` restart loop in `update_hypo_stacks` is still untouched.
-
-33. `update_hypo_stacks` computed `thinks_trash` for every player on every loop iteration only to filter for inverted suits. It is now skipped
-    when the variant has no inverted suit: the playable-check time dropped from 9.6 s to 1.1 s and `update_hypo_stacks` from 22.3 s to 9.8 s
-    (2 games of HGroup5, contended machine). `order_trash` is generally expensive; other hot callers of `thinks_trash` may benefit from caching.
-    Remaining in `update_hypo_stacks`: ~4 us per hypothetical play (`on_play`, plus `prev` clone and `refresh_wcs` when connections are waiting).
+7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.
+27. **resolved** H-Group strength vs. Scala has been measured (HANDOFF.md, "Scala parity"): HGroup5 24.43 vs 24.33 average over 30 games each;
+    HGroup3 24.47 vs 24.0; RefSieve 23.67 vs 24.37.
+35. **kept** Live bots announce `/feedback` at the start of each game and append JSON lines to `feedback.jsonl` (not in Scala).

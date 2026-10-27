@@ -53,7 +53,7 @@ All tests pass (`cargo test -j2`); `cargo fmt` is clean.
 
 ### Decision
 
-Order followed: M3, M4, M2, M5, M6, then M7. Scala oddities are noted in `FIX_LATER.md` (fix only after the port is complete).
+Order followed: M3, M4, M2, M5, M6, then M7. Scala oddities are noted in `FIX_LATER.md`. The port is now finished, so those can be fixed (the bot is diverging from Scala on purpose).
 
 ## Architecture (as built in M1)
 
@@ -98,7 +98,7 @@ The user gave a test account for hanab.live (`michiel-test`; password in the unt
 
 ## Suggested next steps
 
-1. **Open performance items** (see `FIX_LATER.md` 29-33): `Game::elim` is still ~55% of self-play time, mostly the per-player
+1. **Open performance items** (see `FIX_LATER.md` section C): `Game::elim` is still ~55% of self-play time, mostly the per-player
    `update_hypo_stacks` (`hypo_play` + `refresh_wcs` when connections are waiting). RefSieve and H-Group at 5 players use a lookahead
    cap that Scala does not have (`MAX_LOOKAHEAD_5P`); the Scala bot cannot finish 5p H-Group games at all.
 2. **RefSieve at 5 players** averages only ~18.7 with the capped lookahead (6 games). Not compared with Scala (it does not finish).
@@ -106,7 +106,7 @@ The user gave a test account for hanab.live (`michiel-test`; password in the unt
 3. **More live games** (HGroup12, Reactor1, RefSieve; higher log level). One HGroup2 game has been won live. Ask before logging in.
 4. **`benchmark` tool** (`benchmark.scala`) is not ported.
 5. Open correctness investigation: none known. HGroup5 seed 9 (`investigations/`) is behaviour the Scala bot shares.
-6. After the port is accepted: work through `FIX_LATER.md` (Scala oddities to fix, 1-28).
+6. Work through `FIX_LATER.md`: section A lists the open Scala oddities, B robustness (item 34), C what is left of the performance work.
 
 Useful commands (release build, `-j2`):
 
