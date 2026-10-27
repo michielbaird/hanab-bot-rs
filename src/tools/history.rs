@@ -444,7 +444,12 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
             .filter(|e| !r.seed.is_empty() && e["seed"] == r.seed.as_str())
         {
             out += &format!(
-                "- **feedback from {}:** {}\n",
+                "- **{} from {}:** {}\n",
+                if entry["kind"] == "error" {
+                    "error report"
+                } else {
+                    "feedback"
+                },
                 entry["from"].as_str().unwrap_or("?"),
                 entry["text"].as_str().unwrap_or_default()
             );
@@ -462,7 +467,12 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
         out += "## Feedback without a matching game in this batch\n\n";
         for e in unmatched {
             out += &format!(
-                "- {} from {} (table {}, seed {}): {}\n",
+                "- {} {} from {} (table {}, seed {}): {}\n",
+                if e["kind"] == "error" {
+                    "error report"
+                } else {
+                    "feedback"
+                },
                 e["time"],
                 e["from"].as_str().unwrap_or("?"),
                 e["table_id"],

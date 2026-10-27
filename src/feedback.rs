@@ -55,6 +55,17 @@ impl FeedbackStore {
         self.path.is_some()
     }
 
+    /// Saves a report the bot made about itself (e.g. a failure while choosing a move). Not rate-limited; long text is cut.
+    pub fn record_error(&mut self, text: &str, context: &Context) -> Result<(), FeedbackError> {
+        let Some(path) = &self.path else {
+            return Err(FeedbackError::Io("feedback is disabled".to_string()));
+        };
+        let text: String = text.chars().take(MAX_LENGTH).collect();
+        let mut entry = entry_json(&context.bot, &text, context, SystemTime::now());
+        entry["kind"] = json!("error");
+        append_line(path, &entry)
+    }
+
     /// Validates, rate-limits and saves one message.
     pub fn record(
         &mut self,
@@ -94,21 +105,26 @@ impl FeedbackStore {
             return Err(FeedbackError::TooFrequent);
         }
 
-        let entry = entry_json(from, text, context, now);
-        let mut line = entry.to_string();
-        line.push('\n');
-
-        // One write call per line, in append mode, so bots sharing the file don't interleave.
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| file.write_all(line.as_bytes()))
-            .map_err(|e| FeedbackError::Io(format!("{}: {e}", path.display())))?;
+        let mut entry = entry_json(from, text, context, now);
+        entry["kind"] = json!("feedback");
+        append_line(path, &entry)?;
 
         times.push_back(now);
         Ok(())
     }
+}
+
+/// One write call per line, in append mode, so bots sharing the file don't interleave.
+fn append_line(path: &std::path::Path, entry: &Value) -> Result<(), FeedbackError> {
+    let mut line = entry.to_string();
+    line.push('\n');
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+        .map_err(|e| FeedbackError::Io(format!("{}: {e}", path.display())))
 }
 
 fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Value {
@@ -167,6 +183,30 @@ mod tests {
         assert_eq!(lines[0]["text"], "it \"bombed\" a 5");
         assert_eq!(lines[0]["table_id"], 7);
         assert_eq!(lines[0]["turn"], 12);
+    }
+
+    #[test]
+    fn records_errors_without_rate_limits() {
+        let path = temp_path("errors.jsonl");
+        let mut store = FeedbackStore::new(Some(path.clone()));
+        let context = Context {
+            bot: "bot".to_string(),
+            ..Context::default()
+        };
+        for _ in 0..(MAX_PER_WINDOW + 3) {
+            store
+                .record_error(&"x".repeat(MAX_LENGTH * 2), &context)
+                .unwrap();
+        }
+        let lines: Vec<Value> = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(lines.len(), MAX_PER_WINDOW + 3);
+        assert_eq!(lines[0]["kind"], "error");
+        assert_eq!(lines[0]["from"], "bot");
+        assert_eq!(lines[0]["text"].as_str().unwrap().len(), MAX_LENGTH);
     }
 
     #[test]

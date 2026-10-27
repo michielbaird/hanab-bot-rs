@@ -1,5 +1,8 @@
 //! Drives the hanab.live client with hand-written server messages (no network).
 
+#[path = "common/mod.rs"]
+mod common;
+
 use scala_bot::basics::Variant;
 use scala_bot::client::{BotClient, BotConfig, Out};
 use scala_bot::logger::{self, LogLevel};
@@ -326,4 +329,73 @@ fn it_can_have_feedback_turned_off() {
 
     let outs = drain(&mut rx);
     assert_eq!(pm_replies(&outs), ["Feedback isn't enabled on this bot."]);
+}
+
+#[test]
+fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let path = feedback_file("panic.jsonl");
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(path.clone()),
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+    let init = json!({
+        "tableID": 7, "playerNames": ["bot", "human"], "ourPlayerIndex": 0, "replay": false,
+        "seed": "p2v0s5", "options": {"numPlayers": 2, "variantName": "No Variant"}
+    });
+    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(r#"noteListPlayer {"tableID": 7, "notes": ["", "", "", "", ""]}"#);
+
+    // A convention whose `take_action` panics.
+    client.game.as_mut().unwrap().conv = std::sync::Arc::new(common::Neutral { good_touch: false });
+
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order, "suitIndex": -1, "rank": -1}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "suitIndex": suit, "rank": rank}));
+    }
+    list.push(json!({"type": "turn", "num": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&format!(
+        "gameActionList {}",
+        json!({"tableID": 7, "list": list})
+    ));
+
+    let outs = drain(&mut rx);
+    let s = sends(&outs);
+    assert!(
+        s.iter()
+            .any(|m| m.starts_with("chat ") && m.contains("internal error")),
+        "{s:?}"
+    );
+    // A new game has 8 clue tokens, so discarding is illegal and the fallback gives a clue (a rank, type 3).
+    let action = s
+        .iter()
+        .find(|m| m.starts_with("action "))
+        .expect("an action");
+    assert!(
+        action.contains(r#""type":3"#) && action.contains(r#""target":1"#),
+        "{action}"
+    );
+
+    let saved: Vec<Value> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0]["kind"], "error");
+    assert_eq!(saved[0]["seed"], "p2v0s5");
+    assert!(
+        saved[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("panic while choosing a move")
+    );
 }

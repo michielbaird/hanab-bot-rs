@@ -73,9 +73,10 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 ## B. Robustness (open)
 
-34. **open** When `take_action` panics, `BotClient::take_turn` only logs "panic while choosing an action!" and returns without acting, so the
-    table waits on the bot until someone kicks it. It should make a safe fallback move (discard the oldest unclued card, or a clue at 8 clue
-    tokens), tell the table, and record the failure (turn, convention, seed, panic message) where `/feedback` entries go.
+34. **fixed** When `take_action` panicked, `BotClient::take_turn` used to log and return without acting, so the table waited on the bot.
+    It now makes a safe fallback move (`fallback_action`: discard the oldest unclued card, or a rank/colour clue at 8 clue tokens), says
+    "Sorry, I hit an internal error..." at the table, and appends an `"kind": "error"` line (turn, convention, seed, panic message) to
+    `feedback.jsonl`. `analyze_history` shows these next to the matching game.
 
 ## C. Performance (history and what remains)
 

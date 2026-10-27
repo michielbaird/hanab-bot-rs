@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::basics::action::Action;
 use crate::basics::game::Note;
 use crate::basics::state::TableOptions;
-use crate::basics::{Game, State, Variant};
+use crate::basics::{Game, PerformAction, State, Variant};
 use crate::feedback::{Context as FeedbackContext, FeedbackError, FeedbackStore, MAX_LENGTH};
 use crate::settings::{
     BOT_VERSION, ConventionKind, MAX_H_LEVEL, info_note, parse_convention_from_note,
@@ -817,6 +817,21 @@ impl BotClient {
         context
     }
 
+    /// The bot failed to choose a move: tell the table and keep a record for the owner.
+    fn report_failure(&mut self, message: &str, fallback: &PerformAction) {
+        let context = self.feedback_context();
+        let text = format!(
+            "panic while choosing a move ({}): {message}. Played the fallback {fallback:?}.",
+            context.convention
+        );
+        if self.feedback.is_enabled()
+            && let Err(e) = self.feedback.record_error(&text, &context)
+        {
+            log_error!("couldn't save the failure report: {e:?}");
+        }
+        self.send_chat("Sorry, I hit an internal error on this turn and made a fallback move.");
+    }
+
     fn feedback_command(&mut self, who: &str, msg: &str) {
         let text = msg.strip_prefix("/feedback").unwrap_or_default();
 
@@ -950,11 +965,15 @@ impl BotClient {
         let started = Instant::now();
         let action = match catch_unwind(AssertUnwindSafe(|| game.take_action())) {
             Ok(action) => action,
-            Err(_) => {
-                log_error!("panic while choosing an action!");
-                return;
+            Err(panic) => {
+                let message = panic_message(panic.as_ref());
+                log_error!("panic while choosing an action: {message}");
+                let action = fallback_action(game);
+                self.report_failure(&message, &action);
+                action
             }
         };
+        let Some(game) = &self.game else { return };
         log_highlight!(
             BLUE,
             "Suggested action: {}",
@@ -985,4 +1004,40 @@ impl BotClient {
     pub fn username(&self) -> Option<&str> {
         self.info.as_ref().map(|i| i.username.as_str())
     }
+}
+
+/// The text of a caught panic.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_else(|| "unknown panic".to_string())
+}
+
+/// A legal move that needs no convention logic, for when choosing a proper one failed: discard the oldest
+/// card that isn't clued (any clue at 8 tokens, where discarding is illegal).
+fn fallback_action(game: &Game) -> PerformAction {
+    let state = &game.state;
+    let me = state.our_player_index;
+
+    if state.clue_tokens < 8 {
+        let hand = &state.hands[me];
+        let target = hand
+            .iter()
+            .rev()
+            .copied()
+            .find(|&o| !state.deck[o].clued)
+            .or_else(|| hand.last().copied())
+            .expect("our hand is not empty");
+        return PerformAction::Discard { target };
+    }
+
+    let next = state.next_player_index(me);
+    let clue = state
+        .all_valid_clues(next)
+        .into_iter()
+        .find(|clue| !state.clue_touched(&state.hands[next], clue).is_empty())
+        .expect("some clue touches a card");
+    PerformAction::from_clue(&clue)
 }
