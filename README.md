@@ -30,17 +30,23 @@ and Scala-vs-Rust differences, and `FIX_LATER.md` for Scala oddities noted durin
 ## Docker
 
 ```
-docker compose up -d --build        # builds the image and starts the bots (accounts from .env, see docker-compose.yml)
-docker compose logs -f bots
-docker compose run --rm analyze users=bot1,bot2,bot3 since=2026-10-27   # analyze the bots' games
+docker build -t hanab-bot-rs .
+
+# the bots: accounts come from the environment (HANABI_USERNAME0/PASSWORD0, ...), see below for PUID/PGID
+docker run -d --name hanab-bots --restart unless-stopped \
+    -e PUID=1026 -e PGID=100 --env-file .env -v /volume1/docker/hanab:/data \
+    hanab-bot-rs bot index=0,1,2
+
+# analyze the bots' games (reads /data/feedback.jsonl, writes /data/analysis)
+docker run --rm -e PUID=1026 -e PGID=100 -v /volume1/docker/hanab:/data \
+    hanab-bot-rs analyze_history users=bot1,bot2,bot3 since=2026-10-27
 ```
 
-Or without compose: `docker run -d -e PUID=1026 -e PGID=100 --env-file .env -v /volume1/docker/hanab:/data hanab-bot-rs bot index=0,1,2`.
-
 - **Command:** the image has no default command; give the program and its arguments (`bot index=0,1,2`, or `bot index=0` for one account).
+  Programs: `bot`, `analyze_history`, `analyze`, `replay`, `self_play`.
 - **User:** the container starts as root only to make `/data` belong to `PUID:PGID` (default `10001:10001`), then drops to that user. Set both to
   the owner of the data folder on the host (on a NAS, the UID/GID of the account that owns the share). If the platform already starts the
-  container as a non-root user (`--user`, compose `user:`), the entrypoint just runs the command as that user.
+  container as a non-root user (`--user`), the entrypoint just runs the command as that user and `/data` must be writable by it.
 - **Data:** `/data` is the working directory; `feedback.jsonl` and the analysis output (`/data/analysis`) live there.
 
 ## Feedback

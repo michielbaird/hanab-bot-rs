@@ -8,5 +8,4 @@ investigations
 tests
 *.md
 Dockerfile
-docker-compose.yml
 data

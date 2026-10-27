@@ -2,8 +2,8 @@
 # Runs the given command as the user and group in PUID / PGID (default 10001), so files written to the
 # mounted /data volume belong to whoever owns it on the host (e.g. on a NAS).
 #
-# If the container is started as a non-root user already (docker run --user, compose `user:`, or an
-# orchestrator that sets it), the command is simply run as that user and /data must be writable by it.
+# If the container is started as a non-root user already (docker run --user, or an orchestrator that
+# sets it), the command is simply run as that user and /data must be writable by it.
 set -eu
 
 if [ "$#" -eq 0 ]; then
