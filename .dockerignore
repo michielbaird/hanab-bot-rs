@@ -1,0 +1,12 @@
+target
+.git
+.env
+seeds
+analysis
+feedback.jsonl
+investigations
+tests
+*.md
+Dockerfile
+docker-compose.yml
+data

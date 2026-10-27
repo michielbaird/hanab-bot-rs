@@ -1,0 +1,28 @@
+# One container hosting all the bots. Put the accounts in .env, in the same format as the Scala bot's:
+#   HANABI_USERNAME0=...  HANABI_PASSWORD0=...  HANABI_USERNAME1=...  (and optionally HANABI_HOSTNAME, ...)
+services:
+  bots:
+    build: .
+    image: hanab-bot-rs
+    command: ["index=0,1,2"]
+    env_file: .env
+    environment:
+      HANABI_FEEDBACK_FILE: /data/feedback.jsonl
+    volumes:
+      - bot-data:/data
+    restart: unless-stopped
+    mem_limit: 256m
+
+  # Analyze the bots' games from hanab.live's history:
+  #   docker compose run --rm analyze users=bot1,bot2,bot3 since=2026-10-27
+  # The summary is in /data/analysis/summary.md (read it with `docker compose run --rm --entrypoint cat analyze /data/analysis/summary.md`).
+  analyze:
+    image: hanab-bot-rs
+    profiles: ["tools"]
+    entrypoint: ["analyze_history"]
+    command: ["feedback=/data/feedback.jsonl", "out=/data/analysis"]
+    volumes:
+      - bot-data:/data
+
+volumes:
+  bot-data:

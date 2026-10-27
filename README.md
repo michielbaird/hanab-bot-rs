@@ -27,6 +27,17 @@ Other tools: `replay`, `analyze` (exported games).
 See `HANDOFF.md` for the current state and how to continue, `PLAN.md` for the milestones, `PORTING_NOTES.md` for the design
 and Scala-vs-Rust differences, and `FIX_LATER.md` for Scala oddities noted during the port.
 
+## Docker
+
+```
+docker compose up -d --build        # builds the image and starts the bots (accounts from .env, see docker-compose.yml)
+docker compose logs -f bots
+docker compose run --rm analyze users=bot1,bot2,bot3 since=2026-10-27   # analyze the bots' games
+```
+
+The image runs as an unprivileged user with `/data` as its working directory; `feedback.jsonl` and the analysis output live in the `bot-data` volume.
+Edit `command:` in `docker-compose.yml` to host a different set of accounts (`index=0` for one).
+
 ## Feedback
 
 When a game starts the bot tells the table: *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
