@@ -456,10 +456,9 @@ impl Convention for RefSieve {
             g.with_move(DiscardInterp::None.into(), false);
         }
 
-        // (`is_touched(0)` is the order 0, not slot 1, as in the Scala bot.)
         if state.num_players == 2
             && prev.state.hands[player_index][0] == order
-            && !prev.is_touched(0)
+            && !prev.is_touched(order)
             && prev.chop(player_index) != Some(order)
         {
             log_highlight!(

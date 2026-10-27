@@ -522,9 +522,8 @@ impl Convention for Reactor {
         } else {
             g.with_move(DiscardInterp::None.into(), false);
 
-            // (`is_touched(0)` is the order 0, not slot 1, as in the Scala bot.)
-            let reset_ctd = prev.state.hands[player_index][0] == order
-                && !prev.is_touched(0)
+                let reset_ctd = prev.state.hands[player_index][0] == order
+                && !prev.is_touched(order)
                 && prev.chop(player_index).is_some_and(|o| {
                     o < order && game.meta[o].status == CardStatus::CalledToDiscard
                 });
