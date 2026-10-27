@@ -16,6 +16,8 @@ mod analyze;
 mod replay;
 mod update;
 
+pub use analyze::AnalysisComment;
+
 /// A failure while applying an action to the game (usually bad data from the server).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GameError(pub String);

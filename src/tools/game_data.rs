@@ -18,6 +18,12 @@ pub struct GameData {
     pub deck: Vec<Identity>,
     pub actions: Vec<PerformAction>,
     pub options: TableOptions,
+    /// The replay id, if the export has one.
+    pub id: Option<u64>,
+    /// The seed of the game, if the export has one.
+    pub seed: Option<String>,
+    /// The notes each player wrote, by player and then card order (hanab.live exports only).
+    pub notes: Vec<Vec<String>>,
 }
 
 impl GameData {
@@ -77,6 +83,26 @@ impl GameData {
             deck,
             actions,
             options,
+            id: data["id"].as_u64(),
+            seed: data["seed"].as_str().map(String::from),
+            notes: data["notes"]
+                .as_array()
+                .map(|players| {
+                    players
+                        .iter()
+                        .map(|notes| {
+                            notes
+                                .as_array()
+                                .map(|n| {
+                                    n.iter()
+                                        .map(|note| note.as_str().unwrap_or_default().to_string())
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 }

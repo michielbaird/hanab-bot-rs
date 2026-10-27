@@ -3,4 +3,5 @@
 pub mod args;
 pub mod console;
 pub mod game_data;
+pub mod history;
 pub mod self_play;

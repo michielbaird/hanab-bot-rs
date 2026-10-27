@@ -8,15 +8,40 @@ use crate::endgame::EndgameSolver;
 use crate::frac::Frac;
 use crate::logger::{LevelGuard, LogLevel};
 
+/// A move that differs from what the bot would have done.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnalysisComment {
+    pub turn: usize,
+    /// The player who made the move.
+    pub player_index: usize,
+    /// Whether the bot considers the move a clear mistake, not just a worse choice.
+    pub mistake: bool,
+    pub text: String,
+}
+
+impl AnalysisComment {
+    pub fn fmt(&self) -> String {
+        format!("turn {}: {}", self.turn, self.text)
+    }
+}
+
 impl Game {
     /// Replays the game from each player's point of view (hiding their own cards), commenting on
     /// every move that differs from what the bot would have done.
     ///
     /// Returns one line per comment, ordered by turn.
     pub fn analyze(&self) -> Vec<String> {
+        self.analyze_comments()
+            .iter()
+            .map(AnalysisComment::fmt)
+            .collect()
+    }
+
+    /// Like [`analyze`](Self::analyze), but says who made each move.
+    pub fn analyze_comments(&self) -> Vec<AnalysisComment> {
         let blank = self.blank(false);
 
-        let analyze_index = |index: usize| -> Vec<(usize, String)> {
+        let analyze_index = |index: usize| -> Vec<AnalysisComment> {
             let _quiet = LevelGuard::set(LogLevel::Off);
 
             let mut g = blank.clone();
@@ -74,23 +99,27 @@ impl Game {
                                 if diff < 1.0 {
                                     // Not worth mentioning
                                 } else if diff > 50.0 {
-                                    comments.push((
-                                        g.state.turn_count,
-                                        format!(
+                                    comments.push(AnalysisComment {
+                                        turn: g.state.turn_count,
+                                        player_index: index,
+                                        mistake: true,
+                                        text: format!(
                                             "mistake! prefer ({}) over ({})",
                                             suggested_action.fmt(&g.state),
                                             action.fmt(&g.state)
                                         ),
-                                    ));
+                                    });
                                 } else {
-                                    comments.push((
-                                        g.state.turn_count,
-                                        format!(
+                                    comments.push(AnalysisComment {
+                                        turn: g.state.turn_count,
+                                        player_index: index,
+                                        mistake: false,
+                                        text: format!(
                                             "suggest ({}) over ({})",
                                             suggested_action.fmt(&g.state),
                                             action.fmt(&g.state)
                                         ),
-                                    ));
+                                    });
                                 }
                             } else {
                                 // (As in the Scala bot, the winrates are computed from the final game,
@@ -111,14 +140,16 @@ impl Game {
                                 let actual_winrate = winrate(PerformAction::from_action(action));
 
                                 if suggested_winrate - actual_winrate > Frac::new(1, 10) {
-                                    comments.push((
-                                        g.state.turn_count,
-                                        format!(
+                                    comments.push(AnalysisComment {
+                                        turn: g.state.turn_count,
+                                        player_index: index,
+                                        mistake: true,
+                                        text: format!(
                                             "mistake! ({}) has winrate {suggested_winrate} vs. ({}) has winrate {actual_winrate}",
                                             suggested_action.fmt(&g.state),
                                             action.fmt(&g.state)
                                         ),
-                                    ));
+                                    });
                                 }
                             }
                         }
@@ -133,14 +164,10 @@ impl Game {
             comments
         };
 
-        let mut comments: Vec<(usize, String)> = (0..self.state.num_players)
+        let mut comments: Vec<AnalysisComment> = (0..self.state.num_players)
             .flat_map(analyze_index)
             .collect();
-        comments.sort_by_key(|&(turn, _)| turn);
-
+        comments.sort_by_key(|c| c.turn);
         comments
-            .into_iter()
-            .map(|(turn, note)| format!("turn {turn}: {note}"))
-            .collect()
     }
 }

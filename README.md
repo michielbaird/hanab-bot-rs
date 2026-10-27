@@ -37,3 +37,15 @@ convention and version, the table, variant, players, turn and the game's seed. T
 |---|---|
 | `HANABI_FEEDBACK_FILE` | file to append to (default `feedback.jsonl`; `off` or empty turns `/feedback` off) |
 | `HANABI_FEEDBACK_INTRO` | `0` stops the announcement at the start of each game (default `1`) |
+
+## Analyzing the bots' games
+
+```
+cargo run --release --bin analyze_history -- users=bot1,bot2,bot3 since=2026-10-27 feedback=feedback.jsonl out=analysis threads=2
+```
+
+Lists each user's games from the public hanab.live history, fetches every replay, and analyzes it with the convention the bot wrote in its first-card
+note (`convention=` is the fallback). Per game it writes `analysis/<id>.txt` (readable) and `<id>.json`; games already analyzed are reused
+(`force=1` redoes them, e.g. after upgrading the bot). `analysis/summary.md` has a table per convention (average score, perfect games, strikeouts,
+how often the bot disagrees with its own moves and with everyone else's) and a list of games worth a look, with any `/feedback` that carries the
+same seed. A disagreement with the bot's *own* move means the bot has changed since or isn't deterministic; disagreements with humans are expected.
