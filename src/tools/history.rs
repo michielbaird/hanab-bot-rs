@@ -170,9 +170,9 @@ impl GameReport {
 
 pub struct AnalyzeOptions {
     pub host: String,
-    /// Usernames of the bots (compared case-insensitively).
+    /// Usernames of our bots (compared case-insensitively). Only players that also wrote a settings note count as bots.
     pub bots: Vec<String>,
-    /// The convention to use when no bot left a note saying which it played.
+    /// The convention to use when no bot at the table left a note saying which it played.
     pub fallback: ConventionKind,
     pub variant_names: HashMap<u64, String>,
 }
@@ -237,18 +237,17 @@ fn analyze_into(
         index: usize,
         ours: bool,
         convention: ConventionKind,
-        from_note: bool,
     }
+    // Only players that wrote the settings note are bots; a listed account may also be played by a person.
     let bots: Vec<Bot> = (0..data.players.len())
         .filter_map(|index| {
-            let note = note_of(index);
-            let convention = note.as_deref().and_then(parse_convention_from_note);
-            let ours = ours(&data.players[index]);
-            (ours || convention.is_some()).then(|| Bot {
+            let convention = note_of(index)
+                .as_deref()
+                .and_then(parse_convention_from_note)?;
+            Some(Bot {
                 index,
-                ours,
-                convention: convention.unwrap_or(options.fallback),
-                from_note: convention.is_some(),
+                ours: ours(&data.players[index]),
+                convention,
             })
         })
         .collect();
@@ -267,11 +266,7 @@ fn analyze_into(
                 "{}{}: {}",
                 data.players[b.index],
                 if b.ours { "" } else { " (not ours)" },
-                if b.from_note {
-                    version
-                } else {
-                    format!("{} (fallback)", b.convention)
-                }
+                version
             )
         })
         .collect();
@@ -281,7 +276,7 @@ fn analyze_into(
         .iter()
         .find(|b| b.ours)
         .or(bots.first())
-        .map_or((options.fallback, false), |b| (b.convention, b.from_note));
+        .map_or((options.fallback, false), |b| (b.convention, true));
     report.convention = primary.0.to_string();
     report.convention_from_note = primary.1;
 
