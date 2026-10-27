@@ -12,12 +12,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use scala_bot::basics::Variant;
-use scala_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
-use scala_bot::logger::{self, LogLevel};
-use scala_bot::settings::ConventionKind;
-use scala_bot::tools::args::{full_env, parse_args};
-use scala_bot::tools::history::{
+use hanab_bot::basics::Variant;
+use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
+use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::settings::ConventionKind;
+use hanab_bot::tools::args::{full_env, parse_args};
+use hanab_bot::tools::history::{
     AnalyzeOptions, GameReport, HistoryRow, analyze_game, fetch_history, fetch_text, render_game,
     summarize, variant_names,
 };

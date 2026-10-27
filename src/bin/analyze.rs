@@ -2,8 +2,8 @@
 //!
 //! Usage: `analyze file=seeds/0.json convention=Reactor1 [variants=<json> colours=<json>]`
 
-use scala_bot::logger::{self, LogLevel};
-use scala_bot::tools::game_data::{build_game, parse_replay_args};
+use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::tools::game_data::{build_game, parse_replay_args};
 
 fn main() -> Result<(), String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();

@@ -1,7 +1,7 @@
-# scala-bot-rs
+# hanab-bot-rs
 
 An unofficial Rust port of [scala-bot](https://github.com/will-hanabi-bot/scala-bot), a deterministic Hanabi bot for
-[hanab.live](https://hanab.live). It plays H-Group conventions (levels 1-12), Referential Sieve and Reactor. GPLv3, like the original.
+[hanab.live](https://hanab.live). It plays H-Group conventions (levels 1-12), Referential Sieve and Reactor. GPLv3, like the original. Repository: <https://github.com/michielbaird/hanab-bot-rs>.
 
 ```
 cargo build --release

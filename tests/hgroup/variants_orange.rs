@@ -1,19 +1,19 @@
 #![allow(unused_imports)]
 use super::common::*;
-use scala_bot::basics::action::ClueAction;
-use scala_bot::basics::action::{Action, DiscardAction};
-use scala_bot::basics::clue::{BaseClue, ClueKind};
-use scala_bot::basics::clue_result::{bad_touch_result, playables_result};
-use scala_bot::basics::connection::Connection;
-use scala_bot::basics::interp::{ClueInterp, DiscardInterp, Interp, PlayInterp};
-use scala_bot::basics::player::Link;
-use scala_bot::basics::{CardStatus, Identity, PerformAction};
-use scala_bot::collections::FastBitSet;
-use scala_bot::endgame::EndgameSolver;
-use scala_bot::frac::Frac;
-use scala_bot::hgroup::state_eval::eval_action_impl;
-use scala_bot::hgroup::state_eval::get_result;
-use scala_bot::hgroup::{DcStatus, FStatus, HGroupGame, StallInterp};
+use hanab_bot::basics::action::ClueAction;
+use hanab_bot::basics::action::{Action, DiscardAction};
+use hanab_bot::basics::clue::{BaseClue, ClueKind};
+use hanab_bot::basics::clue_result::{bad_touch_result, playables_result};
+use hanab_bot::basics::connection::Connection;
+use hanab_bot::basics::interp::{ClueInterp, DiscardInterp, Interp, PlayInterp};
+use hanab_bot::basics::player::Link;
+use hanab_bot::basics::{CardStatus, Identity, PerformAction};
+use hanab_bot::collections::FastBitSet;
+use hanab_bot::endgame::EndgameSolver;
+use hanab_bot::frac::Frac;
+use hanab_bot::hgroup::state_eval::eval_action_impl;
+use hanab_bot::hgroup::state_eval::get_result;
+use hanab_bot::hgroup::{DcStatus, FStatus, HGroupGame, StallInterp};
 
 use Player::*;
 

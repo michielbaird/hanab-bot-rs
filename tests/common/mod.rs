@@ -3,17 +3,17 @@
 
 use std::sync::{Arc, LazyLock};
 
-use regex::Regex;
-use scala_bot::basics::action::{
+use hanab_bot::basics::action::{
     Action, ClueAction, DiscardAction, DrawAction, PerformAction, PlayAction, TurnAction,
 };
-use scala_bot::basics::clue::{BaseClue, CardClue, ClueKind};
-use scala_bot::basics::game::Base;
-use scala_bot::basics::state::TableOptions;
-use scala_bot::basics::*;
-use scala_bot::collections::FastBitSet;
-use scala_bot::logger::{self, LogLevel};
-use scala_bot::util::{VisibleOpts, visible_find};
+use hanab_bot::basics::clue::{BaseClue, CardClue, ClueKind};
+use hanab_bot::basics::game::Base;
+use hanab_bot::basics::state::TableOptions;
+use hanab_bot::basics::*;
+use hanab_bot::collections::FastBitSet;
+use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::util::{VisibleOpts, visible_find};
+use regex::Regex;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Colour {
@@ -77,7 +77,7 @@ impl TestVariant {
                     "White-Ones & Dark Prism (5 Suits)",
                     &["Red", "Yellow", "Green", "Blue", "Dark Prism"],
                     Some(&['r', 'y', 'g', 'b', 'i']),
-                    scala_bot::basics::variant::VariantFlags {
+                    hanab_bot::basics::variant::VariantFlags {
                         special_rank: Some(1),
                         white_s: true,
                         ..Default::default()
@@ -277,7 +277,7 @@ impl Default for Setup<'_> {
     }
 }
 
-fn certain_for_stacks(player: &mut scala_bot::basics::Player, stacks: &[usize]) {
+fn certain_for_stacks(player: &mut hanab_bot::basics::Player, stacks: &[usize]) {
     let ids = stacks.iter().enumerate().flat_map(|(suit_index, &stack)| {
         (1..=stack).map(move |rank| Identity::new(suit_index, rank))
     });
@@ -673,7 +673,7 @@ pub fn pre_clue_with(game: &mut Game, player: Player, slot: usize, clues: &[Test
     {
         panic!(
             "Clue {} doesn't touch order {order}!",
-            scala_bot::basics::clue::ClueLike::fmt(&bad.to_base(), &game.state, player.ordinal())
+            hanab_bot::basics::clue::ClueLike::fmt(&bad.to_base(), &game.state, player.ordinal())
         );
     }
 
@@ -729,7 +729,7 @@ pub fn fully_known(game: &mut Game, player: Player, slot: usize, short: &str) {
         Player::Alice
     };
     let colour_value =
-        if scala_bot::basics::variant::PRISM.matches(&state.variant.suits[id.suit_index].name) {
+        if hanab_bot::basics::variant::PRISM.matches(&state.variant.suits[id.suit_index].name) {
             (id.rank - 1) % state.variant.colourable_suits.len()
         } else {
             id.suit_index
@@ -755,7 +755,7 @@ fn thought_of(
     player_index: Option<Player>,
     target: Player,
     slot: usize,
-) -> (usize, &Thought, &scala_bot::basics::Player) {
+) -> (usize, &Thought, &hanab_bot::basics::Player) {
     let order = *game.state.hands[target.ordinal()]
         .get(slot - 1)
         .unwrap_or_else(|| panic!("Slot {slot} doesn't exist"));
@@ -819,20 +819,20 @@ pub fn has_status(game: &Game, target: Player, slot: usize, status: CardStatus) 
 fn _keep(_: FastBitSet) {}
 
 pub fn reactor() -> Arc<dyn Convention> {
-    Arc::new(scala_bot::reactor::Reactor::new())
+    Arc::new(hanab_bot::reactor::Reactor::new())
 }
 
 pub fn ref_sieve() -> Arc<dyn Convention> {
-    Arc::new(scala_bot::ref_sieve::RefSieve::new())
+    Arc::new(hanab_bot::ref_sieve::RefSieve::new())
 }
 
 pub fn hgroup(level: usize) -> Arc<dyn Convention> {
-    Arc::new(scala_bot::hgroup::HGroup::at_level(level))
+    Arc::new(hanab_bot::hgroup::HGroup::at_level(level))
 }
 
 /// The `order1s` of the unknown 1s in a player's hand.
 pub fn ordered_1s(game: &Game, player: Player) -> Vec<usize> {
-    use scala_bot::hgroup::HGroupGame;
+    use hanab_bot::hgroup::HGroupGame;
     let unknown: Vec<usize> = game.state.hands[player.ordinal()]
         .iter()
         .copied()
@@ -846,7 +846,7 @@ pub fn set_status(
     game: &mut Game,
     player: Player,
     slot: usize,
-    status: scala_bot::basics::CardStatus,
+    status: hanab_bot::basics::CardStatus,
 ) {
     let order = game.state.hands[player.ordinal()][slot - 1];
     game.meta[order].status = status;

@@ -1,10 +1,10 @@
 use super::common::*;
-use scala_bot::basics::action::{Action, ClueAction, DiscardAction};
-use scala_bot::basics::clue::{BaseClue, ClueKind};
-use scala_bot::basics::interp::{ClueInterp, Interp};
-use scala_bot::basics::{CardStatus, PerformAction};
-use scala_bot::reactor::ReactorGame;
-use scala_bot::reactor::state_eval::eval_action_impl;
+use hanab_bot::basics::action::{Action, ClueAction, DiscardAction};
+use hanab_bot::basics::clue::{BaseClue, ClueKind};
+use hanab_bot::basics::interp::{ClueInterp, Interp};
+use hanab_bot::basics::{CardStatus, PerformAction};
+use hanab_bot::reactor::ReactorGame;
+use hanab_bot::reactor::state_eval::eval_action_impl;
 
 use Player::*;
 

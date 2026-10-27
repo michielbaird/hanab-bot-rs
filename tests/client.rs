@@ -3,9 +3,9 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use scala_bot::basics::Variant;
-use scala_bot::client::{BotClient, BotConfig, Out};
-use scala_bot::logger::{self, LogLevel};
+use hanab_bot::basics::Variant;
+use hanab_bot::client::{BotClient, BotConfig, Out};
+use hanab_bot::logger::{self, LogLevel};
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -125,7 +125,7 @@ fn it_answers_chat_commands() {
 
     let outs = drain(&mut rx);
     let s = sends(&outs);
-    assert!(s[0].contains("scala-bot"));
+    assert!(s[0].contains("hanab-bot-rs"));
     assert!(s[1].contains("Currently playing with Reactor1 conventions."));
     // H-Group is supported, so the setting is accepted.
     assert!(s[2].contains("HGroup5"), "got {}", s[2]);
@@ -199,7 +199,7 @@ fn several_clients_in_one_process_do_not_interfere() {
 }
 
 fn feedback_file(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("scala-bot-rs-client-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hanab-bot-rs-client-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     let _ = std::fs::remove_file(&path);

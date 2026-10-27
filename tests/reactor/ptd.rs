@@ -1,5 +1,5 @@
 use super::common::*;
-use scala_bot::reactor::ReactorGame;
+use hanab_bot::reactor::ReactorGame;
 
 use Player::*;
 

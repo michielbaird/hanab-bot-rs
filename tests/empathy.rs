@@ -6,7 +6,7 @@
 mod common;
 
 use common::*;
-use scala_bot::basics::clue::ClueKind;
+use hanab_bot::basics::clue::ClueKind;
 
 #[test]
 #[should_panic(expected = "copies")]

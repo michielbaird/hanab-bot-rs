@@ -149,7 +149,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("scala-bot-rs-feedback-{}", std::process::id()));
+            std::env::temp_dir().join(format!("hanab-bot-rs-feedback-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         let _ = std::fs::remove_file(&path);

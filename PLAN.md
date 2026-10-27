@@ -2,7 +2,7 @@
 
 Source: `/workspace/scala-bot` (v1.2.8, ~16.6k lines source, ~12.7k lines tests, GPLv3)
 Reference: `/workspace/rust-bot` (the author's earlier Rust port, Reactor only, ~9k lines, abandoned at v1.0.2)
-Target: `/workspace/scala-bot-rs` (new Cargo crate, edition 2024, rustc 1.99)
+Target: `/workspace/hanab-bot-rs` (new Cargo crate, edition 2024, rustc 1.99)
 
 ## Size of the job
 

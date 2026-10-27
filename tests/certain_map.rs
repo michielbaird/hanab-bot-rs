@@ -1,6 +1,6 @@
 //! Port of `test/lib/CertainMap.scala`.
 
-use scala_bot::collections::{CertainMapEntry, FastBitSet};
+use hanab_bot::collections::{CertainMapEntry, FastBitSet};
 
 #[test]
 fn basic_operations() {

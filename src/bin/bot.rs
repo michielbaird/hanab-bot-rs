@@ -18,11 +18,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-use scala_bot::basics::Variant;
-use scala_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
-use scala_bot::client::{BotClient, BotConfig, Out};
-use scala_bot::tools::args::{full_env, parse_args};
-use scala_bot::tools::console::{ConsoleCmd, parse_command};
+use hanab_bot::basics::Variant;
+use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
+use hanab_bot::client::{BotClient, BotConfig, Out};
+use hanab_bot::tools::args::{full_env, parse_args};
+use hanab_bot::tools::console::{ConsoleCmd, parse_command};
 
 const MAX_RETRIES: u32 = 5;
 
@@ -292,7 +292,7 @@ fn main() -> Result<(), String> {
         let ms: u64 = ms
             .parse()
             .map_err(|_| "HANABI_ENDGAME_TIMEOUT_MS must be a number")?;
-        scala_bot::endgame::solver::set_default_timeout(Duration::from_millis(ms));
+        hanab_bot::endgame::solver::set_default_timeout(Duration::from_millis(ms));
     }
 
     // The variant and suit definitions are loaded once and shared by every bot in the process.

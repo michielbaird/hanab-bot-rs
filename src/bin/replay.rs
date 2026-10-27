@@ -5,8 +5,8 @@
 
 use std::io::BufRead;
 
-use scala_bot::tools::console::{parse_command, run_command};
-use scala_bot::tools::game_data::{build_game, parse_replay_args};
+use hanab_bot::tools::console::{parse_command, run_command};
+use hanab_bot::tools::game_data::{build_game, parse_replay_args};
 
 fn main() -> Result<(), String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();

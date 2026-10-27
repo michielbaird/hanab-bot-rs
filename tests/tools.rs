@@ -1,9 +1,9 @@
 //! End-to-end checks of the offline tooling: self-play, export, and replay.
 
-use scala_bot::logger::{self, LogLevel};
-use scala_bot::settings::ConventionKind;
-use scala_bot::tools::game_data::{GameData, build_game, load_variant};
-use scala_bot::tools::self_play::{Rng, full_deck, simulate_game, summary_json};
+use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::settings::ConventionKind;
+use hanab_bot::tools::game_data::{GameData, build_game, load_variant};
+use hanab_bot::tools::self_play::{Rng, full_deck, simulate_game, summary_json};
 
 #[test]
 fn a_self_play_game_exports_and_replays_to_the_same_score() {

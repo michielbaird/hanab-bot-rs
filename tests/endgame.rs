@@ -5,10 +5,10 @@
 mod common;
 
 use common::*;
-use scala_bot::basics::{Game, PerformAction};
-use scala_bot::endgame::EndgameSolver;
-use scala_bot::frac::Frac;
-use scala_bot::logger::{self, LogLevel};
+use hanab_bot::basics::{Game, PerformAction};
+use hanab_bot::endgame::EndgameSolver;
+use hanab_bot::frac::Frac;
+use hanab_bot::logger::{self, LogLevel};
 
 use Player::*;
 

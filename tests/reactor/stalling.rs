@@ -1,5 +1,5 @@
 use super::common::*;
-use scala_bot::basics::CardStatus;
+use hanab_bot::basics::CardStatus;
 
 use Player::*;
 

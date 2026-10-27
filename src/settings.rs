@@ -7,7 +7,7 @@ use crate::basics::Convention;
 use crate::reactor::Reactor;
 use crate::ref_sieve::RefSieve;
 
-pub const BOT_VERSION: &str = "v1.2.8 (scala-bot-rs)";
+pub const BOT_VERSION: &str = "v1.2.8 (hanab-bot-rs)";
 pub const MAX_H_LEVEL: usize = 12;
 
 /// Which set of conventions to play.

@@ -1,6 +1,6 @@
 use super::common::*;
-use scala_bot::basics::interp::{ClueInterp, Interp};
-use scala_bot::basics::{CardStatus, PerformAction};
+use hanab_bot::basics::interp::{ClueInterp, Interp};
+use hanab_bot::basics::{CardStatus, PerformAction};
 
 use Player::*;
 

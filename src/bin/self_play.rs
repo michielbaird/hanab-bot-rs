@@ -7,11 +7,11 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use scala_bot::logger::{self, LogLevel};
-use scala_bot::settings::ConventionKind;
-use scala_bot::tools::args::parse_args;
-use scala_bot::tools::game_data::load_variant;
-use scala_bot::tools::self_play::{GameResult, Rng, full_deck, simulate_game, summary_json};
+use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::settings::ConventionKind;
+use hanab_bot::tools::args::parse_args;
+use hanab_bot::tools::game_data::load_variant;
+use hanab_bot::tools::self_play::{GameResult, Rng, full_deck, simulate_game, summary_json};
 
 fn main() -> Result<(), String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();

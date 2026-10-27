@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use scala_bot::basics::clue::{ClueKind, ClueLike};
+use hanab_bot::basics::clue::{ClueKind, ClueLike};
 
 #[test]
 fn understands_prism_touch() {

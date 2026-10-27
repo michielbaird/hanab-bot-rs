@@ -3,10 +3,10 @@
 mod common;
 
 use common::*;
-use scala_bot::basics::Identity;
-use scala_bot::basics::action::{Action, TurnAction};
+use hanab_bot::basics::Identity;
+use hanab_bot::basics::action::{Action, TurnAction};
 
-fn two_player() -> scala_bot::basics::Game {
+fn two_player() -> hanab_bot::basics::Game {
     setup(
         neutral(),
         &[
@@ -47,7 +47,7 @@ fn simulating_an_action_leaves_the_game_untouched() {
     let before_turn = game.state.turn_count;
     let order = game.state.hands[1][4];
 
-    let action = Action::Discard(scala_bot::basics::action::DiscardAction {
+    let action = Action::Discard(hanab_bot::basics::action::DiscardAction {
         player_index: 1,
         order,
         id: game.state.deck[order].identity,
@@ -107,8 +107,8 @@ fn rewinding_inserts_an_interp_action() {
     let mut game = two_player();
     take_turn(&mut game, "Bob clues 1 to Alice (slots 2,3)");
 
-    let interp = Action::Interp(scala_bot::basics::action::InterpAction {
-        interp: scala_bot::basics::ClueInterp::Fix,
+    let interp = Action::Interp(hanab_bot::basics::action::InterpAction {
+        interp: hanab_bot::basics::ClueInterp::Fix,
     });
     let turn = game.state.turn_count - 1;
     let rewound = game.rewind(turn, &interp).expect("rewind failed");
@@ -116,7 +116,7 @@ fn rewinding_inserts_an_interp_action() {
     assert_eq!(rewound.state.turn_count, game.state.turn_count);
     assert_eq!(
         rewound.next_interp,
-        Some(scala_bot::basics::ClueInterp::Fix.into())
+        Some(hanab_bot::basics::ClueInterp::Fix.into())
     );
 }
 

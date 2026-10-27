@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 use super::common::*;
-use scala_bot::basics::interp::{ClueInterp, Interp};
-use scala_bot::basics::{CardStatus, PerformAction};
+use hanab_bot::basics::interp::{ClueInterp, Interp};
+use hanab_bot::basics::{CardStatus, PerformAction};
 
 use Player::*;
 
@@ -187,13 +187,13 @@ fn it_counts_dupes_as_bad_touch() {
     );
     let mut hypo = game.clone();
     take_turn(&mut hypo, "Alice clues red to Bob");
-    let Some(scala_bot::basics::Action::Clue(clue)) =
+    let Some(hanab_bot::basics::Action::Clue(clue)) =
         hypo.state.action_list.last().unwrap().first().cloned()
     else {
         panic!("expected a clue");
     };
     let (bad_touch, trash, _) =
-        scala_bot::basics::clue_result::bad_touch_result(&game, &hypo, &clue);
-    assert_eq!(bad_touch, scala_bot::collections::FastBitSet::from([8, 6]));
+        hanab_bot::basics::clue_result::bad_touch_result(&game, &hypo, &clue);
+    assert_eq!(bad_touch, hanab_bot::collections::FastBitSet::from([8, 6]));
     assert!(trash.is_empty());
 }

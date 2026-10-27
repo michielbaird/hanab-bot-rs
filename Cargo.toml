@@ -1,12 +1,12 @@
 [package]
-name = "scala-bot-rs"
+name = "hanab-bot-rs"
 version = "0.1.0"
 edition = "2024"
-description = "A Rust port of scala-bot, a deterministic Hanabi bot for hanab.live"
+description = "A Hanabi bot for hanab.live (H-Group, Referential Sieve and Reactor conventions), a Rust port of scala-bot"
 license = "GPL-3.0-or-later"
 
 [lib]
-name = "scala_bot"
+name = "hanab_bot"
 
 [features]
 # Compiles in the bot's debug logging (the Scala bot elides it at compile time by default).
