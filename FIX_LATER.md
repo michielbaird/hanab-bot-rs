@@ -118,3 +118,31 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 27. **resolved** H-Group strength vs. Scala has been measured (HANDOFF.md, "Scala parity"): HGroup5 24.43 vs 24.33 average over 30 games each;
     HGroup3 24.47 vs 24.0; RefSieve 23.67 vs 24.37.
 35. **kept** Live bots announce `/feedback` at the start of each game and append JSON lines to `feedback.jsonl` (not in Scala).
+
+## E. Upstream issues (will-hanabi-bot/scala-bot), checked 2026-10-28
+
+Our port is exactly upstream's latest commit (`bcf85bb`, v1.2.8, 2026-10-21), so every **closed** upstream issue (the other 77 of 92) is already
+fixed in what was ported; the ported tests carry many of the regressions. The **15 open** ones are unfixed upstream, therefore present here too.
+None of the H-Group ones is below level 11, so none affects HGroup 1-10 play as reported.
+
+| # | Where | What | In ours | Verdict |
+|---|---|---|---|---|
+| 91 | all | Run on another hanab.live server (`HANABI_HOSTNAME`); an old server omits `options` / `maxPlayers` from table messages, which Scala's JSON parser rejects | `HANABI_HOSTNAME` is supported; `Table` etc. use `#[serde(default)]`, so missing keys are fine | **Done** (not verified against such a server) |
+| 92 | H11, orange | Gentleman's discard "through" an orange card isn't treated like a layered playable | yes | Variant + level 11; later |
+| 89 | H11, orange | Orange 1 misdiscard read as a Gentleman's discard; also clues several 1s including orange ones | yes | Later |
+| 88 | H11 | A prompt through a baton-discarded card isn't considered (4 clue read as self-finesse) | yes | Later |
+| 87 | H11, orange | Screaming-discard chop move not recognised when the discarded card turns out orange | yes | Later |
+| 86 | H11 | Illegal fill-in/tempo clue stall given when a 5 stall exists; asymmetric stall | yes | Same class as item 28 (common-knowledge desync) |
+| 84 | H11 | Bot misses a stall clue while in DDA (`asymmetric! only [jabot2] think stall`) | yes | Same class as item 28 |
+| 82 | H11, orange | Orange chop card not inferred as known trash (inferred o4) | yes | Later |
+| 78 | H12 | Marks a card known (g3) although a finesse might be ambiguous | yes | Maintainer: by design |
+| 64 | H12 | Clues r2 in the partner's hand without realising it has r2 itself | yes | Needs the replay; later |
+| 61 | H12, black | Black save-clue exception for avoiding bad touch not implemented | yes | Maintainer: hesitant (breaks common-knowledge symmetry); a design discussion |
+| 72 | Reactor, pinkish 5s | Stable reference-discard clues don't give the rank promise | yes | Variant-specific; later |
+| 45 | Reactor | A clue meant as reactive is read as stable by one bot (desync in one edge case) | yes | Needs the replay |
+| 35 | Reactor | ZCSP (zero-clue stall) should last while the previous player had 0 clues on their turn, but ends after one round (`reactor.rs` around line 425: reset when `prev` could clue, set when clues run out) | yes | Concrete spec; worth doing if Reactor is played |
+| 33 | Reactor | A player whose card was called to play (g5, known since turn 52) should count as loaded; bot bombed an unplayable card | maybe (upstream changed empathy-after-clue in 0.10.10) | Needs the replay |
+
+Takeaways: nothing here needs doing for the HGroup 1-3 bots now running. Of the open issues, #35 is the only one with an exact fix described, and #84, #86
+and item 28 are the same problem (the giver and the receivers don't see the same thing) and are the more valuable thing to understand. Real games
+from `analyze_history` and `/feedback` are a better source of bugs for the levels that are actually played.
