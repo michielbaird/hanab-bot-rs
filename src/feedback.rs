@@ -4,7 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -35,6 +35,37 @@ pub struct Context {
     pub turn: Option<usize>,
     /// The seed of the current game, which determines the deal.
     pub seed: Option<String>,
+}
+
+/// How long someone who has been told how to send feedback is not told again.
+const INTRO_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Remembers who has been told how to send feedback.
+///
+/// "Play again" starts a new table with the same people and keeps the table chat, so announcing at the start of
+/// every game would repeat the message each time. Announce only when someone at the table hasn't heard it lately.
+#[derive(Default)]
+pub struct IntroTracker {
+    told: HashMap<String, Instant>,
+}
+
+impl IntroTracker {
+    /// Whether to announce to a game with these players (`me` is the bot itself and doesn't count).
+    /// If so, everyone at the table counts as told from `now` on.
+    pub fn should_announce(&mut self, players: &[String], me: &str, now: Instant) -> bool {
+        self.told
+            .retain(|_, &mut at| now.saturating_duration_since(at) < INTRO_COOLDOWN);
+
+        let someone_new = players
+            .iter()
+            .any(|p| p != me && !self.told.contains_key(p));
+        if someone_new {
+            for player in players {
+                self.told.insert(player.clone(), now);
+            }
+        }
+        someone_new
+    }
 }
 
 pub struct FeedbackStore {
@@ -183,6 +214,54 @@ mod tests {
         assert_eq!(lines[0]["text"], "it \"bombed\" a 5");
         assert_eq!(lines[0]["table_id"], 7);
         assert_eq!(lines[0]["turn"], 12);
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn announces_once_to_the_same_people() {
+        let mut intro = IntroTracker::default();
+        let start = Instant::now();
+        let table = names(&["bot", "alice", "bob"]);
+
+        assert!(intro.should_announce(&table, "bot", start));
+        // "Play again": a new table, the same people.
+        assert!(!intro.should_announce(&table, "bot", start + Duration::from_secs(300)));
+        assert!(!intro.should_announce(
+            &names(&["alice", "bot", "bob"]),
+            "bot",
+            start + Duration::from_secs(600)
+        ));
+    }
+
+    #[test]
+    fn announces_again_when_someone_new_joins_or_after_a_day() {
+        let mut intro = IntroTracker::default();
+        let start = Instant::now();
+
+        assert!(intro.should_announce(&names(&["bot", "alice"]), "bot", start));
+        // carol hasn't heard it.
+        assert!(intro.should_announce(
+            &names(&["bot", "alice", "carol"]),
+            "bot",
+            start + Duration::from_secs(60)
+        ));
+        assert!(!intro.should_announce(
+            &names(&["bot", "alice", "carol"]),
+            "bot",
+            start + Duration::from_secs(120)
+        ));
+        // The next day everyone has forgotten.
+        let later = start + Duration::from_secs(25 * 60 * 60);
+        assert!(intro.should_announce(&names(&["bot", "alice"]), "bot", later));
+    }
+
+    #[test]
+    fn a_table_of_only_the_bot_is_not_announced_to() {
+        let mut intro = IntroTracker::default();
+        assert!(!intro.should_announce(&names(&["bot"]), "bot", Instant::now()));
     }
 
     #[test]

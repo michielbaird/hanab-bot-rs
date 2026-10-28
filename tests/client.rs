@@ -399,3 +399,50 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
             .contains("panic while choosing a move")
     );
 }
+
+fn init_for(table_id: usize, players: &[&str]) -> String {
+    let init = json!({
+        "tableID": table_id, "playerNames": players, "ourPlayerIndex": 0, "replay": false,
+        "seed": "x", "options": {"numPlayers": players.len(), "variantName": "No Variant"}
+    });
+    format!("init {init}")
+}
+
+fn announcements(outs: &[Out]) -> usize {
+    sends(outs)
+        .iter()
+        .filter(|s| s.starts_with("chat ") && s.contains("/feedback"))
+        .count()
+}
+
+#[test]
+fn it_does_not_repeat_the_announcement_after_play_again() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(feedback_file("play_again.jsonl")),
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // The first game: announced.
+    client.handle_msg(&init_for(7, &["bot", "alice"]));
+    assert_eq!(announcements(&drain(&mut rx)), 1);
+
+    // "Play again" makes a new table with the same people, and the chat carries over: not announced again.
+    client.handle_msg(&init_for(8, &["bot", "alice"]));
+    client.handle_msg(&init_for(9, &["alice", "bot"]));
+    assert_eq!(announcements(&drain(&mut rx)), 0);
+
+    // Someone who hasn't heard it joins: announced again, once.
+    client.handle_msg(&init_for(10, &["bot", "alice", "carol"]));
+    client.handle_msg(&init_for(11, &["bot", "alice", "carol"]));
+    assert_eq!(announcements(&drain(&mut rx)), 1);
+
+    // A different group at another table hears it too.
+    client.handle_msg(&init_for(12, &["bot", "dave"]));
+    assert_eq!(announcements(&drain(&mut rx)), 1);
+}
