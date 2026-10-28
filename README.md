@@ -61,6 +61,21 @@ for out in rx.try_iter() {
 }
 ```
 
+Analysing a finished game (`Game::analyze_comments_with`, after rebuilding it with `tools::game_data::build_game`) replays it once per player,
+on one thread per player by default (`threads: 1` keeps it on the calling thread), and can report progress and be cancelled:
+
+```rust
+use std::sync::atomic::AtomicBool;
+use hanab_bot::basics::game::{AnalysisOptions, AnalysisProgress, Cancelled};
+
+let cancel = AtomicBool::new(false); // set it from another thread (e.g. the UI) to stop
+let progress = |p: AnalysisProgress| { /* p.moves_done out of p.moves_total */ };
+match game.analyze_comments_with(&AnalysisOptions { progress: Some(&progress), cancel: Some(&cancel), ..Default::default() }) {
+    Ok(comments) => { /* each has a turn, player_index, mistake flag and text */ }
+    Err(Cancelled) => {}
+}
+```
+
 Logging into hanab.live (the `POST /login` that returns the session cookie) and the websocket itself are the embedder's job; `src/bin/bot.rs`
 shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `/analyze`
 chat command needs the `net` feature and answers that it is unavailable without it.

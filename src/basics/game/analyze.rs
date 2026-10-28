@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::{Base, Game};
@@ -17,6 +19,38 @@ pub struct AnalysisComment {
     /// Whether the bot considers the move a clear mistake, not just a worse choice.
     pub mistake: bool,
     pub text: String,
+}
+
+/// How far an analysis has got: moves examined out of all the moves in the game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnalysisProgress {
+    pub moves_done: usize,
+    pub moves_total: usize,
+}
+
+/// Returned when an analysis was stopped through [`AnalysisOptions::cancel`] before it finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the analysis was cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+/// How [`Game::analyze_comments_with`] runs.
+#[derive(Clone, Copy, Default)]
+pub struct AnalysisOptions<'a> {
+    /// How many players are replayed at the same time: 0 (the default) is one thread per player, 1 runs
+    /// everything on the calling thread.
+    pub threads: usize,
+    /// Called with `0` moves done before the analysis starts and again after every move examined, possibly from
+    /// several threads at once.
+    pub progress: Option<&'a (dyn Fn(AnalysisProgress) + Sync)>,
+    /// Checked before every move; when it is set the analysis stops and returns [`Cancelled`].
+    pub cancel: Option<&'a AtomicBool>,
 }
 
 /// How long each endgame winrate may take: 500 ms, or `ANALYZE_ENDGAME_TIMEOUT_MS`. (A search that runs out of time
@@ -48,8 +82,44 @@ impl Game {
     }
 
     /// Like [`analyze`](Self::analyze), but says who made each move.
+    ///
+    /// The players are replayed in parallel (one thread each); see [`analyze_comments_with`](Self::analyze_comments_with)
+    /// for progress reporting, cancelling and limiting the threads.
     pub fn analyze_comments(&self) -> Vec<AnalysisComment> {
+        self.analyze_comments_with(&AnalysisOptions::default())
+            .expect("an analysis that can't be cancelled can't be cancelled")
+    }
+
+    /// Replays the game once per player, commenting on every move that differs from what the bot would have done.
+    ///
+    /// Each player's replay is independent, so they run on separate threads and the comments are merged and
+    /// ordered by turn afterwards (the result doesn't depend on the number of threads). `options` can report
+    /// progress and stop the analysis early with [`Cancelled`]. A panic inside a replay is passed on to the caller.
+    pub fn analyze_comments_with(
+        &self,
+        options: &AnalysisOptions<'_>,
+    ) -> Result<Vec<AnalysisComment>, Cancelled> {
         let blank = self.blank(false);
+
+        let moves_total = self
+            .state
+            .action_list
+            .iter()
+            .flatten()
+            .filter(|a| a.is_player_action())
+            .count();
+        let moves_done = AtomicUsize::new(0);
+        let stopped_early = AtomicBool::new(false);
+
+        let cancelled = || options.cancel.is_some_and(|c| c.load(Ordering::Relaxed));
+        let report = |moves_done: usize| {
+            if let Some(progress) = options.progress {
+                progress(AnalysisProgress {
+                    moves_done,
+                    moves_total,
+                });
+            }
+        };
 
         let analyze_index = |index: usize| -> Vec<AnalysisComment> {
             let _quiet = LevelGuard::set(LogLevel::Off);
@@ -89,6 +159,11 @@ impl Game {
                     }
 
                     a if a.is_player_action() && a.player_index() == Some(index) => {
+                        if cancelled() {
+                            stopped_early.store(true, Ordering::Relaxed);
+                            return comments;
+                        }
+
                         let suggested_perform = g.take_action();
 
                         if suggested_perform != PerformAction::from_action(action) {
@@ -164,6 +239,7 @@ impl Game {
                         }
 
                         g.handle_action(action).expect("failed to replay action");
+                        report(moves_done.fetch_add(1, Ordering::Relaxed) + 1);
                     }
 
                     _ => g.handle_action(action).expect("failed to replay action"),
@@ -173,10 +249,61 @@ impl Game {
             comments
         };
 
-        let mut comments: Vec<AnalysisComment> = (0..self.state.num_players)
-            .flat_map(analyze_index)
-            .collect();
+        report(0);
+
+        let players = self.state.num_players;
+        let workers = match options.threads {
+            0 => players,
+            n => n.min(players),
+        }
+        .max(1);
+
+        // A panic in a replay is caught in its thread and resumed here, so the caller sees the original message.
+        type Replay = std::thread::Result<Vec<AnalysisComment>>;
+        let replays: Mutex<Vec<(usize, Replay)>> = Mutex::new(Vec::new());
+        let next = AtomicUsize::new(0);
+
+        let work = || {
+            loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                if index >= players {
+                    break;
+                }
+                if cancelled() {
+                    stopped_early.store(true, Ordering::Relaxed);
+                    break;
+                }
+                let replay = catch_unwind(AssertUnwindSafe(|| analyze_index(index)));
+                replays.lock().unwrap().push((index, replay));
+            }
+        };
+
+        if workers == 1 {
+            work();
+        } else {
+            std::thread::scope(|scope| {
+                for _ in 0..workers {
+                    scope.spawn(work);
+                }
+            });
+        }
+
+        let mut replays = replays.into_inner().unwrap();
+        replays.sort_by_key(|(index, _)| *index);
+
+        let mut comments = Vec::new();
+        for (_, replay) in replays {
+            match replay {
+                Ok(found) => comments.extend(found),
+                Err(panic) => resume_unwind(panic),
+            }
+        }
+
+        if stopped_early.load(Ordering::Relaxed) {
+            return Err(Cancelled);
+        }
+
         comments.sort_by_key(|c| c.turn);
-        comments
+        Ok(comments)
     }
 }
