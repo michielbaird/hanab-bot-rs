@@ -16,7 +16,7 @@ mod analyze;
 mod replay;
 mod update;
 
-pub use analyze::AnalysisComment;
+pub use analyze::{AnalysisComment, AnalysisOptions, AnalysisProgress, Cancelled};
 
 /// A failure while applying an action to the game (usually bad data from the server).
 #[derive(Clone, Debug, PartialEq, Eq)]
