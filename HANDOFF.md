@@ -106,7 +106,7 @@ The user gave a test account for hanab.live (`michiel-test`; password in the unt
 3. **More live games** (HGroup12, Reactor1, RefSieve; higher log level). One HGroup2 game has been won live. Ask before logging in.
 4. **`benchmark` tool** (`benchmark.scala`) is not ported.
 5. Open correctness investigation: none known. HGroup5 seed 9 (`investigations/`) is behaviour the Scala bot shares.
-6. Work through `FIX_LATER.md`: section A lists the open Scala oddities, B robustness (item 34), C what is left of the performance work.
+6. Work through the GitHub issues (<https://github.com/michielbaird/hanab-bot-rs/issues>; `FIX_LATER.md` has the background for each): section A lists the open Scala oddities, B robustness (item 34), C what is left of the performance work.
 
 Useful commands (release build, `-j2`):
 

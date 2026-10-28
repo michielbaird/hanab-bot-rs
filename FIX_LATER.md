@@ -3,6 +3,33 @@
 The port is finished and now diverges from the Scala bot on purpose ("forking mode"): anything below can be fixed, one at a
 time, re-running the tests (`cargo test -j2`) and a self-play sweep after each. Item numbers are stable (other docs refer to them).
 
+**Open items are tracked as GitHub issues** (<https://github.com/michielbaird/hanab-bot-rs/issues>); this file keeps the background. Item to issue:
+
+| FIX_LATER item | Issue |
+|---|---|
+| 8 | #2 Reactor: try_stable overwrites an existing waiting connection |
+| 11 | #3 Reactor: elim_dc_play / elim_play_play lose all but the last trash flag |
+| 12 | #4 Reactor: calc_target_slot turns a missing index (-1) into slot 0 |
+| 13 | #5 Reactor: must_clue's unknownPlay on a possibly-empty old_inferred |
+| 21 | #6 RefSieve: clue evaluation scales by `mult` regardless of sign |
+| 22 | #7 RefSieve: unknown-id play divides by the candidate count after a mistake (NaN with none) |
+| 23 and 19 | #8 RefSieve: interpret_2p_locked_clue reads inferences the clue just wrote; Identity(suit, 6) |
+| 26 | #9 H-Group: eval_action divides by the number of candidates after a mistake |
+| 25 | #10 H-Group: xmeta returns a default beyond the stored vector but xmeta_mut grows it |
+| 3 | #11 Endgame: winnable_if stores a drawn card with the wrong order |
+| 5 | #12 Endgame: RemainingMap iteration order differs from Scala's Map |
+| 6 | #13 Endgame: solver calls thinks_playables with assume = true |
+| 36 | #14 Endgame solver often hits its time limit |
+| 17, 18, 30, 32, 33 | #15 Game::elim / update_hypo_stacks are still most of the run time |
+| 29 | #16 5+ players: lookahead is capped; quality unmeasured |
+| 28 | #17 H-Group: giver and receiver read a re-clue differently (blind-play strikeout) |
+| 37 | #18 analyze: endgame 'mistake!' comments about people can be spurious |
+| 38 | #19 Library: hook for fetching exports; CI for the tokio-free build |
+| (no item) | #20 RefSieve at 5 players averages only about 18.7, #21 Port the benchmark tool, #22 Clear the remaining clippy warnings
+
+Upstream issues (section E) are issues #23-36 with the `upstream` label, titled `[upstream #N]`. New problems from real games go in the tracker
+(there is a bug report template); add a FIX_LATER item only when there is background worth keeping.
+
 Status: **open**, **fixed**, **resolved** (nothing to fix) or **kept** (a deliberate difference from Scala).
 
 ## A. Scala oddities still in the Rust (open)

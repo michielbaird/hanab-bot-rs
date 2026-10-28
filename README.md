@@ -87,6 +87,12 @@ docker run --rm -e PUID=1026 -e PGID=100 -v /volume1/docker/hanab:/data \
   container as a non-root user (`--user`), the entrypoint just runs the command as that user and `/data` must be writable by it.
 - **Data:** `/data` is the working directory; `feedback.jsonl` and the analysis output (`/data/analysis`) live there.
 
+## Reporting problems
+
+Open an issue at <https://github.com/michielbaird/hanab-bot-rs/issues> (the bug report template asks for the replay link, which bot and
+convention, and what you expected). In a game you can also PM the bot `/feedback <what happened>`. Known problems, including the ones the
+original scala-bot still has open, are tracked there too.
+
 ## Feedback
 
 When a game starts the bot tells the table: *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
