@@ -1,0 +1,36 @@
+name: Bug report
+description: The bot did something wrong or confusing in a game
+labels: ["bug"]
+body:
+  - type: input
+    id: replay
+    attributes:
+      label: Replay link
+      description: "The hanab.live replay, ideally at the turn where it goes wrong (e.g. https://hanab.live/replay/1234567#31)"
+    validations:
+      required: true
+  - type: input
+    id: bot
+    attributes:
+      label: Bot and convention
+      description: "Which bot account, and the convention/level it was playing (the note on its first card says, e.g. `[INFO: v1.2.8 (hanab-bot-rs), HGroup3]`)"
+    validations:
+      required: true
+  - type: textarea
+    id: incorrect
+    attributes:
+      label: Incorrect behaviour
+      description: What did the bot do, or how did it read a clue?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional information
+      description: "Bot logs, a `/feedback` message, or the output of `analyze id=<replay id> convention=<convention>`"

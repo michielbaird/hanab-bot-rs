@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: In-game feedback
+    url: https://github.com/michielbaird/hanab-bot-rs#feedback
+    about: In a game you can also PM the bot "/feedback <what happened>"; the owner reads those too.
