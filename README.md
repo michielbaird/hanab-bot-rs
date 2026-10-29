@@ -115,6 +115,11 @@ CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull requ
 | library has no network dependencies | the library without `net` builds and its dependency tree has no tokio, reqwest, hyper, tungstenite or futures | `cargo tree --no-default-features -e normal` |
 | docker image | the image builds; no command gives the usage message; `PUID`/`PGID` are honoured and own `/data`; the bot starts | `docker build -t hanab-bot-rs .` |
 
+## Benchmark
+
+`benchmark` plays the same seeded self-play games repeatedly and prints the time per repetition, a fingerprint of every move played (to check that
+a change did not alter the bot's behaviour) and, with `--features stats`, counts of the work done. See [PERFORMANCE.md](PERFORMANCE.md).
+
 ## Reporting problems
 
 Open an issue at <https://github.com/michielbaird/hanab-bot-rs/issues> (the bug report template asks for the replay link, which bot and

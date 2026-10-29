@@ -863,6 +863,7 @@ impl Player {
         if self.dirty.is_empty() {
             return;
         }
+        crate::stats::count(crate::stats::Counter::UpdateHypoStacks);
         let conv = Arc::clone(&game.conv);
         let mut hypo = game.clone();
         hypo.no_recurse = true;
@@ -970,6 +971,7 @@ impl Player {
         unknown_plays: &mut FastBitSet,
         linked_plays: &mut usize,
     ) {
+        crate::stats::count(crate::stats::Counter::HypoPlay);
         let holder = hypo.state.holder_of[order];
 
         let id = hypo.view(self).thoughts[order].id_with(true, false);

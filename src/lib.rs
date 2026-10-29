@@ -11,5 +11,6 @@ pub mod logger;
 pub mod reactor;
 pub mod ref_sieve;
 pub mod settings;
+pub mod stats;
 pub mod tools;
 pub mod util;
