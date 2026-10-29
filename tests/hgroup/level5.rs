@@ -35,7 +35,7 @@ fn understands_a_fake_finesse() {
     has_infs(&game, None, Alice, 2, &["g1", "g2"]);
     assert_eq!(
         game.meta[game.state.hands[Cathy.ordinal()][0]].reasoning,
-        vec![1]
+        std::sync::Arc::new(vec![1])
     );
     take_turn_draw(&mut game, "Cathy discards p3", "r1");
     has_infs(&game, None, Alice, 2, &["g1"]);
