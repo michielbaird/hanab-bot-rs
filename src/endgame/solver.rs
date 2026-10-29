@@ -137,6 +137,8 @@ struct Hypo {
     actions: Actions,
     arrs: (Vec<GameArr>, Vec<GameArr>),
     prob: Frac,
+    /// The identities we can't see in this arrangement.
+    remaining: RemainingMap,
 }
 
 #[derive(Debug)]
@@ -454,6 +456,7 @@ impl EndgameSolver {
                         actions,
                         arrs,
                         prob,
+                        remaining,
                     }
                 },
             )
@@ -462,11 +465,27 @@ impl EndgameSolver {
         if let Some(only) = only_action {
             let mut winrate = Frac::ZERO;
             for hypo in &hypos {
-                if let Some(perform) = hypo.actions.iter().find(|a| a.0 == only) {
+                // `only` may not be a move the convention would consider (for example discarding another trash card than the
+                // expected one); a move that isn't a candidate still has a winrate, so evaluate it anyway.
+                let candidate = hypo
+                    .actions
+                    .iter()
+                    .find(|a| a.0 == only)
+                    .cloned()
+                    .or_else(|| {
+                        match winnable_if(&hypo.game.state, our, only, &hypo.remaining, deadline, 0)
+                        {
+                            SimpleResult::Unwinnable => None,
+                            SimpleResult::WinnableWithDraws(draws) => Some((only, draws)),
+                            SimpleResult::AlwaysWinnable => Some((only, Vec::new())),
+                        }
+                    });
+
+                if let Some(perform) = candidate {
                     let (undrawn, drawn) = &hypo.arrs;
                     let arrs = if perform.0.is_clue() { undrawn } else { drawn };
                     winrate +=
-                        hypo.prob * self.action_winrate(&hypo.game, arrs, perform, our, deadline);
+                        hypo.prob * self.action_winrate(&hypo.game, arrs, &perform, our, deadline);
                 }
             }
             return Ok((only, winrate));

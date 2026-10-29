@@ -123,3 +123,58 @@ fn an_unused_cancel_flag_changes_nothing() {
         .unwrap();
     assert_eq!(with_flag, game.analyze_comments());
 }
+
+/// A real game (replay 2045738, HGroup2, won 25/25). In the last round MichielBaird discards b3 and the next two players
+/// play the last two cards, so the discard did not cost the game. The bot's model of a person's hand follows its
+/// own conventions, which this player did not; the endgame winrates must be computed from the real position.
+#[test]
+fn endgame_comments_use_the_true_position() {
+    logger::set_level(LogLevel::Off);
+    let path = format!(
+        "{}/investigations/replay_2045738.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let data = GameData::from_file(&path).expect("the saved replay");
+    let variant = load_variant(&data.options.variant_name, &HashMap::new()).unwrap();
+    let game = build_game(ConventionKind::HGroup(2), &data, variant, 0, false).unwrap();
+    assert_eq!(game.state.score(), 25);
+
+    let comments = game.analyze_comments();
+    let winrate_complaints: Vec<_> = comments
+        .iter()
+        .filter(|c| c.text.contains("winrate"))
+        .collect();
+    assert!(
+        winrate_complaints.is_empty(),
+        "a winning game drew endgame complaints: {winrate_complaints:#?}"
+    );
+}
+
+/// The same game, but MichielBaird discards g4 instead of playing the y4. Now the yellow 5 can't be played in the
+/// last round, so discarding b3 at the end really does lose and playing y4 would have won: still a mistake.
+#[test]
+fn real_endgame_mistakes_are_still_reported() {
+    logger::set_level(LogLevel::Off);
+    let path = format!(
+        "{}/investigations/replay_2045738.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut data = GameData::from_file(&path).expect("the saved replay");
+    assert_eq!(data.actions[53], PerformAction::Play { target: 36 });
+    data.actions[53] = PerformAction::Discard { target: 28 };
+    let variant = load_variant(&data.options.variant_name, &HashMap::new()).unwrap();
+    let game = build_game(ConventionKind::HGroup(2), &data, variant, 0, false).unwrap();
+
+    let comments = game.analyze_comments();
+    let last_round = comments
+        .iter()
+        .find(|c| c.turn == 57 && c.text.contains("winrate"))
+        .unwrap_or_else(|| panic!("no endgame complaint in {comments:#?}"));
+    assert!(last_round.mistake);
+    assert_eq!(last_round.player_index, 2);
+    assert!(
+        last_round.text.contains("plays y4") && last_round.text.contains("has winrate 1"),
+        "{}",
+        last_round.text
+    );
+}
