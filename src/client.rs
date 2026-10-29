@@ -170,7 +170,10 @@ pub struct BotClient {
     game_started: bool,
     restored_settings: bool,
     tables: HashMap<i64, Table>,
+    /// The convention for the next game (what `/settings` sets).
     convention: ConventionKind,
+    /// The convention the current game was created with. Changing the setting does not change a game in progress.
+    game_convention: Option<ConventionKind>,
     fast_mode: bool,
     leave_pregame_if_only_bots: bool,
     last_requester: Option<String>,
@@ -215,6 +218,7 @@ impl BotClient {
             restored_settings: false,
             tables: HashMap::new(),
             convention: ConventionKind::Reactor,
+            game_convention: None,
             fast_mode: false,
             leave_pregame_if_only_bots: true,
             last_requester: None,
@@ -498,7 +502,10 @@ impl BotClient {
                 .state
                 .clone();
             match self.new_game(msg.table_id, base, c) {
-                Ok(game) => self.game = Some(game),
+                Ok(game) => {
+                    self.game = Some(game);
+                    self.game_convention = Some(c);
+                }
                 Err(e) => log_error!("couldn't restore {c}: {e}"),
             }
         }
@@ -545,6 +552,7 @@ impl BotClient {
         self.game_started = false;
         self.restored_settings = false;
         self.game = None;
+        self.game_convention = None;
     }
 
     fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
@@ -556,6 +564,7 @@ impl BotClient {
         self.table_id = Some(msg.table_id);
         self.restored_settings = false;
         self.game = Some(game);
+        self.game_convention = Some(self.convention);
         self.seed = Some(msg.seed.clone()).filter(|s| !s.is_empty());
 
         if self.config.feedback_intro
@@ -575,12 +584,26 @@ impl BotClient {
         Ok(())
     }
 
+    /// The convention of the game being played, if one is in progress.
+    fn running_convention(&self) -> Option<ConventionKind> {
+        let in_progress = self.game.as_ref().is_some_and(|g| !g.state.ended());
+        self.game_convention.filter(|_| in_progress)
+    }
+
     fn settings_reply(&self) -> String {
-        format!(
-            "Currently playing with {} conventions.{}",
-            self.convention,
-            if self.fast_mode { " [fast mode]" } else { "" }
-        )
+        let fast = if self.fast_mode { " [fast mode]" } else { "" };
+
+        match self.running_convention() {
+            // A new setting only applies to the next game; the running one keeps its conventions.
+            Some(running) if running != self.convention => format!(
+                "This game is being played with {running} conventions; {} will be used from the next game.{fast}",
+                self.convention
+            ),
+            _ => format!(
+                "Currently playing with {} conventions.{fast}",
+                self.convention
+            ),
+        }
     }
 
     fn assign_settings(&mut self, data: &ChatMessage, pm: bool) {
@@ -806,7 +829,9 @@ impl BotClient {
                 .map(|i| i.username.clone())
                 .unwrap_or_default(),
             version: BOT_VERSION.to_string(),
-            convention: self.convention.to_string(),
+            // The game's own convention if there is one: the setting may have been changed during it.
+            convention: self.game_convention.unwrap_or(self.convention).to_string(),
+            setting: Some(self.convention.to_string()),
             table_id: self.table_id,
             ..FeedbackContext::default()
         };

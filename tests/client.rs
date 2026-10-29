@@ -446,3 +446,68 @@ fn it_does_not_repeat_the_announcement_after_play_again() {
     client.handle_msg(&init_for(12, &["bot", "dave"]));
     assert_eq!(announcements(&drain(&mut rx)), 1);
 }
+
+#[test]
+fn a_new_setting_applies_from_the_next_game() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let path = feedback_file("settings.jsonl");
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(path.clone()),
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // No game yet: the setting is simply what it will play.
+    client.handle_msg(&pm("alice", "/settings HGroup3"));
+    client.handle_msg(&pm("alice", "/settings"));
+    let replies = pm_replies(&drain(&mut rx));
+    assert_eq!(replies[0], "Currently playing with HGroup3 conventions.");
+    assert_eq!(replies[1], "Currently playing with HGroup3 conventions.");
+
+    // A game starts with HGroup3. Changing the setting must not claim to change this game.
+    client.handle_msg(&init_for(7, &["bot", "alice"]));
+    drain(&mut rx);
+    client.handle_msg(&pm("alice", "/settings HGroup11"));
+    client.handle_msg(&pm("alice", "/settings"));
+    client.handle_msg(&pm("alice", "/feedback no order chop move"));
+    let replies = pm_replies(&drain(&mut rx));
+    let expected = "This game is being played with HGroup3 conventions; HGroup11 will be used from the next game.";
+    assert_eq!(replies[0], expected);
+    assert_eq!(replies[1], expected);
+    assert!(replies[2].starts_with("Thanks"));
+
+    // Setting it back to what the game is using says nothing special.
+    client.handle_msg(&pm("alice", "/settings HGroup3"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Currently playing with HGroup3 conventions."]
+    );
+    client.handle_msg(&pm("alice", "/settings HGroup11"));
+    drain(&mut rx);
+
+    // The next game uses the new setting.
+    client.handle_msg(&init_for(8, &["bot", "alice"]));
+    drain(&mut rx);
+    client.handle_msg(&pm("alice", "/settings"));
+    client.handle_msg(&pm("alice", "/feedback now it should"));
+    let replies = pm_replies(&drain(&mut rx));
+    assert_eq!(replies[0], "Currently playing with HGroup11 conventions.");
+
+    // The feedback says which convention the game was played with, and what the setting was.
+    let saved: Vec<Value> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(saved.len(), 2);
+    assert_eq!(saved[0]["text"], "no order chop move");
+    assert_eq!(saved[0]["convention"], "HGroup3");
+    assert_eq!(saved[0]["setting"], "HGroup11");
+    assert_eq!(saved[1]["convention"], "HGroup11");
+    assert_eq!(saved[1]["setting"], "HGroup11");
+}

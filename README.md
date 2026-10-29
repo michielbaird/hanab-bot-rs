@@ -125,7 +125,7 @@ original scala-bot still has open, are tracked there too.
 
 When a game starts the bot tells the table (once per person per 24 hours, so "Play again", which keeps the chat, doesn't repeat it): *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
 /pm <bot> /feedback <what happened>"*. `/feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
-convention and version, the table, variant, players, turn and the game's seed. The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
+convention and version, the table, variant, players, turn and the game's seed. `convention` is the one the game is being played with; `setting` is what the bot will use for its next game (a `/settings` change during a game only applies from the next game, and the bot says so). The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
 
 | Environment variable | Effect |
 |---|---|
