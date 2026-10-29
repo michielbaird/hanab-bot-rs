@@ -512,9 +512,10 @@ fn check_sdcm(prev: &Game, game: &Game, action: &DiscardAction) -> Option<DcStat
         DcStatus::Shout
     };
 
-    if state.num_players == 2 {
-        Some(result)
-    } else if cathy == state.our_player_index || common.thinks_loaded(prev, cathy) {
+    if state.num_players == 2
+        || cathy == state.our_player_index
+        || common.thinks_loaded(prev, cathy)
+    {
         Some(result)
     } else {
         let generation = state.clue_tokens == 0

@@ -137,6 +137,10 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     solver evaluates `only_action` even when it isn't a candidate. Regression tests in `tests/analyze.rs` (the saved replay is in
     `investigations/`), including one that real endgame mistakes are still reported.
 
+38. **partly fixed** The library does not depend on tokio or any network crate (`net` feature, see PORTING_NOTES.md). CI builds and tests without
+    `net` and fails if the dependency tree gains tokio, reqwest, hyper, tungstenite or futures. Still open: `/analyze` in chat and
+    `GameData::fetch_id` just fail without `net`; an embedder might prefer a hook (a trait the app implements to fetch an export).
+
 ## D. Other resolved items
 
 7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.

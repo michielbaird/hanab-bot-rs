@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same pull request replaces the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default features
+            flags: ""
+          - name: no default features
+            flags: "--no-default-features"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked ${{ matrix.flags }}
+
+  lints:
+    name: fmt and clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo clippy --locked --all-targets --no-default-features -- -D warnings
+
+  embeddable:
+    name: library has no network dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Builds without the net feature
+        run: cargo build --locked --no-default-features --lib
+      - name: No async or network crates in the dependency tree
+        run: |
+          cargo tree --locked --no-default-features -e normal --prefix none | sort -u
+          if cargo tree --locked --no-default-features -e normal --prefix none | grep -iE '^(tokio|reqwest|hyper|tungstenite|tokio-tungstenite|futures|futures-util|rustls|mio) '; then
+            echo "::error::the library (without the net feature) depends on an async or network crate"
+            exit 1
+          fi
+
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        run: docker buildx build --load -t hanab-bot-rs .
+      - name: Refuses to run without a command
+        run: |
+          set +e
+          out=$(docker run --rm hanab-bot-rs 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -eq 64
+          echo "$out" | grep -q "No command given"
+      - name: Runs the command as PUID:PGID
+        run: |
+          test "$(docker run --rm -e PUID=1234 -e PGID=4321 hanab-bot-rs id -u)" = 1234
+          test "$(docker run --rm -e PUID=1234 -e PGID=4321 hanab-bot-rs id -g)" = 4321
+      - name: Hands the data folder to PUID:PGID
+        run: |
+          mkdir "$RUNNER_TEMP/data"
+          owner=$(docker run --rm -e PUID=1234 -e PGID=4321 -v "$RUNNER_TEMP/data:/data" hanab-bot-rs \
+            sh -c 'touch /data/probe && stat -c %u:%g /data/probe')
+          test "$owner" = "1234:4321"
+      - name: The bot starts and reports missing credentials
+        run: |
+          set +e
+          out=$(docker run --rm hanab-bot-rs bot index=0 2>&1)
+          set -e
+          echo "$out"
+          echo "$out" | grep -q "Missing HANABI_USERNAME0"

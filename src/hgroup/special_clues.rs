@@ -215,7 +215,7 @@ pub enum SymmetricInterp {
 }
 
 pub enum SpecialClueResult {
-    SpecialClue(Game),
+    SpecialClue(Box<Game>),
     NoInterp(SymmetricInterp, FastBitSet),
 }
 
@@ -261,11 +261,11 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
         g.with_move(interp.into(), false);
         g
     };
-    let useless = || SpecialClue(with_move(ClueInterp::Useless));
-    let mistake = || SpecialClue(with_move(ClueInterp::Mistake));
+    let useless = || SpecialClue(Box::new(with_move(ClueInterp::Useless)));
+    let mistake = || SpecialClue(Box::new(with_move(ClueInterp::Mistake)));
 
     if let Some(new_game) = check_h_fix(ctx) {
-        return SpecialClue(new_game);
+        return SpecialClue(Box::new(new_game));
     }
 
     let stall = stalling_situation(ctx);
@@ -304,7 +304,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                 .into(),
                 false,
             );
-            return SpecialClue(g);
+            return SpecialClue(Box::new(g));
         }
     }
 
@@ -319,7 +319,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
         });
         g.meta[focus].focused = true;
         g.with_move(ClueInterp::Distribution.into(), false);
-        return SpecialClue(g);
+        return SpecialClue(Box::new(g));
     }
 
     if game.level() >= level::BASIC_CM {
@@ -329,7 +329,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
             } else {
                 let mut g = handle_tcm(ctx, &tcm, thinks_stall.is_empty());
                 save_ctx(&mut g, ctx);
-                SpecialClue(g)
+                SpecialClue(Box::new(g))
             };
         }
 
@@ -340,7 +340,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                 let mut g = perform_cm(game, &[cm5]);
                 g.with_move(evaluate_cm(ctx, &[cm5]).into(), false);
                 save_ctx(&mut g, ctx);
-                return SpecialClue(g);
+                return SpecialClue(Box::new(g));
             }
             _ => {}
         }
@@ -404,7 +404,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
             .into(),
             false,
         );
-        return SpecialClue(g);
+        return SpecialClue(Box::new(g));
     }
 
     let special_orange_situation = state.variant.inverted
@@ -443,7 +443,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                 });
                 g.meta[focus].trash = true;
                 g.with_move(ClueInterp::Reveal.into(), false);
-                return SpecialClue(g);
+                return SpecialClue(Box::new(g));
             } else {
                 log_info!("orange fix on {focus}! {}", poss.fmt(state));
 
@@ -457,7 +457,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                 let mut g = game.clone();
                 g.common.update_thought(focus, |t| t.inferred = poss);
                 g.with_move(ClueInterp::Reveal.into(), false);
-                return SpecialClue(g);
+                return SpecialClue(Box::new(g));
             }
         }
 
@@ -469,7 +469,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
 
         if let Some(o) = play_fix {
             log_info!("orange play fix! {o}");
-            return SpecialClue(with_move(ClueInterp::Fix));
+            return SpecialClue(Box::new(with_move(ClueInterp::Fix)));
         }
     }
 
@@ -509,7 +509,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                     .into(),
                     false,
                 );
-                return SpecialClue(g);
+                return SpecialClue(Box::new(g));
             }
         }
 

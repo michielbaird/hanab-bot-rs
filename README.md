@@ -1,5 +1,7 @@
 # hanab-bot-rs
 
+[![CI](https://github.com/michielbaird/hanab-bot-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/michielbaird/hanab-bot-rs/actions/workflows/ci.yml)
+
 An unofficial Rust port of [scala-bot](https://github.com/will-hanabi-bot/scala-bot), a deterministic Hanabi bot for
 [hanab.live](https://hanab.live). It plays H-Group conventions (levels 1-12), Referential Sieve and Reactor. GPLv3, like the original. Repository: <https://github.com/michielbaird/hanab-bot-rs>.
 
@@ -101,6 +103,17 @@ docker run --rm -e PUID=1026 -e PGID=100 -v /volume1/docker/hanab:/data \
   the owner of the data folder on the host (on a NAS, the UID/GID of the account that owns the share). If the platform already starts the
   container as a non-root user (`--user`), the entrypoint just runs the command as that user and `/data` must be writable by it.
 - **Data:** `/data` is the working directory; `feedback.jsonl` and the analysis output (`/data/analysis`) live there.
+
+## Development
+
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
+
+| Job | What it checks | Same thing locally |
+|---|---|---|
+| test | all tests, with and without the `net` feature | `cargo test --locked` and `cargo test --locked --no-default-features` |
+| fmt and clippy | formatting and no clippy warnings, both feature sets | `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings` (and with `--no-default-features`) |
+| library has no network dependencies | the library without `net` builds and its dependency tree has no tokio, reqwest, hyper, tungstenite or futures | `cargo tree --no-default-features -e normal` |
+| docker image | the image builds; no command gives the usage message; `PUID`/`PGID` are honoured and own `/data`; the bot starts | `docker build -t hanab-bot-rs .` |
 
 ## Reporting problems
 
