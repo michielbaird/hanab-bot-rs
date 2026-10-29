@@ -506,17 +506,18 @@ pub fn interpret_clue_impl(prev_orig: &Game, game_orig: &Game, action: &ClueActi
 
     let intent = determine_focus(&ctx, false, false);
 
-    if !fix && !trash_push {
-        if let Some(ids) = distribution_clue(prev, game, action, intent) {
-            let mut g = game.clone();
-            g.common.update_thought(intent, |t| {
-                t.inferred = t.inferred.intersect(ids);
-                t.reset = false;
-            });
-            g.with_move(ClueInterp::Distribution.into(), false);
-            g.elim(None, false);
-            return g;
-        }
+    if !fix
+        && !trash_push
+        && let Some(ids) = distribution_clue(prev, game, action, intent)
+    {
+        let mut g = game.clone();
+        g.common.update_thought(intent, |t| {
+            t.inferred = t.inferred.intersect(ids);
+            t.reset = false;
+        });
+        g.with_move(ClueInterp::Distribution.into(), false);
+        g.elim(None, false);
+        return g;
     }
 
     let prev_playables = prev.common.thinks_playables(prev, target, false, true);

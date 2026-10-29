@@ -1005,9 +1005,7 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
                 !dupe_responsibility(orig, id, orig.state.holder_of[discarded[0]]).contains(&our)
             };
 
-            if duplicated() {
-                -0.01
-            } else if potential_own() {
+            if duplicated() || potential_own() {
                 -0.01
             } else {
                 match id.rank {

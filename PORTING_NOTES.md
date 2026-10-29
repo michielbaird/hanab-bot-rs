@@ -259,3 +259,5 @@ behind the `net` feature (default): tokio, tokio-tungstenite, futures-util and r
 binaries have `required-features = ["net"]`, `tools::history` is compiled only with it, and `GameData::fetch_id` returns an error without it.
 `src/bin/bot.rs` keeps tokio for the websocket: a small thread forwards the client's std channel into the async sender task.
 Check the claim with `cargo tree --no-default-features -e normal` (serde and serde_json only) and `cargo test --no-default-features`.
+
+CI enforces both halves (`.github/workflows/ci.yml`, job "library has no network dependencies"), and `cargo clippy -- -D warnings` is clean in both feature sets so it can be enforced too.

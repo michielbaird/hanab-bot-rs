@@ -599,14 +599,8 @@ pub fn eval_game(orig: &Game, game: &Game) -> f64 {
         .map(|order| {
             if game.me().hypo_plays.contains(order) {
                 match game.me().thoughts[order].id_with(true, false) {
-                    None => 0.4,
-                    Some(id) => {
-                        if id.rank == 5 {
-                            0.8
-                        } else {
-                            0.4
-                        }
-                    }
+                    Some(id) if id.rank == 5 => 0.8,
+                    _ => 0.4,
                 }
             } else {
                 match game.meta[order].status {
@@ -732,7 +726,7 @@ pub fn eval_game(orig: &Game, game: &Game) -> f64 {
     } else if state.clue_tokens > 4 {
         -0.5 * num_locked as f64
     } else {
-        -1.0 * num_locked as f64
+        -(num_locked as f64)
     };
 
     let endgame_penalty = orig.state.endgame_turns.map_or(0.0, |turns| {

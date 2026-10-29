@@ -845,13 +845,12 @@ fn resolve_retained(
             }
         }
 
-        Action::Discard(d) => {
+        Action::Discard(d)
             if matches!(wc.curr_conn(), Connection::Positional { .. })
-                && prev.chop(d.player_index) != Some(d.order)
-            {
-                log_info!("allowing {name} to defer a positional by performing a positional!");
-                return UpdateResult::Keep;
-            }
+                && prev.chop(d.player_index) != Some(d.order) =>
+        {
+            log_info!("allowing {name} to defer a positional by performing a positional!");
+            return UpdateResult::Keep;
         }
 
         _ => {}

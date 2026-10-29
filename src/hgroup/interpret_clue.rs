@@ -342,7 +342,7 @@ pub fn interp_clue(ctx: &ClueContext) -> Game {
     }
 
     match interp_special_clue(ctx) {
-        SpecialClueResult::SpecialClue(new_game) => new_game,
+        SpecialClueResult::SpecialClue(new_game) => *new_game,
         SpecialClueResult::NoInterp(interp, thinks_stall) => {
             interp_normal_clue(ctx, interp, thinks_stall)
         }
