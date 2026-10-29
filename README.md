@@ -82,6 +82,21 @@ Logging into hanab.live (the `POST /login` that returns the session cookie) and 
 shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `/analyze`
 chat command needs the `net` feature and answers that it is unavailable without it.
 
+## Changing the convention
+
+PM the bot (or say in the table chat) `/settings <convention>` / `/setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
+game in progress is still played with the convention it started with, and the bot says so. To switch the game in progress, add `force`:
+
+```
+/settings HGroup3 force
+```
+
+The bot rebuilds the game from its start with the new convention, rewrites its notes (the first card now names the new convention; notes the old
+convention wrote on other cards are updated or cleared), says so at the table and replays the whole game to catch up, then carries on (and plays at
+once if it is its turn). Its earlier moves were made with the old convention and some of them may now be read differently, which can cause
+misreads, but that is usually better than ending the game with a strike. Only players in the current game can force a switch. The rewrite sends one note per
+card, so it takes some seconds.
+
 ## Docker
 
 ```

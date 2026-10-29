@@ -6,6 +6,7 @@ mod common;
 use hanab_bot::basics::Variant;
 use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::logger::{self, LogLevel};
+use hanab_bot::settings::ConventionKind;
 use serde_json::{Value, json};
 use std::sync::mpsc::{Receiver, channel as unbounded_channel};
 
@@ -476,7 +477,7 @@ fn a_new_setting_applies_from_the_next_game() {
     client.handle_msg(&pm("alice", "/settings"));
     client.handle_msg(&pm("alice", "/feedback no order chop move"));
     let replies = pm_replies(&drain(&mut rx));
-    let expected = "This game is being played with HGroup3 conventions; HGroup11 will be used from the next game.";
+    let expected = "This game is being played with HGroup3 conventions; HGroup11 will be used from the next game (use `/settings HGroup11 force` to switch now).";
     assert_eq!(replies[0], expected);
     assert_eq!(replies[1], expected);
     assert!(replies[2].starts_with("Thanks"));
@@ -510,4 +511,189 @@ fn a_new_setting_applies_from_the_next_game() {
     assert_eq!(saved[0]["setting"], "HGroup11");
     assert_eq!(saved[1]["convention"], "HGroup11");
     assert_eq!(saved[1]["setting"], "HGroup11");
+}
+
+fn deal_for(table_id: usize, bot_cards: &[(i64, i64)], current_player: usize) -> String {
+    // The bot's own cards are hidden; the human holds `bot_cards` (suit, rank).
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order, "suitIndex": -1, "rank": -1}))
+        .collect();
+    for (i, (suit, rank)) in bot_cards.iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "suitIndex": suit, "rank": rank}));
+    }
+    list.push(json!({"type": "turn", "num": 0, "currentPlayerIndex": current_player}));
+    format!(
+        "gameActionList {}",
+        json!({"tableID": table_id, "list": list})
+    )
+}
+
+#[test]
+fn a_convention_can_be_forced_during_a_game() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: None,
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // Without a game, "force" is just a setting.
+    client.handle_msg(&pm("alice", "/settings HGroup5 force"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Currently playing with HGroup5 conventions."]
+    );
+
+    // A game starts with HGroup5.
+    client.handle_msg(&init_for(7, &["bot", "alice"]));
+    client.handle_msg(r#"noteListPlayer {"tableID": 7, "notes": ["", "", "", "", ""]}"#);
+    let deal = deal_for(7, &[(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)], 1);
+    client.handle_msg(&deal);
+    drain(&mut rx);
+    let hands = client.game.as_ref().unwrap().state.hands.clone();
+    assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup5");
+
+    // The old convention had written a note on card 3 (which the new game won't have).
+    std::sync::Arc::make_mut(&mut client.game.as_mut().unwrap().notes).insert(
+        3,
+        hanab_bot::basics::game::Note {
+            turn: 1,
+            last: "r1".to_string(),
+            full: "t1: r1".to_string(),
+        },
+    );
+
+    // Someone who isn't playing can't force it.
+    client.handle_msg(&pm("bob", "/settings HGroup3 force"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Only players in the current game can force a convention change."]
+    );
+    assert_eq!(client.convention(), ConventionKind::HGroup(5));
+
+    // A player can. The game is rebuilt with the new convention, the first-card note is rewritten and the
+    // server is asked for the action list again.
+    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    let outs = drain(&mut rx);
+    let sent = sends(&outs);
+    assert!(
+        sent.iter().any(|m| m.starts_with("chat ")
+            && m.contains("Switching to HGroup3 conventions")
+            && m.contains("alice")
+            && m.contains("HGroup5")),
+        "{sent:?}"
+    );
+    assert!(
+        sent.iter().any(|m| m.starts_with("note ")
+            && m.contains(r#""order":0"#)
+            && m.contains("HGroup3")
+            && !m.contains("HGroup5")),
+        "{sent:?}"
+    );
+    assert!(sent.contains(&r#"getGameInfo2 {"tableID":7}"#), "{sent:?}");
+    assert_eq!(client.convention(), ConventionKind::HGroup(3));
+    assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
+
+    // Asking again while it is switching is refused, and a move that arrives meanwhile is left to the list.
+    client.handle_msg(&pm("alice", "/settings HGroup7 force"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Already switching conventions, please wait a moment."]
+    );
+    client.handle_msg(r#"gameAction {"tableID": 7, "action": {"type": "turn", "num": 1, "currentPlayerIndex": 0}}"#);
+    assert_eq!(client.game.as_ref().unwrap().state.turn_count, 0);
+
+    // The list arrives: the same game, replayed with the new convention. The table has loaded it already.
+    client.handle_msg(&deal);
+    let outs = drain(&mut rx);
+    assert!(
+        !sends(&outs).iter().any(|m| m.starts_with("loaded ")),
+        "{:?}",
+        sends(&outs)
+    );
+    let game = client.game.as_ref().unwrap();
+    assert_eq!(game.state.hands, hands);
+    assert_eq!(game.conv.name(), "HGroup3");
+
+    // The notes are rewritten for the new convention: the first card says HGroup3, and the stale note on card 3 is cleared.
+    let notes: Vec<Value> = sends(&outs)
+        .iter()
+        .filter_map(|m| m.strip_prefix("note "))
+        .map(|args| serde_json::from_str(args).unwrap())
+        .collect();
+    let note_on = |order: u64| {
+        notes
+            .iter()
+            .find(|n| n["order"] == order)
+            .map(|n| n["note"].as_str().unwrap().to_string())
+    };
+    assert!(note_on(0).unwrap().contains("HGroup3"), "{notes:?}");
+    assert_eq!(note_on(3), Some(String::new()), "{notes:?}");
+
+    // Now it is the setting and the game's convention, so there is nothing more to say.
+    client.handle_msg(&pm("alice", "/settings"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Currently playing with HGroup3 conventions."]
+    );
+    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["Currently playing with HGroup3 conventions."]
+    );
+
+    // Without "force" a change still only applies to the next game.
+    client.handle_msg(&pm("alice", "/settings HGroup7"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        [
+            "This game is being played with HGroup3 conventions; HGroup7 will be used from the next game (use `/settings HGroup7 force` to switch now)."
+        ]
+    );
+    assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
+}
+
+#[test]
+fn after_a_forced_switch_the_bot_plays_its_turn_with_the_new_convention() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: None,
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // It is the bot's own turn when the table decides to switch.
+    client.handle_msg(&init_for(7, &["bot", "alice"]));
+    client.handle_msg(r#"noteListPlayer {"tableID": 7, "notes": ["", "", "", "", ""]}"#);
+    let deal = deal_for(7, &[(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)], 0);
+    client.handle_msg(&deal);
+    let first = drain(&mut rx);
+    assert!(
+        sends(&first).iter().any(|m| m.starts_with("action ")),
+        "{:?}",
+        sends(&first)
+    );
+
+    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    drain(&mut rx);
+    client.handle_msg(&deal);
+    let outs = drain(&mut rx);
+
+    assert!(
+        sends(&outs).iter().any(|m| m.starts_with("action ")),
+        "{:?}",
+        sends(&outs)
+    );
+    assert!(!sends(&outs).iter().any(|m| m.starts_with("loaded ")));
+    assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
 }
