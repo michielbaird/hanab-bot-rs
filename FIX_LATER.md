@@ -129,15 +129,13 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     (`endgame::solver::set_default_timeout`). The real fix is a faster search: most of its time is in `Game::simulate_action`, i.e. the
     clone/`elim`/`update_hypo_stacks` costs of section C.
 
-37. **open** Endgame "mistake!" comments from `analyze` can be spurious for people: the solver works from the commenting player's
-    point of view with the bot's *conventional* inferences, so a person who deviated from the bot's conventions can hold a hand the model
-    thinks impossible and every action of theirs scores 0. Example: replay 2045738, turn 56 (MichielBaird discards b3, winrate 0 vs. 1
-    for g4), yet that game finished 25/25 with that discard. Treat endgame comments about people with suspicion; for the bots' own moves
-    they are meaningful. Possible fix: solve from the true hand (the analysis knows the whole deck) rather than the hidden-hand view.
-
-38. **kept** The library does not depend on tokio or any network crate (`net` feature, see PORTING_NOTES.md). Not yet automated: nothing in CI
-    stops a network dependency creeping back into the default-feature-free build (there is no CI yet). Also open: `/analyze` in chat and
-    `GameData::fetch_id` just fail without `net`; an embedder might prefer a hook (a trait the app implements to fetch an export).
+37. **fixed** Endgame "mistake!" comments from `analyze` could be spurious for people. Two causes, both fixed: the solver worked from the mover's
+    point of view with the bot's conventional inferences, so a person who deviated could hold a hand the model thinks impossible; and
+    `solve(.., Some(action))` only scores the moves the convention would consider (`find_all_discards` returns just the expected discard), giving any
+    other move a winrate of 0 meaning "not evaluated" (replay 2045738, turn 56: MichielBaird discards b3 instead of the expected g4, in a game
+    that finished 25/25). The analysis now keeps a second, fully visible replay per player, reveals the mover's hand for the solver, and the
+    solver evaluates `only_action` even when it isn't a candidate. Regression tests in `tests/analyze.rs` (the saved replay is in
+    `investigations/`), including one that real endgame mistakes are still reported.
 
 ## D. Other resolved items
 

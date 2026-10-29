@@ -132,5 +132,5 @@ note (`convention=` is the fallback). Per game it writes `analysis/<id>.txt` (re
 how often the bot disagrees with its own moves and with everyone else's) and a list of games worth a look, with any `/feedback` that carries the
 same seed. A disagreement with the bot's *own* move means the bot has changed since or isn't deterministic; disagreements with humans are expected.
 
-Endgame "mistake!" comments about *people's* moves can be spurious (the bot's model of a person's hand follows its own conventions); they are reliable for the bots' own moves.
+Endgame "mistake!" comments compare the winrates of the bot's move and the player's move from the real position at that turn (everyone's hand revealed, including the mover's own), so they are about what really happens, not about what the bot's conventions would have predicted.
 `ANALYZE_ENDGAME_TIMEOUT_MS` (default 500) sets how long each endgame winrate may take.

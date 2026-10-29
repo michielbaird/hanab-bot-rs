@@ -6,6 +6,7 @@ use std::time::Duration;
 use super::{Base, Game};
 use crate::basics::action::{Action, DrawAction, PerformAction};
 use crate::basics::card::{Identifiable, Identity};
+use crate::basics::identity_set::IdentitySet;
 use crate::endgame::EndgameSolver;
 use crate::frac::Frac;
 use crate::logger::{LevelGuard, LogLevel};
@@ -130,6 +131,11 @@ impl Game {
                 state: g.state.clone(),
                 ..(*g.base).clone()
             });
+            // The same game with every card visible, including this player's own. The suggestions come from `g`,
+            // which sees what the player saw, but endgame winrates are about what really happens, so they are
+            // computed here: a player who didn't follow the bot's conventions can hold a hand that the bot's
+            // model of them rules out.
+            let mut seen_all = g.clone();
 
             let mut comments = Vec::new();
 
@@ -156,6 +162,18 @@ impl Game {
                             id,
                         });
                         g.handle_action(&draw).expect("failed to replay draw");
+
+                        let revealed = Action::Draw(DrawAction {
+                            player_index: *player_index,
+                            order: *order,
+                            id: Some(
+                                self.deck_ids[*order]
+                                    .expect("analyzing a game with an unknown card"),
+                            ),
+                        });
+                        seen_all
+                            .handle_action(&revealed)
+                            .expect("failed to replay draw");
                     }
 
                     a if a.is_player_action() && a.player_index() == Some(index) => {
@@ -207,11 +225,23 @@ impl Game {
                                     });
                                 }
                             } else {
-                                // The winrates are computed from the position at this move.
+                                // The winrates are computed from the real position at this move, in which the mover knows
+                                // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
+                                let mut real = seen_all.clone();
+                                for order in real.state.hands[index].clone() {
+                                    if let Some(id) = self.deck_ids[order] {
+                                        real.players[index].update_thought(order, |t| {
+                                            t.seen = Some(id);
+                                            t.possible = IdentitySet::from(id);
+                                            t.inferred = IdentitySet::from(id);
+                                        });
+                                    }
+                                }
+
                                 let winrate = |perform: PerformAction| {
                                     let mut solver =
                                         EndgameSolver::new(true).with_timeout(endgame_timeout());
-                                    match solver.solve(&g, Some(perform)) {
+                                    match solver.solve(&real, Some(perform)) {
                                         Err(_) => Frac::ZERO,
                                         Ok((_, winrate)) if winrate < Frac::new(1, 100) => {
                                             Frac::ZERO
@@ -239,10 +269,18 @@ impl Game {
                         }
 
                         g.handle_action(action).expect("failed to replay action");
+                        seen_all
+                            .handle_action(action)
+                            .expect("failed to replay action");
                         report(moves_done.fetch_add(1, Ordering::Relaxed) + 1);
                     }
 
-                    _ => g.handle_action(action).expect("failed to replay action"),
+                    _ => {
+                        g.handle_action(action).expect("failed to replay action");
+                        seen_all
+                            .handle_action(action)
+                            .expect("failed to replay action");
+                    }
                 }
             }
 
