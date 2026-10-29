@@ -144,7 +144,7 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.
 27. **resolved** H-Group strength vs. Scala has been measured (HANDOFF.md, "Scala parity"): HGroup5 24.43 vs 24.33 average over 30 games each;
     HGroup3 24.47 vs 24.0; RefSieve 23.67 vs 24.37.
-35. **kept** Live bots announce `/feedback` at the start of each game and append JSON lines to `feedback.jsonl` (not in Scala).
+35. **kept** Live bots announce `/feedback` at the start of a game (but not again to the same people within 24 h, so "Play again" doesn't repeat it) and append JSON lines to `feedback.jsonl` (not in Scala).
 
 ## E. Upstream issues (will-hanabi-bot/scala-bot), checked 2026-10-28
 

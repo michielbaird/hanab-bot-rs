@@ -18,7 +18,9 @@ use crate::basics::action::Action;
 use crate::basics::game::Note;
 use crate::basics::state::TableOptions;
 use crate::basics::{Game, PerformAction, State, Variant};
-use crate::feedback::{Context as FeedbackContext, FeedbackError, FeedbackStore, MAX_LENGTH};
+use crate::feedback::{
+    Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
+};
 use crate::settings::{
     BOT_VERSION, ConventionKind, MAX_H_LEVEL, info_note, parse_convention_from_note,
 };
@@ -174,7 +176,8 @@ pub struct BotClient {
     last_requester: Option<String>,
     feedback: FeedbackStore,
     /// The table where the feedback instructions were last announced.
-    intro_table: Option<usize>,
+    /// Who has been told how to send feedback.
+    intro: IntroTracker,
     /// The seed of the current game (it determines the deal), saved with feedback.
     seed: Option<String>,
     /// The current game, if any.
@@ -216,7 +219,7 @@ impl BotClient {
             leave_pregame_if_only_bots: true,
             last_requester: None,
             feedback: FeedbackStore::new(config.feedback_file.clone()),
-            intro_table: None,
+            intro: IntroTracker::default(),
             seed: None,
             game: None,
             config,
@@ -546,6 +549,7 @@ impl BotClient {
 
     fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
         let variant = Variant::get(&msg.options.variant_name)?;
+        let players = msg.player_names.clone();
         let state = State::new(msg.player_names, msg.our_player_index, variant, msg.options);
         let game = self.new_game(msg.table_id, state, self.convention)?;
 
@@ -556,10 +560,10 @@ impl BotClient {
 
         if self.config.feedback_intro
             && self.feedback.is_enabled()
-            && self.intro_table != Some(msg.table_id)
+            && let Some(name) = self.info.as_ref().map(|i| i.username.clone())
         {
-            self.intro_table = Some(msg.table_id);
-            if let Some(name) = self.info.as_ref().map(|i| i.username.clone()) {
+            // (Not every game: after "play again" the chat carries over and the same people already saw it.)
+            if self.intro.should_announce(&players, &name, Instant::now()) {
                 self.send_chat(&format!(
                     "I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with: /pm {name} /feedback <what happened>"
                 ));
