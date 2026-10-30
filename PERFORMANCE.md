@@ -62,4 +62,4 @@ every player, each time replaying the hypothetical plays. Ideas, roughly by expe
    Copying less of the game for the hypothetical does not work either: `thinks_playables` reads the other players' views.
 2. Fewer game copies in hypothetical plays when connections are waiting (the `prev` copy and `refresh_wcs`).
 3. ~~Caching `order_trash` / `thinks_trash`~~: measured, about 2% of the run; not worth the invalidation risk.
-4. Searching the endgame in parallel (the solver is single-threaded and often hits its time limit).
+4. ~~Searching the endgame in parallel~~: done, opt-in (`HANABI_ENDGAME_THREADS`, `EndgameSolver::with_threads`). The first moves are tried on separate threads and the best is picked in order, so the answer is the same for any thread count when the search finishes. On `it_completes_an_early_endgame` (3.3 s on one thread) 4 threads take 1.3 s; searches dominated by one move gain nothing.
