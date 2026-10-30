@@ -169,8 +169,16 @@ pub struct BotClient {
     table_id: Option<usize>,
     game_started: bool,
     restored_settings: bool,
+    /// Set while a forced convention switch is waiting for the server to send the action list again. Moves that
+    /// arrive meanwhile are ignored: the list will contain them.
+    resyncing: bool,
+    /// The cards the old convention had written notes on, for a forced switch to clear or rewrite.
+    old_note_orders: Vec<usize>,
     tables: HashMap<i64, Table>,
+    /// The convention for the next game (what `/settings` sets).
     convention: ConventionKind,
+    /// The convention the current game was created with. Changing the setting does not change a game in progress.
+    game_convention: Option<ConventionKind>,
     fast_mode: bool,
     leave_pregame_if_only_bots: bool,
     last_requester: Option<String>,
@@ -213,8 +221,11 @@ impl BotClient {
             table_id: None,
             game_started: false,
             restored_settings: false,
+            resyncing: false,
+            old_note_orders: Vec::new(),
             tables: HashMap::new(),
             convention: ConventionKind::Reactor,
+            game_convention: None,
             fast_mode: false,
             leave_pregame_if_only_bots: true,
             last_requester: None,
@@ -308,6 +319,9 @@ impl BotClient {
                 }
 
                 "gameAction" => {
+                    if self.resyncing {
+                        return Ok(());
+                    }
                     let json = parse("gameAction")?;
                     match Action::from_json(&json["action"]) {
                         Ok(Some(action)) => self.handle_action(&action),
@@ -348,6 +362,9 @@ impl BotClient {
                             return Ok(());
                         }
 
+                        // After a forced convention switch the table has already loaded the game.
+                        let resync = std::mem::take(&mut self.resyncing);
+
                         if let Some((last, init)) = list.split_last() {
                             for action in init {
                                 self.handle_action(action);
@@ -355,9 +372,15 @@ impl BotClient {
                             if let Some(game) = &mut self.game {
                                 game.catchup = false;
                             }
-                            self.send_cmd("loaded", &json!({"tableID": table_id}));
-                            self.emit(Out::Wait(Duration::from_millis(1000)));
+                            if !resync {
+                                self.send_cmd("loaded", &json!({"tableID": table_id}));
+                                self.emit(Out::Wait(Duration::from_millis(1000)));
+                            }
                             self.handle_action(last);
+                        }
+
+                        if resync {
+                            self.rewrite_notes(table_id as usize);
                         }
                     }
                 }
@@ -498,7 +521,10 @@ impl BotClient {
                 .state
                 .clone();
             match self.new_game(msg.table_id, base, c) {
-                Ok(game) => self.game = Some(game),
+                Ok(game) => {
+                    self.game = Some(game);
+                    self.game_convention = Some(c);
+                }
                 Err(e) => log_error!("couldn't restore {c}: {e}"),
             }
         }
@@ -545,6 +571,7 @@ impl BotClient {
         self.game_started = false;
         self.restored_settings = false;
         self.game = None;
+        self.game_convention = None;
     }
 
     fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
@@ -556,6 +583,7 @@ impl BotClient {
         self.table_id = Some(msg.table_id);
         self.restored_settings = false;
         self.game = Some(game);
+        self.game_convention = Some(self.convention);
         self.seed = Some(msg.seed.clone()).filter(|s| !s.is_empty());
 
         if self.config.feedback_intro
@@ -575,12 +603,26 @@ impl BotClient {
         Ok(())
     }
 
+    /// The convention of the game being played, if one is in progress.
+    fn running_convention(&self) -> Option<ConventionKind> {
+        let in_progress = self.game.as_ref().is_some_and(|g| !g.state.ended());
+        self.game_convention.filter(|_| in_progress)
+    }
+
     fn settings_reply(&self) -> String {
-        format!(
-            "Currently playing with {} conventions.{}",
-            self.convention,
-            if self.fast_mode { " [fast mode]" } else { "" }
-        )
+        let fast = if self.fast_mode { " [fast mode]" } else { "" };
+
+        match self.running_convention() {
+            // A new setting only applies to the next game; the running one keeps its conventions.
+            Some(running) if running != self.convention => format!(
+                "This game is being played with {running} conventions; {0} will be used from the next game (use `/settings {0} force` to switch now).{fast}",
+                self.convention
+            ),
+            _ => format!(
+                "Currently playing with {} conventions.{fast}",
+                self.convention
+            ),
+        }
     }
 
     fn assign_settings(&mut self, data: &ChatMessage, pm: bool) {
@@ -592,25 +634,95 @@ impl BotClient {
             }
         };
 
-        match data.msg.split_once(' ') {
-            None => reply(self, &self.settings_reply()),
-            Some((_, conv_str)) => {
-                match ConventionKind::parse(conv_str).and_then(|c| c.build().map(|_| c)) {
-                    Err(msg) => reply(self, &msg),
-                    Ok(c) => {
-                        self.convention = c;
-                        reply(self, &self.settings_reply());
+        let Some((_, rest)) = data.msg.split_once(' ') else {
+            reply(self, &self.settings_reply());
+            return;
+        };
 
-                        if matches!(c, ConventionKind::HGroup(level) if level >= MAX_H_LEVEL) {
-                            reply(
-                                self,
-                                "Above level 11, the bot plays with minimal context: only stale 1s after early game and explicit focus inversion.",
-                            );
-                        }
-                    }
-                }
+        // `/settings <convention> force` also switches the game in progress.
+        let rest = rest.trim();
+        let (conv_str, force) = match rest.rsplit_once(' ') {
+            Some((head, last)) if last.eq_ignore_ascii_case("force") => (head.trim(), true),
+            _ => (rest, false),
+        };
+
+        let c = match ConventionKind::parse(conv_str).and_then(|c| c.build().map(|_| c)) {
+            Ok(c) => c,
+            Err(msg) => {
+                reply(self, &msg);
+                return;
             }
+        };
+
+        match self.running_convention() {
+            Some(running) if force && running != c => {
+                if let Err(msg) = self.force_switch(&data.who, c) {
+                    reply(self, &msg);
+                }
+                return;
+            }
+            _ => {}
         }
+
+        self.convention = c;
+        reply(self, &self.settings_reply());
+
+        if matches!(c, ConventionKind::HGroup(level) if level >= MAX_H_LEVEL) {
+            reply(
+                self,
+                "Above level 11, the bot plays with minimal context: only stale 1s after early game and explicit focus inversion.",
+            );
+        }
+    }
+
+    /// Switches the game in progress to another convention: the game is rebuilt from its start with `c`, the note on
+    /// the first card is rewritten, and the server is asked for the action list again so the whole game is replayed
+    /// (and the notes rewritten) with the new conventions. The moves already made were made with the old ones, so
+    /// the bot may read some of them differently now; that is usually better than ending the game.
+    fn force_switch(&mut self, who: &str, c: ConventionKind) -> Result<(), String> {
+        let (Some(table_id), Some(game)) = (self.table_id, &self.game) else {
+            return Err("There is no game to switch.".to_string());
+        };
+
+        if !game.state.names.iter().any(|name| name == who) {
+            return Err(
+                "Only players in the current game can force a convention change.".to_string(),
+            );
+        }
+        if self.resyncing {
+            return Err("Already switching conventions, please wait a moment.".to_string());
+        }
+
+        let previous = self.game_convention.unwrap_or(self.convention);
+        let mut new_game = self.new_game(table_id, game.base.state.clone(), c)?;
+
+        // The first card carries the settings (this is how a restarted bot knows what the game is played with).
+        let note = info_note(c);
+        std::sync::Arc::make_mut(&mut new_game.notes).insert(
+            0,
+            Note {
+                turn: 0,
+                last: note.clone(),
+                full: note.clone(),
+            },
+        );
+
+        self.old_note_orders = game.notes.keys().copied().collect();
+        self.convention = c;
+        self.game_convention = Some(c);
+        self.game = Some(new_game);
+        self.resyncing = true;
+
+        self.send_chat(&format!(
+            "Switching to {c} conventions for the rest of this game, as {who} asked. Replaying the game to catch up; my earlier moves were made with {previous}."
+        ));
+        self.send_cmd(
+            "note",
+            &json!({"tableID": table_id, "order": 0, "note": note}),
+        );
+        // This sends 'gameActionList' again, which is replayed into the new game.
+        self.send_cmd("getGameInfo2", &json!({"tableID": table_id}));
+        Ok(())
     }
 
     fn send_help(&self, who: &str) {
@@ -806,7 +918,9 @@ impl BotClient {
                 .map(|i| i.username.clone())
                 .unwrap_or_default(),
             version: BOT_VERSION.to_string(),
-            convention: self.convention.to_string(),
+            // The game's own convention if there is one: the setting may have been changed during it.
+            convention: self.game_convention.unwrap_or(self.convention).to_string(),
+            setting: Some(self.convention.to_string()),
             table_id: self.table_id,
             ..FeedbackContext::default()
         };
@@ -834,6 +948,32 @@ impl BotClient {
             log_error!("couldn't save the failure report: {e:?}");
         }
         self.send_chat("Sorry, I hit an internal error on this turn and made a fallback move.");
+    }
+
+    /// After a forced switch has been replayed: write every note the new game holds (replaying only stores them, it
+    /// sends none), and clear the notes the old convention wrote on cards that have none now.
+    fn rewrite_notes(&mut self, table_id: usize) {
+        let Some(game) = &self.game else { return };
+
+        let mut notes: Vec<(usize, String)> = game
+            .notes
+            .iter()
+            .map(|(&order, note)| (order, note.full.clone()))
+            .collect();
+        for &order in &self.old_note_orders {
+            if !game.notes.contains_key(&order) {
+                notes.push((order, String::new()));
+            }
+        }
+        notes.sort_by_key(|&(order, _)| order);
+        self.old_note_orders.clear();
+
+        for (order, note) in notes {
+            self.send_cmd(
+                "note",
+                &json!({"tableID": table_id, "order": order, "note": note}),
+            );
+        }
     }
 
     fn feedback_command(&mut self, who: &str, msg: &str) {

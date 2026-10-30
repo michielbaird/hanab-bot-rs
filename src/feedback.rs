@@ -28,7 +28,10 @@ pub enum FeedbackError {
 pub struct Context {
     pub bot: String,
     pub version: String,
+    /// The convention of the game the feedback is about (or the current setting when there is no game).
     pub convention: String,
+    /// The convention the bot will use for its next game; differs from `convention` if it was changed during a game.
+    pub setting: Option<String>,
     pub table_id: Option<usize>,
     pub variant: Option<String>,
     pub players: Vec<String>,
@@ -166,6 +169,7 @@ fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Val
         "bot": context.bot,
         "version": context.version,
         "convention": context.convention,
+        "setting": context.setting,
         "table_id": context.table_id,
         "variant": context.variant,
         "players": context.players,

@@ -82,6 +82,21 @@ Logging into hanab.live (the `POST /login` that returns the session cookie) and 
 shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `/analyze`
 chat command needs the `net` feature and answers that it is unavailable without it.
 
+## Changing the convention
+
+PM the bot (or say in the table chat) `/settings <convention>` / `/setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
+game in progress is still played with the convention it started with, and the bot says so. To switch the game in progress, add `force`:
+
+```
+/settings HGroup3 force
+```
+
+The bot rebuilds the game from its start with the new convention, rewrites its notes (the first card now names the new convention; notes the old
+convention wrote on other cards are updated or cleared), says so at the table and replays the whole game to catch up, then carries on (and plays at
+once if it is its turn). Its earlier moves were made with the old convention and some of them may now be read differently, which can cause
+misreads, but that is usually better than ending the game with a strike. Only players in the current game can force a switch. The rewrite sends one note per
+card, so it takes some seconds.
+
 ## Docker
 
 ```
@@ -125,7 +140,7 @@ original scala-bot still has open, are tracked there too.
 
 When a game starts the bot tells the table (once per person per 24 hours, so "Play again", which keeps the chat, doesn't repeat it): *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
 /pm <bot> /feedback <what happened>"*. `/feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
-convention and version, the table, variant, players, turn and the game's seed. The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
+convention and version, the table, variant, players, turn and the game's seed. `convention` is the one the game is being played with; `setting` is what the bot will use for its next game (a `/settings` change during a game only applies from the next game, and the bot says so). The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
 
 | Environment variable | Effect |
 |---|---|
