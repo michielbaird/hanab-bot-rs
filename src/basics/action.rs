@@ -105,6 +105,42 @@ pub enum EndCondition {
     TerminatedByVote,
 }
 
+impl EndCondition {
+    /// The end condition hanab.live sends as the `value` of an end-game action.
+    pub fn from_value(value: i64) -> Option<Self> {
+        Some(match value {
+            0 => Self::InProgress,
+            1 => Self::Normal,
+            2 => Self::Strikeout,
+            3 => Self::Timeout,
+            4 => Self::Terminated,
+            5 => Self::SpeedrunFail,
+            6 => Self::IdleTimeout,
+            7 => Self::CharacterSoftlock,
+            8 => Self::AllOrNothingFail,
+            9 => Self::AllOrNothingSoftlock,
+            10 => Self::TerminatedByVote,
+            _ => return None,
+        })
+    }
+
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::InProgress => "still in progress",
+            Self::Normal => "finished normally",
+            Self::Strikeout => "struck out",
+            Self::Timeout => "timed out",
+            Self::Terminated => "terminated by a player",
+            Self::SpeedrunFail => "speedrun failed",
+            Self::IdleTimeout => "idle timeout",
+            Self::CharacterSoftlock => "character softlock",
+            Self::AllOrNothingFail => "all or nothing failed",
+            Self::AllOrNothingSoftlock => "all or nothing softlock",
+            Self::TerminatedByVote => "terminated by vote",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GameOverAction {
     /// The reason for the game over (see [`EndCondition`]).

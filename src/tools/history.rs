@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::game_data::{GameData, build_game};
-use crate::basics::Variant;
+use crate::basics::action::EndCondition;
+use crate::basics::{PerformAction, Variant};
 use crate::settings::{ConventionKind, parse_convention_from_note};
 
 /// One row of `/api/v1/history/<user>`.
@@ -115,6 +116,15 @@ pub struct Disagreement {
     pub text: String,
 }
 
+/// A game that was cut short by an end-game action (a player terminated the table, a timeout, ...).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndedEarly {
+    /// The player who caused it.
+    pub by: String,
+    /// Why, e.g. `terminated by a player`.
+    pub reason: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GameReport {
     pub id: u64,
@@ -130,6 +140,13 @@ pub struct GameReport {
     pub score: usize,
     pub max_score: usize,
     pub strikes: usize,
+    /// How many actions the game had.
+    #[serde(default)]
+    pub actions: usize,
+    /// Set when the game ended with an end-game action instead of being played out. Such games say little about the
+    /// quality of play, so the summary counts them separately.
+    #[serde(default)]
+    pub ended_early: Option<EndedEarly>,
     /// Disagreements with our bots' own moves (each analyzed with the convention it played).
     pub own: Vec<Disagreement>,
     /// Disagreements with everyone else's moves (other bots with theirs, people with the primary convention).
@@ -141,6 +158,11 @@ pub struct GameReport {
 impl GameReport {
     pub fn perfect(&self) -> bool {
         self.error.is_none() && self.score == self.max_score
+    }
+
+    /// Analyzed, and played out (not ended by a player or a timeout).
+    pub fn played_to_the_end(&self) -> bool {
+        self.error.is_none() && self.ended_early.is_none()
     }
 
     pub fn own_mistakes(&self) -> usize {
@@ -155,6 +177,9 @@ impl GameReport {
     fn severity(&self) -> usize {
         if self.error.is_some() {
             return 10_000;
+        }
+        if self.ended_early.is_some() {
+            return 0;
         }
         let mut severity = 0;
         if self.strikes >= 3 {
@@ -220,6 +245,20 @@ fn analyze_into(
         .unwrap_or_else(|| "No Variant".to_string());
     report.variant = data.options.variant_name.clone();
     report.players = data.players.clone();
+    report.actions = data.actions.len();
+    if let Some(&PerformAction::Terminate { target, value }) = data.actions.last() {
+        report.ended_early = Some(EndedEarly {
+            by: data
+                .players
+                .get(target)
+                .cloned()
+                .unwrap_or_else(|| "?".to_string()),
+            reason: EndCondition::from_value(value as i64).map_or_else(
+                || format!("end condition {value}"),
+                |c| c.describe().to_string(),
+            ),
+        });
+    }
 
     let ours = |name: &str| options.bots.iter().any(|b| b.eq_ignore_ascii_case(name));
 
@@ -350,6 +389,12 @@ pub fn render_game(report: &GameReport, host: &str) -> String {
     if let Some(e) = &report.error {
         out += &format!("\nERROR: {e}\n");
     }
+    if let Some(early) = &report.ended_early {
+        out += &format!(
+            "\nEnded early after {} action(s): {} (by {}).\n",
+            report.actions, early.reason, early.by
+        );
+    }
 
     for (title, list) in [
         ("Bots' own moves", &report.own),
@@ -367,15 +412,28 @@ pub fn render_game(report: &GameReport, host: &str) -> String {
 pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> String {
     let mut out = String::from("# Bot game analysis\n\n");
     let analyzed: Vec<&GameReport> = reports.iter().filter(|r| r.error.is_none()).collect();
+    // Games that a player terminated (or that timed out) say little about the quality of play: they are counted
+    // apart and left out of the averages.
+    let played: Vec<&GameReport> = analyzed
+        .iter()
+        .copied()
+        .filter(|r| r.played_to_the_end())
+        .collect();
+    let early: Vec<&GameReport> = analyzed
+        .iter()
+        .copied()
+        .filter(|r| r.ended_early.is_some())
+        .collect();
     out += &format!(
-        "{} game(s), {} analyzed, {} failed.\n\n",
+        "{} game(s): {} played to the end, {} ended early, {} could not be analyzed.\n\n",
         reports.len(),
-        analyzed.len(),
+        played.len(),
+        early.len(),
         reports.len() - analyzed.len()
     );
 
-    // Per convention.
-    let mut conventions: Vec<&str> = analyzed.iter().map(|r| r.convention.as_str()).collect();
+    // Per convention (games played to the end).
+    let mut conventions: Vec<&str> = played.iter().map(|r| r.convention.as_str()).collect();
     conventions.sort_unstable();
     conventions.dedup();
 
@@ -383,8 +441,7 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
         out += "| Convention | Games | Avg score | Perfect | Strikeouts | Bot suggestions/game | Bot mistakes | Others' suggestions/game |\n";
         out += "|---|---|---|---|---|---|---|---|\n";
         for conv in conventions {
-            let games: Vec<&&GameReport> =
-                analyzed.iter().filter(|r| r.convention == conv).collect();
+            let games: Vec<&&GameReport> = played.iter().filter(|r| r.convention == conv).collect();
             let n = games.len() as f64;
             let sum = |f: &dyn Fn(&GameReport) -> usize| games.iter().map(|r| f(r)).sum::<usize>();
             out += &format!(
@@ -406,6 +463,27 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
         out += &format!(
             "{guessed} game(s) had no convention note and were analyzed with the fallback convention.\n\n"
         );
+    }
+
+    if !early.is_empty() {
+        out += "## Ended early\n\nNot counted in the table above.\n\n";
+        out += "| Game | Actions | Ended by | How | Convention | Score then | Players |\n|---|---|---|---|---|---|---|\n";
+        for r in &early {
+            let how = r.ended_early.as_ref().expect("filtered above");
+            out += &format!(
+                "| [{}]({}) | {} | {} | {} | {} | {}/{} | {} |\n",
+                r.id,
+                r.replay_url(host),
+                r.actions,
+                how.by,
+                how.reason,
+                r.convention,
+                r.score,
+                r.max_score,
+                r.players.len()
+            );
+        }
+        out += "\n";
     }
 
     // Games to look at.
@@ -549,7 +627,9 @@ mod tests {
         ];
         let text = summarize(&reports, "hanab.live", &feedback);
 
-        assert!(text.contains("3 game(s), 2 analyzed, 1 failed"));
+        assert!(
+            text.contains("3 game(s): 2 played to the end, 0 ended early, 1 could not be analyzed")
+        );
         assert!(text.contains("| HGroup3 | 2 | 17.5 | 1 | 1 |"), "{text}");
         assert!(text.contains("failed to analyze:** boom"));
         assert!(text.contains("feedback from alice:** it bombed"));
@@ -557,5 +637,65 @@ mod tests {
         // The failed game and the strikeout come before the perfect one (which isn't listed).
         assert!(text.find("### 3").unwrap() < text.find("### 2").unwrap());
         assert!(!text.contains("### 1 "));
+    }
+
+    #[test]
+    fn games_ended_early_are_counted_apart() {
+        let ended = |id, actions, score| GameReport {
+            actions,
+            ended_early: Some(EndedEarly {
+                by: "JoeSchmoe".to_string(),
+                reason: "terminated by a player".to_string(),
+            }),
+            players: vec!["a".to_string(); 5],
+            ..report(id, "HGroup11", score, 0, 0)
+        };
+        let reports = vec![
+            report(1, "HGroup11", 25, 0, 0),
+            report(2, "HGroup11", 23, 0, 0),
+            ended(3, 2, 0),
+            ended(4, 31, 12),
+        ];
+        let text = summarize(&reports, "hanab.live", &[]);
+
+        assert!(
+            text.contains("4 game(s): 2 played to the end, 2 ended early, 0 could not be analyzed"),
+            "{text}"
+        );
+        // Averages and counts are over the two games played out.
+        assert!(text.contains("| HGroup11 | 2 | 24.0 | 1 | 0 |"), "{text}");
+        // They are listed with who ended them, and are not "games to look at".
+        assert!(text.contains("## Ended early"));
+        assert!(text.contains("| [3](https://hanab.live/replay/3) | 2 | JoeSchmoe | terminated by a player | HGroup11 | 0/25 | 5 |"), "{text}");
+        assert!(text.contains("| [4](https://hanab.live/replay/4) | 31 |"));
+        let to_look_at = text.split("## Games to look at").nth(1).unwrap();
+        assert!(
+            !to_look_at.contains("### 3") && !to_look_at.contains("### 4"),
+            "{to_look_at}"
+        );
+    }
+
+    #[test]
+    fn reports_saved_before_ended_early_existed_still_load() {
+        let old = r#"{"id": 7, "datetime": "2026-10-27 04:00:00", "seed": "p3v0s1", "players": ["a", "b", "c"],
+            "bots": [], "convention": "HGroup2", "convention_from_note": true, "variant": "No Variant",
+            "score": 25, "max_score": 25, "strikes": 0, "own": [], "others": [], "error": null}"#;
+        let report: GameReport = serde_json::from_str(old).unwrap();
+        assert_eq!(report.actions, 0);
+        assert_eq!(report.ended_early, None);
+        assert!(report.played_to_the_end());
+    }
+
+    #[test]
+    fn end_conditions_are_described() {
+        assert_eq!(
+            EndCondition::from_value(4).map(EndCondition::describe),
+            Some("terminated by a player")
+        );
+        assert_eq!(
+            EndCondition::from_value(3).map(EndCondition::describe),
+            Some("timed out")
+        );
+        assert_eq!(EndCondition::from_value(99), None);
     }
 }
