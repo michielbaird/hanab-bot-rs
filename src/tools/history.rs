@@ -529,7 +529,7 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
                     "feedback"
                 },
                 entry["from"].as_str().unwrap_or("?"),
-                entry["text"].as_str().unwrap_or_default()
+                crate::feedback::unescape_html(entry["text"].as_str().unwrap_or_default())
             );
         }
         out += "\n";
@@ -555,7 +555,7 @@ pub fn summarize(reports: &[GameReport], host: &str, feedback: &[Value]) -> Stri
                 e["from"].as_str().unwrap_or("?"),
                 e["table_id"],
                 e["seed"].as_str().unwrap_or("none"),
-                e["text"].as_str().unwrap_or_default()
+                crate::feedback::unescape_html(e["text"].as_str().unwrap_or_default())
             );
         }
     }
