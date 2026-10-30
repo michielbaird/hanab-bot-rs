@@ -14,6 +14,8 @@ default = ["net"]
 # Without it the library (conventions, game model, endgame solver, `BotClient`) depends on nothing but serde,
 # which is what to use when embedding the bot in another program: `default-features = false`.
 net = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:reqwest"]
+# Counts the work the bot does (see `stats`), for the benchmark. Compiles to nothing without it.
+stats = []
 # Compiles in the bot's debug logging (the Scala bot elides it at compile time by default).
 verbose-logs = []
 

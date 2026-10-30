@@ -341,6 +341,7 @@ impl Game {
 
     /// The suggested action (using the convention set).
     pub fn take_action(&self) -> PerformAction {
+        crate::stats::count(crate::stats::Counter::TakeAction);
         self.conv.take_action(self)
     }
 

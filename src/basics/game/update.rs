@@ -270,6 +270,7 @@ impl Game {
     ///
     /// * `except`: the index of the player to ignore during good touch elim (e.g. if they are giving a clue).
     pub fn elim(&mut self, except: Option<usize>, skip_hypo_stacks: bool) {
+        crate::stats::count(crate::stats::Counter::Elim);
         let held: Vec<usize> = self.state.held_orders.iter().collect();
 
         for order in held {
@@ -540,6 +541,7 @@ impl Game {
     ///
     /// * `free`: whether the clue doesn't cost a clue token.
     pub fn simulate_clue(&self, action: &ClueAction, free: bool, log: bool) -> Game {
+        crate::stats::count(crate::stats::Counter::Simulate);
         let _quiet = (!log).then(|| LevelGuard::set(LogLevel::Off));
         let mut hypo = self.clone();
         hypo.catchup = true;
@@ -568,6 +570,7 @@ impl Game {
     ///
     /// * `draw`: the identity to draw, if the deck doesn't already say.
     pub fn simulate_action(&self, action: &Action, draw: Option<Identity>, log: bool) -> Game {
+        crate::stats::count(crate::stats::Counter::Simulate);
         let _quiet = (!log).then(|| LevelGuard::set(LogLevel::Off));
         let player_index = action
             .player_index()

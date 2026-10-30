@@ -1,9 +1,19 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// How long a new solver may search, in milliseconds (3 s, as in the Scala bot, unless [`set_default_timeout`] says otherwise).
 static DEFAULT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(3000);
+
+/// Whether solvers may run at all (on unless [`set_enabled`] says otherwise).
+static ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Turns every endgame solver on or off (process-wide). A solver that is off answers "disabled" at once, so the
+/// bot falls back to its ordinary decisions; the benchmark switches it off because a search with a time limit
+/// doesn't give the same answer every run.
+pub fn set_enabled(enabled: bool) {
+    ENABLED.store(enabled, Ordering::Relaxed);
+}
 
 /// Changes the time limit of solvers created from now on (process-wide).
 pub fn set_default_timeout(timeout: Duration) {
@@ -184,6 +194,9 @@ impl EndgameSolver {
         game: &Game,
         only_action: Option<PerformAction>,
     ) -> Result<(PerformAction, Frac), String> {
+        if !ENABLED.load(Ordering::Relaxed) {
+            return Err("the endgame solver is disabled".to_string());
+        }
         let state = &game.state;
         let our = state.our_player_index;
 
@@ -607,6 +620,7 @@ impl EndgameSolver {
         deadline: Instant,
         depth: usize,
     ) -> WinnableResult {
+        crate::stats::count(crate::stats::Counter::SolverNodes);
         let state = &game.state;
 
         if Instant::now() > deadline {
