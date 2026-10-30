@@ -209,37 +209,33 @@ pub fn refresh_wcs(
                 next_index,
                 skipped,
             } => {
-                if wc.ambiguous_self {
-                    log_warn!("not demonstrating ambiguous wc!");
-                } else {
-                    let is_bluff = wc.curr_conn().is_bluff();
-                    let rest = |i: usize| {
-                        let mut w = wc.clone();
-                        w.connections = conns[i.min(conns.len())..].to_vec();
-                        w
-                    };
+                let is_bluff = wc.curr_conn().is_bluff();
+                let rest = |i: usize| {
+                    let mut w = wc.clone();
+                    w.connections = conns[i.min(conns.len())..].to_vec();
+                    w
+                };
 
-                    if !is_bluff && let Some(i) = next_index {
-                        st.wcs.push(rest(i));
-                    }
-
-                    if !skipped {
-                        let dup = st.to_remove.clone();
-                        st.to_remove.extend(dup);
-                    } else {
-                        match next_index {
-                            None => st.to_remove.extend(conns.iter().cloned()),
-                            Some(i) => st
-                                .to_remove
-                                .extend(conns[..i.min(conns.len())].iter().cloned()),
-                        }
-                    }
-
-                    st.demos.push(match next_index {
-                        None => wc.clone(),
-                        Some(i) => rest(i),
-                    });
+                if !is_bluff && let Some(i) = next_index {
+                    st.wcs.push(rest(i));
                 }
+
+                if !skipped {
+                    let dup = st.to_remove.clone();
+                    st.to_remove.extend(dup);
+                } else {
+                    match next_index {
+                        None => st.to_remove.extend(conns.iter().cloned()),
+                        Some(i) => st
+                            .to_remove
+                            .extend(conns[..i.min(conns.len())].iter().cloned()),
+                    }
+                }
+
+                st.demos.push(match next_index {
+                    None => wc.clone(),
+                    Some(i) => rest(i),
+                });
             }
 
             UpdateResult::Remove => {
@@ -296,6 +292,10 @@ pub fn refresh_wcs(
     }
 
     for wc in &demos {
+        if wc.ambiguous_self {
+            continue;
+        }
+
         if wc.connections[0].hidden() {
             // Demonstrating a hidden connection means they must play all the hidden cards + the actual one
             let non_hidden_index = wc.connections.iter().position(|c| !c.hidden());
@@ -665,9 +665,14 @@ pub fn update_wc(
 fn other_play(game: &Game, action: &Action, wc: &WaitingConnection) -> bool {
     let thought = &game.me().thoughts[wc.curr_conn().order()];
 
+    let ids = wc.curr_conn().ids();
+
     // The card needs to match our thoughts as well as the hypothesized identity in the connection
     matches!(action, Action::Play(PlayAction { order, id: Some(id), .. })
-        if *order != wc.curr_conn().order() && thought.matches_infer(id))
+        if *order != wc.curr_conn().order()
+            && thought.matches_with(id, true, false, true)
+            && ids.len() == 1
+            && ids.contains(id))
         && !wc.curr_conn().hidden() // Don't advance if the real connection is layered, because that player won't skip
         && !wc.curr_conn().is_bluff() // Someone else can't play into a bluff
 }
@@ -677,16 +682,14 @@ fn resolve_other_play(game: &Game, wc: &WaitingConnection) -> UpdateResult {
     tail.connections = wc.connections[1..].to_vec();
     let next_index = tail.next_index(&game.state);
 
-    if matches!(wc.curr_conn(), Connection::Finesse { .. })
-        || game.level() < level::INTERMEDIATE_FINESSES
-    {
+    if matches!(wc.curr_conn(), Connection::Finesse { .. }) {
         UpdateResult::Demonstrated {
-            next_index,
+            next_index: next_index.map(|i| i + 1),
             skipped: true,
         }
     } else {
         next_index.map_or(UpdateResult::Complete, |i| UpdateResult::Advance {
-            next_index: i,
+            next_index: i + 1,
             skipped: true,
         })
     }
@@ -866,7 +869,11 @@ fn resolve_retained(
             let non_hidden_conns = wc
                 .connections
                 .iter()
-                .filter(|conn| !conn.hidden() && conn.reacting() == wc.curr_conn().reacting())
+                .filter(|conn| {
+                    !conn.hidden()
+                        && !state.deck[conn.order()].clued
+                        && conn.reacting() == wc.curr_conn().reacting()
+                })
                 .count() as isize;
 
             *kind != FinesseKind::Bluff

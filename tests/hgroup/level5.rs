@@ -543,3 +543,26 @@ fn doesn_t_give_nonsensical_clues() {
     take_turn(&mut game, "Alice clues red to Cathy"); // a weird bug with occam's razor suggests this clue
     assert_eq!(game.last_move(), Some(Interp::Clue(ClueInterp::Mistake)));
 }
+
+#[test]
+fn assumes_the_giver_knows_about_a_card_when_it_would_simplify_interpretation() {
+    let mut game = setup(
+        hgroup(5),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["y3", "b4", "b4", "p4", "y4"],
+            &["r1", "y1", "g4", "g4", "y4"],
+        ],
+        Setup::default(),
+    );
+    take_turn(&mut game, "Alice clues 1 to Cathy");
+    take_turn(&mut game, "Bob clues 2 to Alice (slots 1,4)");
+    take_turn(&mut game, "Cathy clues 3 to Bob");
+    // Alice should not assume she is finessed for y1.
+    has_status(&game, Alice, 2, CardStatus::None);
+    assert!(
+        game.common
+            .thinks_playables(&game, Alice.ordinal(), true, true)
+            .is_empty()
+    );
+}

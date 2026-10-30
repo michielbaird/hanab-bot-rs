@@ -340,7 +340,7 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             return advance(orig, &game.simulate(&action, None), offset + 1);
         }
 
-        let mut strikes = 0;
+        let mut unknown_bad_play = false;
         let mut known_plays: Vec<f64> = Vec::new();
         let mut unknown_plays: Vec<f64> = Vec::new();
 
@@ -356,8 +356,10 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             );
             let advanced = game.simulate(&action, None);
 
-            if advanced.state.strikes > state.strikes {
-                strikes += 1;
+            if advanced.state.strikes > state.strikes
+                || advanced.state.max_score() < state.max_score()
+            {
+                unknown_bad_play = true;
             }
 
             let value = advance(orig, &advanced, offset + 1);
@@ -381,7 +383,7 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
                     .unwrap_or(99.9),
             );
 
-        if strikes > 0 {
+        if unknown_bad_play {
             return known_plays
                 .iter()
                 .chain(&unknown_plays)

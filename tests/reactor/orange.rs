@@ -276,3 +276,55 @@ fn reacts_to_a_bad_stable_clue_calling_o1_to_be_dragged_to_the_play_stacks() {
         }
     );
 }
+
+#[test]
+fn drags_a_playable_rank_clue_to_the_play_stacks() {
+    let mut game = setup(
+        reactor(),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y3", "g3", "o3", "b3"],
+            &["r4", "y4", "g4", "o4", "b4"],
+        ],
+        Setup {
+            starting: Cathy,
+            variant: TestVariant::Orange5,
+            play_stacks: Some(vec![1, 2, 1, 1, 1]),
+            clue_tokens: 7,
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Cathy clues 2 to Alice (slots 2,3,4)");
+    // Alice should play slot 2.
+    assert_eq!(
+        game.take_action(),
+        PerformAction::Play {
+            target: game.state.hands[Alice.ordinal()][1]
+        }
+    );
+}
+
+#[test]
+fn isn_t_loaded_when_drag_direction_is_unknown() {
+    let game = setup(
+        reactor(),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y3", "g3", "o3", "b3"],
+            &["r4", "y4", "g4", "o4", "b4"],
+        ],
+        Setup {
+            variant: TestVariant::Orange5,
+            play_stacks: Some(vec![1, 1, 1, 1, 1]),
+            clue_tokens: 7,
+            init: Box::new(|g| pre_clue(g, Alice, 2, &["2"])),
+            ..Setup::default()
+        },
+    );
+    assert!(!game.common.obvious_loaded(&game, Alice.ordinal()));
+    assert!(
+        game.common
+            .obvious_playables(&game, Alice.ordinal())
+            .is_empty()
+    );
+}

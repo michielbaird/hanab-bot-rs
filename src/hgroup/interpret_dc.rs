@@ -124,7 +124,7 @@ pub fn interpret_transfer(
                     None => Some(vec![f]),
                     Some(i) if i == id => Some(vec![f]),
                     Some(i)
-                        if if inverted {
+                        if if inverted ^ game.state.is_inverted(i) {
                             hypo_state.is_basic_trash(i)
                         } else {
                             hypo_state.is_playable(i)

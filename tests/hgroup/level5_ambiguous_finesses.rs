@@ -222,3 +222,27 @@ fn reacts_to_an_ambiguous_finesse_passback() {
     has_status(&game, Alice, 1, CardStatus::Finessed);
     has_status(&game, Bob, 1, CardStatus::None);
 }
+
+#[test]
+fn allows_ambiguity_on_the_2nd_finessed_card() {
+    let mut game = setup(
+        hgroup(5),
+        &[
+            &["xx", "xx", "xx", "xx"],
+            &["r1", "g4", "b4", "r5"],
+            &["r2", "g4", "r3", "y4"],
+            &["g3", "y4", "r4", "y3"],
+        ],
+        Setup {
+            starting: Donald,
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Donald clues 3 to Cathy");
+    take_turn(&mut game, "Alice clues red to Donald"); // We could be ambiguous for r1 or r2
+    take_turn_draw(&mut game, "Bob plays r1", "p3");
+    take_turn_draw(&mut game, "Cathy discards y4", "r1"); // Cathy demonstrates not on her
+    // Alice knows she is ambiguous for r2.
+    has_status(&game, Alice, 1, CardStatus::Finessed);
+    has_infs(&game, None, Alice, 1, &["r2"]);
+}

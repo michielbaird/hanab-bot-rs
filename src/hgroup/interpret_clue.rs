@@ -392,7 +392,7 @@ fn focus_poss_for(
             continue;
         }
 
-        if let Some(fp) = connect(
+        for fp in connect(
             ctx,
             inf,
             looks_direct,
@@ -555,7 +555,7 @@ pub fn interp_normal_clue(
             {
                 continue;
             }
-            if let Some(fp) = connect(
+            for fp in connect(
                 ctx,
                 inf,
                 own_looks_direct,

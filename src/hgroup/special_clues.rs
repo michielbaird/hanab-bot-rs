@@ -14,6 +14,7 @@ use crate::basics::interp::ClueInterp;
 use crate::basics::variant::{DARK, NamePattern, PINKISH};
 use crate::basics::{Game, Identifiable, Identity};
 use crate::collections::FastBitSet;
+use crate::util::{VisibleOpts, visible_find};
 use crate::{log_error, log_info, log_warn};
 
 const DARK_RAINBOW_OR_PRISM: NamePattern = NamePattern(&["Dark Rainbow", "Dark Prism"]);
@@ -74,6 +75,7 @@ pub fn colour_save(prev: &Game, action: &ClueAction, id: Identity, focus: usize)
     if !state.variant.id_touched(id, &clue)
         || !thought.possible.contains(id)
         || state.is_basic_trash(id)
+        || state.is_playable(id)
     {
         return false;
     }
@@ -176,6 +178,7 @@ pub fn rank_save(prev: &Game, action: &ClueAction, id: Identity, focus: usize) -
     if !thought.possible.contains(id)
         || state.is_basic_trash(id)
         || state.deck[focus].id().is_some_and(|i| i.rank != rank)
+        || state.is_playable(id)
     {
         return false;
     }
@@ -205,7 +208,7 @@ pub fn rank_save(prev: &Game, action: &ClueAction, id: Identity, focus: usize) -
         return false;
     }
 
-    state.is_critical(id) || rank == 2
+    (state.is_critical(id) && rank != 1) || rank == 2
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -308,7 +311,11 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
         }
     }
 
-    if let Some(ids) = distribution_clue(prev, game, action, focus) {
+    if let Some(ids) = distribution_clue(prev, game, action, focus)
+        && ids
+            .iter()
+            .any(|i| game.me().thoughts[focus].matches_with(&i, true, false, true))
+    {
         log_info!("distribution clue for [{}]!", ids.fmt(state));
 
         let mut g = game.clone();
@@ -414,16 +421,40 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
             .inverted;
 
     if special_orange_situation {
+        // We can see (or know) another copy of the card somewhere else.
+        let seen_elsewhere = |id: Identity| {
+            visible_find(
+                state,
+                &game.common,
+                id,
+                VisibleOpts {
+                    infer: true,
+                    exclude_order: Some(focus),
+                    ..VisibleOpts::default()
+                },
+                |_, _| true,
+            )
+            .into_iter()
+            .any(|o| {
+                let thought = &game.me().thoughts[o];
+                thought.matches(&id)
+                    || (thought.matches_with(&id, false, false, true)
+                        && thought.possible.contains(id))
+            })
+        };
+
         let chop_fix = chop
-            && state.deck[focus]
-                .id()
-                .is_some_and(|id| state.is_basic_trash(id) || id.rank == 3 || id.rank == 4);
+            && state.deck[focus].id().is_some_and(|id| {
+                state.is_basic_trash(id) || id.rank == 3 || id.rank == 4 || seen_elsewhere(id)
+            });
 
         if chop_fix {
             let poss = game.common.thoughts[focus].possible.filter(|id| {
                 !state.is_playable(id)
                     && state.is_inverted(id)
-                    && (state.is_basic_trash(id) || (id.rank != 2 && id.rank != 5))
+                    && (state.is_basic_trash(id)
+                        || (id.rank != 2 && id.rank != 5)
+                        || seen_elsewhere(id))
             });
 
             if poss.iter().all(|i| state.is_basic_trash(i)) {
