@@ -1533,7 +1533,10 @@ impl Convention for HGroup {
             || prev.common.thoughts[order]
                 .possibilities()
                 .iter()
-                .all(|i| prev.state.is_inverted(i));
+                .all(|i| prev.state.is_inverted(i))
+            // An orange card discarded where a gentleman's discard promised another card: it was a layer
+            || (prev.meta[order].status == CardStatus::GentlemansDiscard
+                && id.is_some_and(|id| prev.state.is_inverted(id)));
         if reinterp
             && let Some(replayed) = reinterp_play(prev, &updated, &Action::Discard(action.clone()))
         {

@@ -158,7 +158,7 @@ None of the H-Group ones is below level 11, so none affects HGroup 1-10 play as 
 | # | Where | What | In ours | Verdict |
 |---|---|---|---|---|
 | 91 | all | Run on another hanab.live server (`HANABI_HOSTNAME`); an old server omits `options` / `maxPlayers` from table messages, which Scala's JSON parser rejects | `HANABI_HOSTNAME` is supported; `Table` etc. use `#[serde(default)]`, so missing keys are fine | **Done** (not verified against such a server) |
-| 92 | H11, orange | Gentleman's discard "through" an orange card isn't treated like a layered playable | yes | Variant + level 11; later |
+| 92 | H11, orange | Gentleman's discard "through" an orange card isn't treated like a layered playable | **partly fixed** (first example of the report; not the finesse example or the elimination notes) | Based on the Orange page: a normal gentleman's discard may be layered through an orange card |
 | 89 | H11, orange | Orange 1 misdiscard read as a Gentleman's discard; also clues several 1s including orange ones | yes | Later |
 | 88 | H11 | A prompt through a baton-discarded card isn't considered (4 clue read as self-finesse) | yes | Later |
 | 87 | H11, orange | Screaming-discard chop move not recognised when the discarded card turns out orange | **fixed in v1.3.0, ported** | Later |

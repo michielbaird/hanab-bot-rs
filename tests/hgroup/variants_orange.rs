@@ -643,3 +643,30 @@ fn recognizes_an_orange_play_as_a_scream() {
     take_turn_draw(&mut game, "Cathy plays o1", "r4"); // This is actually a SDCM.
     has_status(&game, Alice, 5, CardStatus::ChopMoved);
 }
+
+#[test]
+fn layers_a_gentleman_s_discard_through_an_orange_card() {
+    let mut game = setup(
+        hgroup(11),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r3", "b4", "b4", "y4", "g4"],
+            &["g4", "y4", "r4", "y2", "y3"],
+        ],
+        Setup {
+            variant: TestVariant::Orange5,
+            play_stacks: Some(vec![2, 0, 0, 0, 0]),
+            clue_tokens: 4,
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Alice clues 3 to Bob");
+    take_turn_draw(&mut game, "Bob discards r3", "b5"); // r3 is on Alice's finesse position
+    has_status(&game, Alice, 1, CardStatus::GentlemansDiscard);
+    take_turn_draw(&mut game, "Cathy discards y3", "g3");
+    has_status(&game, Alice, 1, CardStatus::GentlemansDiscard);
+    // It is really the orange 3 that is on her finesse position, so the r3 is behind it.
+    take_turn(&mut game, "Alice discards o3 (slot 1)");
+    has_status(&game, Alice, 2, CardStatus::GentlemansDiscard);
+    has_infs(&game, None, Alice, 2, &["r3"]);
+}
