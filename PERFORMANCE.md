@@ -48,7 +48,9 @@ trash scan in `update_hypo_stacks` (all on a machine that was sometimes busy). A
 Benchmark (baseline above), after making the game copy in `update_hypo_stacks` cheaper: 36.0 s -> 30.1 s, fingerprint unchanged. `update_hypo_stacks` copies the whole
 game for every call (about 14% of the run, 37% of `update_hypo_stacks` itself), so what a copy costs matters: the perspective being worked out is no longer copied twice,
 player names are shared (`Arc<str>`, `Arc<Vec<String>>`) and the discard stacks are copy-on-write. The clone probe (`cargo test --release --test clone_probe -- --ignored --nocapture`)
-shows what is left. Sharing `ConvData::reasoning` (copy-on-write) took it to 27.4 s. Making `State::deck` copy-on-write gained nothing measurable, so it was dropped. Left: `State::hands`, and the per-player `thoughts` and maps, which are real data.
+shows what is left. Sharing `ConvData::reasoning` (copy-on-write) took it to 27.4 s. Making `State::deck` copy-on-write gained nothing measurable, so it was dropped. Sharing each player's `thoughts` (copy-on-write, `Player::thoughts_mut`) took it to 24.7 s. Left in a game copy: `State::hands`, `State::deck`, `meta` and the per-player maps.
+
+Profile of the same run (inclusive timers, temporary): `Game::elim` 16.7 s of 28.7, of which `update_hypo_stacks` 12.0 (game copy 3.6, hypothetical plays 3.8, `thinks_playables` 2.4) and `card_elim` 2.4. `order_trash` is only about 0.5 s in total (1.3M calls), so caching it (idea 3) would not pay.
 
 ## Where the time goes
 
@@ -59,5 +61,5 @@ every player, each time replaying the hypothetical plays. Ideas, roughly by expe
    no cheap test that proves it beforehand (players differ in what they see, `Thought::seen`, which `id_with` reads), so the result can't be skipped soundly.
    Copying less of the game for the hypothetical does not work either: `thinks_playables` reads the other players' views.
 2. Fewer game copies in hypothetical plays when connections are waiting (the `prev` copy and `refresh_wcs`).
-3. Caching `order_trash` / `thinks_trash`, which are expensive and called from many places.
+3. ~~Caching `order_trash` / `thinks_trash`~~: measured, about 2% of the run; not worth the invalidation risk.
 4. Searching the endgame in parallel (the solver is single-threaded and often hits its time limit).

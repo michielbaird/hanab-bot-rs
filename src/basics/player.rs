@@ -93,7 +93,7 @@ pub struct Player {
 
     pub is_common: bool,
     /// Indexed by card order.
-    pub thoughts: Vec<Thought>,
+    pub thoughts: Arc<Vec<Thought>>,
 
     pub links: Vec<Link>,
     pub play_links: Vec<PlayLink>,
@@ -113,6 +113,12 @@ pub struct Player {
 }
 
 impl Player {
+    /// Mutable access to the thoughts (copies them first if another player or game shares them).
+    #[inline]
+    pub fn thoughts_mut(&mut self) -> &mut Vec<Thought> {
+        Arc::make_mut(&mut self.thoughts)
+    }
+
     pub fn new(
         player_index: usize,
         name: &str,
@@ -140,7 +146,7 @@ impl Player {
             all_possible,
             hypo_stacks,
             is_common,
-            thoughts: Vec::new(),
+            thoughts: Arc::new(Vec::new()),
             links: Vec::new(),
             play_links: Vec::new(),
             unknown_plays: FastBitSet::EMPTY,
@@ -154,7 +160,7 @@ impl Player {
 
     /// Modifies the thought on a card, marking it dirty.
     pub fn update_thought(&mut self, order: usize, f: impl FnOnce(&mut Thought)) {
-        f(&mut self.thoughts[order]);
+        f(&mut self.thoughts_mut()[order]);
         self.dirty.insert(order);
     }
 
