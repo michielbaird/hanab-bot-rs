@@ -2,6 +2,10 @@
 //!
 //! Usage: `self_play games=10 seed=0 players=3 variant="No Variant" convention=Reactor1 threads=2`
 //! Games are written to `seeds/<seed>.json` (readable by `replay` and `analyze`).
+//!
+//! `SELF_PLAY_DESYNC=1` also reports, on stderr, the first turn of each game where the players disagree about which cards
+//! a player will play (`DESYNC`), and every strike (`BOMB`, "after a desync" if one was reported before). Use `threads=1` to
+//! see which lines belong to which game (they come before the `Seed` line of the game).
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
