@@ -48,7 +48,7 @@ trash scan in `update_hypo_stacks` (all on a machine that was sometimes busy). A
 Benchmark (baseline above), after making the game copy in `update_hypo_stacks` cheaper: 36.0 s -> 30.1 s, fingerprint unchanged. `update_hypo_stacks` copies the whole
 game for every call (about 14% of the run, 37% of `update_hypo_stacks` itself), so what a copy costs matters: the perspective being worked out is no longer copied twice,
 player names are shared (`Arc<str>`, `Arc<Vec<String>>`) and the discard stacks are copy-on-write. The clone probe (`cargo test --release --test clone_probe -- --ignored --nocapture`)
-shows what is left: `State::deck` (a `Vec` of clues per card), `ConvData::reasoning`, and `State::hands`.
+shows what is left. Sharing `ConvData::reasoning` (copy-on-write) took it to 27.4 s. Making `State::deck` copy-on-write gained nothing measurable, so it was dropped. Left: `State::hands`, and the per-player `thoughts` and maps, which are real data.
 
 ## Where the time goes
 
