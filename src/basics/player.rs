@@ -85,7 +85,7 @@ pub struct Player {
     /// The player's index, or `usize::MAX` for the common perspective.
     pub player_index: usize,
     /// The display name of the player (their username on hanab.live).
-    pub name: String,
+    pub name: Arc<str>,
     /// The identities a newly drawn card could be. Shrinks as more cards become visible to this player.
     pub all_possible: IdentitySet,
     /// The play stacks if all delayed playable cards were played.
@@ -93,7 +93,7 @@ pub struct Player {
 
     pub is_common: bool,
     /// Indexed by card order.
-    pub thoughts: Vec<Thought>,
+    pub thoughts: Arc<Vec<Thought>>,
 
     pub links: Vec<Link>,
     pub play_links: Vec<PlayLink>,
@@ -113,6 +113,12 @@ pub struct Player {
 }
 
 impl Player {
+    /// Mutable access to the thoughts (copies them first if another player or game shares them).
+    #[inline]
+    pub fn thoughts_mut(&mut self) -> &mut Vec<Thought> {
+        Arc::make_mut(&mut self.thoughts)
+    }
+
     pub fn new(
         player_index: usize,
         name: &str,
@@ -136,11 +142,11 @@ impl Player {
     ) -> Self {
         Self {
             player_index,
-            name: name.to_string(),
+            name: name.into(),
             all_possible,
             hypo_stacks,
             is_common,
-            thoughts: Vec::new(),
+            thoughts: Arc::new(Vec::new()),
             links: Vec::new(),
             play_links: Vec::new(),
             unknown_plays: FastBitSet::EMPTY,
@@ -154,7 +160,7 @@ impl Player {
 
     /// Modifies the thought on a card, marking it dirty.
     pub fn update_thought(&mut self, order: usize, f: impl FnOnce(&mut Thought)) {
-        f(&mut self.thoughts[order]);
+        f(&mut self.thoughts_mut()[order]);
         self.dirty.insert(order);
     }
 
@@ -865,13 +871,8 @@ impl Player {
         }
         crate::stats::count(crate::stats::Counter::UpdateHypoStacks);
         let conv = Arc::clone(&game.conv);
-        let mut hypo = game.clone();
+        let mut hypo = game.clone_for_hypo(self);
         hypo.no_recurse = true;
-        if self.is_common {
-            hypo.common = self.clone();
-        } else {
-            hypo.players[self.player_index] = self.clone();
-        }
         conv.clean_hypo(&mut hypo);
 
         let mut unknown_plays = FastBitSet::EMPTY;

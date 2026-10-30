@@ -1,9 +1,62 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// How long a new solver may search, in milliseconds (3 s, as in the Scala bot, unless [`set_default_timeout`] says otherwise).
 static DEFAULT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(3000);
+
+/// How many threads a new solver may use (1 unless [`set_default_threads`] says otherwise).
+static DEFAULT_THREADS: AtomicUsize = AtomicUsize::new(1);
+
+/// Changes the number of threads that solvers created from now on may use (process-wide).
+pub fn set_default_threads(threads: usize) {
+    DEFAULT_THREADS.store(threads.max(1), Ordering::Relaxed);
+}
+
+/// Runs `work(state, i)` for `i` in `0..n` on up to `threads` threads, handing the indices out in order. Each thread
+/// makes one `state` with `init`. The results are in index order.
+fn parallel_map<S, T: Send>(
+    threads: usize,
+    n: usize,
+    init: impl Fn() -> S + Sync,
+    work: impl Fn(&mut S, usize) -> T + Sync,
+) -> Vec<T> {
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<T>>> = Mutex::new((0..n).map(|_| None).collect());
+
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads.min(n))
+            .map(|_| {
+                scope.spawn(|| {
+                    // Worker threads have their own log level; keep the search quiet like the calling thread.
+                    let _quiet = LevelGuard::set(LogLevel::Off);
+                    let mut state = init();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= n {
+                            break;
+                        }
+                        let value = work(&mut state, i);
+                        results.lock().unwrap()[i] = Some(value);
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            if let Err(panic) = handle.join() {
+                std::panic::resume_unwind(panic);
+            }
+        }
+    });
+
+    results
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.expect("every index is handled"))
+        .collect()
+}
 
 /// Whether solvers may run at all (on unless [`set_enabled`] says otherwise).
 static ENABLED: AtomicBool = AtomicBool::new(true);
@@ -160,6 +213,8 @@ pub struct EndgameSolver {
     /// May make winrate slightly off.
     pub monte_carlo: bool,
     pub timeout: Duration,
+    /// How many threads may search at the top of the tree (1 = no extra threads).
+    pub threads: usize,
 }
 
 impl Default for EndgameSolver {
@@ -174,6 +229,24 @@ impl EndgameSolver {
             success_rate: HashMap::new(),
             monte_carlo,
             timeout: Duration::from_millis(DEFAULT_TIMEOUT_MS.load(Ordering::Relaxed)),
+            threads: DEFAULT_THREADS.load(Ordering::Relaxed).max(1),
+        }
+    }
+
+    /// Lets the solver search the first moves on up to this many threads. The answer does not depend on the number
+    /// of threads, as long as the search finishes within the time limit.
+    pub fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = threads.max(1);
+        self
+    }
+
+    /// A solver for one worker thread: it starts with what this one has learned, and doesn't use threads itself.
+    fn fork(&self) -> Self {
+        Self {
+            success_rate: self.success_rate.clone(),
+            monte_carlo: self.monte_carlo,
+            timeout: self.timeout,
+            threads: 1,
         }
     }
 
@@ -553,12 +626,13 @@ impl EndgameSolver {
         let (best_perform, best_winrate) = if hypos.len() > 1 {
             let mut best = initial_actions[0];
 
-            for &(action, first_winrate) in &initial_actions {
-                if Instant::now() > deadline {
-                    break;
-                }
-                let best_winrate = best.1;
-
+            // The winrate of one action over the other arrangements, or `None` if it was not worked out (out of time).
+            // An action is given up on once it can't reach `bar` (the best winrate known so far).
+            let test_action = |solver: &mut Self,
+                               action: PerformAction,
+                               first_winrate: Frac,
+                               bar: Frac|
+             -> Frac {
                 log_highlight!(
                     logger::GREEN,
                     "\ntesting action: {}",
@@ -570,9 +644,9 @@ impl EndgameSolver {
                 let mut rem_prob = Frac::ONE - first.prob;
 
                 for hypo in &hypos[1..] {
-                    if winrate + rem_prob < best_winrate {
+                    if winrate + rem_prob < bar {
                         log_info!(
-                            "action {} has winrate {winrate} {rem_prob}, can't add up to {best_winrate}",
+                            "action {} has winrate {winrate} {rem_prob}, can't add up to {bar}",
                             action.fmt(game, None)
                         );
                         break;
@@ -582,15 +656,63 @@ impl EndgameSolver {
                         let (undrawn, drawn) = &hypo.arrs;
                         let arrs = if perform.0.is_clue() { undrawn } else { drawn };
                         winrate += hypo.prob
-                            * self.action_winrate(&hypo.game, arrs, perform, our, deadline);
+                            * solver.action_winrate(&hypo.game, arrs, perform, our, deadline);
                     }
                     rem_prob -= hypo.prob;
                 }
+                winrate
+            };
+
+            // Several threads test different actions. The best action is then picked in order, exactly as if they
+            // had been tested one after the other: an action is only given up on when it can't beat an action that
+            // really achieves a winrate, so the answer does not depend on the number of threads.
+            let parallel = (self.threads > 1 && initial_actions.len() > 1).then(|| {
+                let shared_best = Mutex::new(best.1);
+                let first_sure = AtomicUsize::new(usize::MAX);
+                let solver = &*self;
+                parallel_map(
+                    self.threads,
+                    initial_actions.len(),
+                    || solver.fork(),
+                    |worker, index| {
+                        if index > first_sure.load(Ordering::Relaxed) || Instant::now() > deadline {
+                            return None;
+                        }
+                        let (action, first_winrate) = initial_actions[index];
+                        let bar = *shared_best.lock().unwrap();
+                        let winrate = test_action(worker, action, first_winrate, bar);
+                        {
+                            let mut shared = shared_best.lock().unwrap();
+                            if winrate > *shared {
+                                *shared = winrate;
+                            }
+                        }
+                        if winrate == Frac::ONE {
+                            first_sure.fetch_min(index, Ordering::Relaxed);
+                        }
+                        Some(winrate)
+                    },
+                )
+            });
+
+            for (index, &(action, first_winrate)) in initial_actions.iter().enumerate() {
+                let winrate = match &parallel {
+                    Some(results) => match results[index] {
+                        Some(winrate) => winrate,
+                        None => break,
+                    },
+                    None => {
+                        if Instant::now() > deadline {
+                            break;
+                        }
+                        test_action(self, action, first_winrate, best.1)
+                    }
+                };
 
                 if winrate == Frac::ONE {
                     best = (action, winrate);
                     break;
-                } else if winrate > best_winrate {
+                } else if winrate > best.1 {
                     best = (action, winrate);
                 }
             }
@@ -1048,9 +1170,38 @@ impl EndgameSolver {
         let (undrawn, drawn) = arrs;
         let mut results = Vec::new();
 
-        for action in actions {
-            let arrs = if action.0.is_clue() { undrawn } else { drawn };
-            let winrate = self.action_winrate(game, arrs, action, player_turn, deadline);
+        // Actions after the first guaranteed win are not needed, so they are skipped (see `optimize` for why the
+        // answer doesn't depend on the number of threads).
+        let parallel = (self.threads > 1 && actions.len() > 1).then(|| {
+            let first_sure = AtomicUsize::new(usize::MAX);
+            let solver = &*self;
+            parallel_map(
+                self.threads,
+                actions.len(),
+                || solver.fork(),
+                |worker, index| {
+                    if shortcut && index > first_sure.load(Ordering::Relaxed) {
+                        return Frac::ZERO;
+                    }
+                    let action = &actions[index];
+                    let arrs = if action.0.is_clue() { undrawn } else { drawn };
+                    let winrate = worker.action_winrate(game, arrs, action, player_turn, deadline);
+                    if shortcut && winrate == Frac::ONE {
+                        first_sure.fetch_min(index, Ordering::Relaxed);
+                    }
+                    winrate
+                },
+            )
+        });
+
+        for (index, action) in actions.iter().enumerate() {
+            let winrate = match &parallel {
+                Some(rates) => rates[index],
+                None => {
+                    let arrs = if action.0.is_clue() { undrawn } else { drawn };
+                    self.action_winrate(game, arrs, action, player_turn, deadline)
+                }
+            };
 
             if shortcut && winrate == Frac::ONE {
                 return vec![(action.0, winrate)];
@@ -1060,6 +1211,123 @@ impl EndgameSolver {
 
         results.sort_by_key(|a| std::cmp::Reverse(a.1));
         results
+    }
+
+    /// The winrate of one action at this depth, summed over the possible draws. Gives up on the action (returning
+    /// something below the real winrate) once it can no longer reach `best_winrate`.
+    #[allow(clippy::too_many_arguments)]
+    fn action_value(
+        &mut self,
+        game: &Game,
+        arrs: &(Vec<GameArr>, Vec<GameArr>),
+        action: &(PerformAction, Vec<Identity>),
+        player_turn: usize,
+        deadline: Instant,
+        depth: usize,
+        best_winrate: Frac,
+    ) -> Frac {
+        let (undrawn, drawn) = arrs;
+        let (perform, winnable_draws) = action;
+        let next_player_index = game.state.next_player_index(player_turn);
+        let mut winrate = Frac::ZERO;
+        let mut rem_prob = Frac::ONE;
+
+        for GameArr {
+            prob,
+            remaining,
+            drew,
+        } in if perform.is_clue() { undrawn } else { drawn }
+        {
+            if winrate + rem_prob < best_winrate {
+                break;
+            }
+
+            let new_prob = rem_prob - *prob;
+            let new_game = (!drew.is_some_and(|d| !winnable_draws.contains(&d))).then(|| {
+                game.simulate_action(
+                    &perform.to_action(&game.state, player_turn, None, false),
+                    *drew,
+                    false,
+                )
+            });
+
+            let unwinnable = match &new_game {
+                None => true,
+                Some(g) => {
+                    g.state.max_score() < game.state.max_score()
+                        || g.state.pace() < 0
+                        || (!remaining.is_empty()
+                            && remaining.iter().all(|(id, _)| {
+                                g.state.is_critical(id)
+                                    && id.rank < g.state.max_ranks[id.suit_index]
+                            }))
+                }
+            };
+
+            if unwinnable {
+                rem_prob = new_prob;
+                continue;
+            }
+            let new_game = new_game.expect("checked above");
+
+            log_info!(
+                "{}{} cards left {} endgame turns {:?}",
+                indent(depth),
+                perform.fmt_obj(game, player_turn),
+                new_game.state.cards_left,
+                new_game.state.endgame_turns
+            );
+
+            let colour = if depth == 0 {
+                logger::YELLOW
+            } else {
+                logger::WHITE
+            };
+            match self.winnable(&new_game, next_player_index, remaining, deadline, depth + 1) {
+                Err(msg) => {
+                    log_highlight!(
+                        colour,
+                        "{}}} {} unwinnable ({msg})",
+                        indent(depth),
+                        perform.fmt_obj(game, player_turn)
+                    );
+                }
+                Ok((performs, wr)) => {
+                    let new_winrate = winrate + *prob * wr;
+                    assert!(
+                        new_winrate <= Frac::ONE,
+                        "Winrate exceeds 100% {prob} {new_winrate}"
+                    );
+
+                    log_highlight!(
+                        colour,
+                        "{}}} {} prob {prob} winrate {wr}",
+                        indent(depth),
+                        performs
+                            .iter()
+                            .map(|p| p.fmt_obj(game, next_player_index))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    winrate = new_winrate;
+                }
+            }
+            // This arrangement is settled, whatever the result.
+            rem_prob = new_prob;
+        }
+
+        let entry = self.success_rate.entry(depth).or_default();
+        match entry.get_mut(perform) {
+            Some((frac, times)) => {
+                *frac = (*frac * *times + winrate) / (*times + 1);
+                *times += 1;
+            }
+            None => {
+                entry.insert(*perform, (winrate, 1));
+            }
+        }
+
+        winrate
     }
 
     /// Finds the best actions (those tied for the highest winrate) by trying every action.
@@ -1072,9 +1340,6 @@ impl EndgameSolver {
         deadline: Instant,
         depth: usize,
     ) -> WinnableResult {
-        let (undrawn, drawn) = arrs;
-        let next_player_index = game.state.next_player_index(player_turn);
-
         // Try the actions that have worked best at this depth first.
         let mut sorted_actions: Vec<&(PerformAction, Vec<Identity>)> = actions.iter().collect();
         if let Some(sr) = self.success_rate.get(&depth) {
@@ -1084,121 +1349,83 @@ impl EndgameSolver {
         let mut best_actions: Vec<PerformAction> = Vec::new();
         let mut best_winrate = Frac::ZERO;
 
-        for (perform, winnable_draws) in sorted_actions {
-            if Instant::now() > deadline {
-                return Ok((best_actions, best_winrate));
-            }
-
-            let mut winrate = Frac::ZERO;
-            let mut rem_prob = Frac::ONE;
-
-            for GameArr {
-                prob,
-                remaining,
-                drew,
-            } in if perform.is_clue() { undrawn } else { drawn }
-            {
-                if winrate + rem_prob < best_winrate {
-                    break;
-                }
-
-                let new_prob = rem_prob - *prob;
-                let new_game = (!drew.is_some_and(|d| !winnable_draws.contains(&d))).then(|| {
-                    game.simulate_action(
-                        &perform.to_action(&game.state, player_turn, None, false),
-                        *drew,
-                        false,
-                    )
-                });
-
-                let unwinnable = match &new_game {
-                    None => true,
-                    Some(g) => {
-                        g.state.max_score() < game.state.max_score()
-                            || g.state.pace() < 0
-                            || (!remaining.is_empty()
-                                && remaining.iter().all(|(id, _)| {
-                                    g.state.is_critical(id)
-                                        && id.rank < g.state.max_ranks[id.suit_index]
-                                }))
-                    }
-                };
-
-                if unwinnable {
-                    rem_prob = new_prob;
-                    continue;
-                }
-                let new_game = new_game.expect("checked above");
-
-                log_info!(
-                    "{}{} cards left {} endgame turns {:?}",
-                    indent(depth),
-                    perform.fmt_obj(game, player_turn),
-                    new_game.state.cards_left,
-                    new_game.state.endgame_turns
-                );
-
-                let colour = if depth == 0 {
-                    logger::YELLOW
-                } else {
-                    logger::WHITE
-                };
-                match self.winnable(&new_game, next_player_index, remaining, deadline, depth + 1) {
-                    Err(msg) => {
-                        log_highlight!(
-                            colour,
-                            "{}}} {} unwinnable ({msg})",
-                            indent(depth),
-                            perform.fmt_obj(game, player_turn)
-                        );
-                    }
-                    Ok((performs, wr)) => {
-                        let new_winrate = winrate + *prob * wr;
-                        assert!(
-                            new_winrate <= Frac::ONE,
-                            "Winrate exceeds 100% {prob} {new_winrate}"
-                        );
-
-                        log_highlight!(
-                            colour,
-                            "{}}} {} prob {prob} winrate {wr}",
-                            indent(depth),
-                            performs
-                                .iter()
-                                .map(|p| p.fmt_obj(game, next_player_index))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
-                        winrate = new_winrate;
-                    }
-                }
-                // This arrangement is settled, whatever the result.
-                rem_prob = new_prob;
-            }
-
-            let entry = self.success_rate.entry(depth).or_default();
-            match entry.get_mut(perform) {
-                Some((frac, times)) => {
-                    *frac = (*frac * *times + winrate) / (*times + 1);
-                    *times += 1;
-                }
-                None => {
-                    entry.insert(*perform, (winrate, 1));
-                }
-            }
-
-            let state = &game.state;
-            let bdrs = state
-                .all_ids
-                .difference(state.trash_set)
-                .iter()
-                .filter(|&id| state.is_useful(id) && state.is_critical(id) && id.rank != 5)
-                .count();
-            let cards_left = state.cards_left as i64;
-
-            if winrate == Frac::ONE
+        let state = &game.state;
+        let bdrs = state
+            .all_ids
+            .difference(state.trash_set)
+            .iter()
+            .filter(|&id| state.is_useful(id) && state.is_critical(id) && id.rank != 5)
+            .count();
+        let cards_left = state.cards_left as i64;
+        // An action with this winrate is taken at once.
+        let sure_win = |winrate: Frac| {
+            winrate == Frac::ONE
                 || (bdrs == 1 && cards_left > 1 && winrate == Frac::new(cards_left - 1, cards_left))
-            {
+        };
+
+        // At the top of the search the actions are tried on several threads (when allowed). The answer is the same as
+        // trying them in order, because an action is only given up on once it cannot beat an action that really
+        // achieves that winrate, and the results are then read in order.
+        let parallel = (depth == 0 && self.threads > 1 && sorted_actions.len() > 1).then(|| {
+            let best = Mutex::new(Frac::ZERO);
+            let first_sure = AtomicUsize::new(usize::MAX);
+            let solver = &*self;
+            parallel_map(
+                self.threads,
+                sorted_actions.len(),
+                || solver.fork(),
+                |worker, index| {
+                    if index > first_sure.load(Ordering::Relaxed) || Instant::now() > deadline {
+                        return None;
+                    }
+                    let bar = *best.lock().unwrap();
+                    let winrate = worker.action_value(
+                        game,
+                        arrs,
+                        sorted_actions[index],
+                        player_turn,
+                        deadline,
+                        depth,
+                        bar,
+                    );
+                    {
+                        let mut best = best.lock().unwrap();
+                        if winrate > *best {
+                            *best = winrate;
+                        }
+                    }
+                    if sure_win(winrate) {
+                        first_sure.fetch_min(index, Ordering::Relaxed);
+                    }
+                    Some(winrate)
+                },
+            )
+        });
+
+        for (index, action) in sorted_actions.iter().enumerate() {
+            let perform = &action.0;
+            let winrate = match &parallel {
+                Some(results) => match results[index] {
+                    Some(winrate) => winrate,
+                    None => return Ok((best_actions, best_winrate)),
+                },
+                None => {
+                    if Instant::now() > deadline {
+                        return Ok((best_actions, best_winrate));
+                    }
+                    self.action_value(
+                        game,
+                        arrs,
+                        action,
+                        player_turn,
+                        deadline,
+                        depth,
+                        best_winrate,
+                    )
+                }
+            };
+
+            if sure_win(winrate) {
                 return Ok((vec![*perform], winrate));
             }
 

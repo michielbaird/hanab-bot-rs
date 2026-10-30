@@ -300,6 +300,40 @@ impl Game {
     }
 
     /// The copy of `like` held by this game: the common perspective, or the same player's.
+    /// A copy of the game for working out `perspective`'s hypothetical plays, with `perspective` in place of the game's own
+    /// version of it (which is not copied).
+    pub(crate) fn clone_for_hypo(&self, perspective: &Player) -> Game {
+        let copy = |p: &Player| {
+            if p.is_common == perspective.is_common && p.player_index == perspective.player_index {
+                perspective.clone()
+            } else {
+                p.clone()
+            }
+        };
+        Game {
+            table_id: self.table_id,
+            state: self.state.clone(),
+            players: self.players.iter().map(copy).collect(),
+            common: copy(&self.common),
+            base: Arc::clone(&self.base),
+            meta: self.meta.clone(),
+            deck_ids: self.deck_ids.clone(),
+            future: self.future.clone(),
+            catchup: self.catchup,
+            notes: Arc::clone(&self.notes),
+            last_actions: self.last_actions.clone(),
+            move_history: self.move_history.clone(),
+            queued_cmds: self.queued_cmds.clone(),
+            next_interp: self.next_interp,
+            no_recurse: self.no_recurse,
+            hypothetical: self.hypothetical,
+            rewind_depth: self.rewind_depth,
+            in_progress: self.in_progress,
+            conv: Arc::clone(&self.conv),
+            ext: self.ext.clone(),
+        }
+    }
+
     pub fn view(&self, like: &Player) -> &Player {
         if like.is_common {
             &self.common

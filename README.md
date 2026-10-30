@@ -150,6 +150,7 @@ convention and version, the table, variant, players, turn and the game's seed. `
 | Environment variable | Effect |
 |---|---|
 | `HANABI_FEEDBACK_FILE` | file to append to (default `feedback.jsonl`; `off` or empty turns `/feedback` off) |
+| `HANABI_ENDGAME_THREADS` | how many threads one endgame search may use (default `1`). The move chosen is the same for any number, as long as the search finishes in time; more threads make that likelier. Several bots in one process share the cores, so keep it low there |
 | `HANABI_ENDGAME_TIMEOUT_MS` | how long the endgame solver may search per move (default `3000`; self-play often hits the limit, so raise it if you have time to spare) |
 | `HANABI_FEEDBACK_INTRO` | `0` stops the announcement at the start of each game (default `1`) |
 

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 
 use super::clue::CardClue;
 use super::identity_set::{IdentitySet, IdentitySetOpt};
@@ -307,7 +308,7 @@ pub struct ConvData {
     /// Whether this card is unknown to the person playing (like in a *Hidden Finesse*).
     pub hidden: bool,
     /// The list of turns where something new was discovered about the card (most recent first).
-    pub reasoning: Vec<usize>,
+    pub reasoning: Arc<Vec<usize>>,
     /// The turn when this card was signalled, if it exists.
     pub signal_turn: Option<usize>,
     /// The index of the player who signalled this card, if they exist.
@@ -324,7 +325,7 @@ impl ConvData {
             stale_ids: IdentitySet::EMPTY,
             status: CardStatus::None,
             hidden: false,
-            reasoning: Vec::new(),
+            reasoning: Arc::new(Vec::new()),
             signal_turn: None,
             by: None,
         }
@@ -359,7 +360,7 @@ impl ConvData {
     /// Adds an entry to the reasoning list (unless it's already the most recent).
     pub fn reason(&mut self, turn_count: usize) {
         if self.reasoning.last() != Some(&turn_count) {
-            self.reasoning.insert(0, turn_count);
+            Arc::make_mut(&mut self.reasoning).insert(0, turn_count);
         }
     }
 

@@ -66,7 +66,7 @@ impl Player {
             let new_possible = thought.possible.without(id);
             let reset = new_inferred.is_empty() && !thought.reset;
 
-            let thought = &mut self.thoughts[order];
+            let thought = &mut self.thoughts_mut()[order];
             if reset {
                 thought.possible = new_possible;
                 thought.reset_inferences();
@@ -428,10 +428,10 @@ impl Player {
 
                 self.dirty.insert(order);
                 if reset {
-                    self.thoughts[order].reset_inferences();
+                    self.thoughts_mut()[order].reset_inferences();
                     resets.insert(order);
                 } else {
-                    self.thoughts[order].inferred = new_inferred;
+                    self.thoughts_mut()[order].inferred = new_inferred;
                 }
             }
         }
@@ -447,7 +447,7 @@ impl Player {
         );
 
         for order in matches {
-            let thought = &mut self.thoughts[order];
+            let thought = &mut self.thoughts_mut()[order];
             let new_inferred = if order == focus {
                 IdentitySet::single(id)
             } else {

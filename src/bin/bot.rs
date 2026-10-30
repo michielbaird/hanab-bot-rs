@@ -305,6 +305,15 @@ fn main() -> Result<(), String> {
         hanab_bot::endgame::solver::set_default_timeout(Duration::from_millis(ms));
     }
 
+    // How many threads one endgame search may use (the default is 1). The answer is the same for any number of
+    // threads when the search finishes in time; more threads only make that likelier.
+    if let Some(n) = env.get("HANABI_ENDGAME_THREADS") {
+        let n: usize = n
+            .parse()
+            .map_err(|_| "HANABI_ENDGAME_THREADS must be a number")?;
+        hanab_bot::endgame::solver::set_default_threads(n);
+    }
+
     // The variant and suit definitions are loaded once and shared by every bot in the process.
     Variant::init(&fetch(VARIANTS_URL)?, &fetch(COLOURS_URL)?)?;
 

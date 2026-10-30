@@ -200,12 +200,12 @@ impl Game {
             for (i, player) in self.players.iter_mut().enumerate() {
                 let seen = if i != player_index { id } else { None };
                 player
-                    .thoughts
+                    .thoughts_mut()
                     .push(Thought::new(seen, order, all_possible));
                 player.dirty.insert(order);
             }
             self.common
-                .thoughts
+                .thoughts_mut()
                 .push(Thought::new(None, order, all_possible));
             self.common.dirty.insert(order);
             self.meta.push(ConvData::new(order));
@@ -236,14 +236,15 @@ impl Game {
 
             for (i, player) in self.players.iter_mut().enumerate() {
                 let seen = if i != player_index { id } else { None };
+                let all_possible = player.all_possible;
                 player
-                    .thoughts
-                    .push(Thought::new(seen, order, player.all_possible));
+                    .thoughts_mut()
+                    .push(Thought::new(seen, order, all_possible));
                 player.dirty.insert(order);
             }
             let all_possible = self.common.all_possible;
             self.common
-                .thoughts
+                .thoughts_mut()
                 .push(Thought::new(None, order, all_possible));
             self.common.dirty.insert(order);
             self.meta.push(ConvData::new(order));
@@ -329,7 +330,7 @@ impl Game {
 
                 for order in self.common.dirty {
                     let thought = &self.common.thoughts[order];
-                    let t = &mut p.thoughts[order];
+                    let t = &mut p.thoughts_mut()[order];
 
                     let new_info_lock = match thought.info_lock.get() {
                         None => IdentitySetOpt::NONE,

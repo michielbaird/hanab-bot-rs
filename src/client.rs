@@ -928,7 +928,7 @@ impl BotClient {
         if let Some(game) = &self.game {
             let state = &game.state;
             context.variant = Some(state.variant.name.clone());
-            context.players = state.names.clone();
+            context.players = state.names.to_vec();
             context.turn = Some(state.turn_count);
             context.seed = self.seed.clone();
         }
