@@ -85,7 +85,7 @@ pub struct Player {
     /// The player's index, or `usize::MAX` for the common perspective.
     pub player_index: usize,
     /// The display name of the player (their username on hanab.live).
-    pub name: String,
+    pub name: Arc<str>,
     /// The identities a newly drawn card could be. Shrinks as more cards become visible to this player.
     pub all_possible: IdentitySet,
     /// The play stacks if all delayed playable cards were played.
@@ -136,7 +136,7 @@ impl Player {
     ) -> Self {
         Self {
             player_index,
-            name: name.to_string(),
+            name: name.into(),
             all_possible,
             hypo_stacks,
             is_common,
@@ -865,13 +865,8 @@ impl Player {
         }
         crate::stats::count(crate::stats::Counter::UpdateHypoStacks);
         let conv = Arc::clone(&game.conv);
-        let mut hypo = game.clone();
+        let mut hypo = game.clone_for_hypo(self);
         hypo.no_recurse = true;
-        if self.is_common {
-            hypo.common = self.clone();
-        } else {
-            hypo.players[self.player_index] = self.clone();
-        }
         conv.clean_hypo(&mut hypo);
 
         let mut unknown_plays = FastBitSet::EMPTY;

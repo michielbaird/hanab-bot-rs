@@ -45,12 +45,19 @@ Self-play of 2 HGroup5 games, one thread: about 102 s at the start of M7, 52 s a
 (`uses_refresh_after_play`), 27 s after making `Game::clone` cheap (copy-on-write `Ext`, action list and notes), and about 22 s after skipping the inverted-suit
 trash scan in `update_hypo_stacks` (all on a machine that was sometimes busy). About 9x faster than the Scala bot and about 50x less memory.
 
+Benchmark (baseline above), after making the game copy in `update_hypo_stacks` cheaper: 36.0 s -> 30.1 s, fingerprint unchanged. `update_hypo_stacks` copies the whole
+game for every call (about 14% of the run, 37% of `update_hypo_stacks` itself), so what a copy costs matters: the perspective being worked out is no longer copied twice,
+player names are shared (`Arc<str>`, `Arc<Vec<String>>`) and the discard stacks are copy-on-write. The clone probe (`cargo test --release --test clone_probe -- --ignored --nocapture`)
+shows what is left: `State::deck` (a `Vec` of clues per card), `ConvData::reasoning`, and `State::hands`.
+
 ## Where the time goes
 
 `Game::elim` is about 55% of self-play time, and `update_hypo_stacks` about 75% of that: `elim` runs it for the common perspective and once for
 every player, each time replaying the hypothetical plays. Ideas, roughly by expected gain (see issues #14, #15):
 
-1. Not computing a perspective's hypo stacks when it cannot differ from the common one.
+1. Not computing a perspective's hypo stacks when it cannot differ from the common one. Tried: 92% of the per-player results do equal the common one, but there is
+   no cheap test that proves it beforehand (players differ in what they see, `Thought::seen`, which `id_with` reads), so the result can't be skipped soundly.
+   Copying less of the game for the hypothetical does not work either: `thinks_playables` reads the other players' views.
 2. Fewer game copies in hypothetical plays when connections are waiting (the `prev` copy and `refresh_wcs`).
 3. Caching `order_trash` / `thinks_trash`, which are expensive and called from many places.
 4. Searching the endgame in parallel (the solver is single-threaded and often hits its time limit).

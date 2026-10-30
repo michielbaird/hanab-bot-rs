@@ -66,7 +66,7 @@ pub struct State {
 
     pub play_stacks: Vec<usize>,
     /// Indexed by suit and `rank - 1`: the orders discarded of that identity, most recent first.
-    pub discard_stacks: Vec<Vec<Vec<usize>>>,
+    pub discard_stacks: Arc<Vec<Vec<Vec<usize>>>>,
     pub max_ranks: Vec<usize>,
     /// Indexed by identity ordinal: how many of each identity have been played or discarded.
     pub base_count: Vec<usize>,
@@ -80,7 +80,7 @@ pub struct State {
     pub card_count: Vec<usize>,
 
     pub num_players: usize,
-    pub names: Vec<String>,
+    pub names: Arc<Vec<String>>,
     /// The orders in each player's hand, newest first.
     pub hands: Vec<Vec<usize>>,
     /// Indexed by order.
@@ -129,7 +129,7 @@ impl State {
             next_card_order: 0,
             cards_left: variant.total_cards(),
             play_stacks: vec![0; num_suits],
-            discard_stacks: vec![vec![Vec::new(); 5]; num_suits],
+            discard_stacks: Arc::new(vec![vec![Vec::new(); 5]; num_suits]),
             max_ranks: vec![5; num_suits],
             base_count: vec![0; num_suits * 5],
             all_ids: variant.all_ids().collect(),
@@ -146,7 +146,7 @@ impl State {
             action_list: Arc::new(Vec::new()),
             current_player_index: 0,
             options,
-            names,
+            names: Arc::new(names),
             variant,
         }
     }
@@ -156,7 +156,7 @@ impl State {
         let Identity { suit_index, rank } = id;
         let ord = id.to_ord();
 
-        self.discard_stacks[suit_index][rank - 1].insert(0, order);
+        Arc::make_mut(&mut self.discard_stacks)[suit_index][rank - 1].insert(0, order);
         self.base_count[ord] += 1;
 
         if self.is_basic_trash(id) {
