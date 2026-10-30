@@ -16,10 +16,18 @@ use Player::*;
 /// more time to stay deterministic on slow machines. See HANDOFF.md, "Performance".)
 fn solve(game: &Game, monte_carlo: bool) -> (PerformAction, Frac) {
     logger::set_level(LogLevel::Off);
-    EndgameSolver::new(monte_carlo)
-        .with_timeout(std::time::Duration::from_secs(60))
-        .solve(game, None)
-        .unwrap_or_else(|msg| panic!("Game should be winnable! {msg}"))
+    let search = |threads: usize| {
+        EndgameSolver::new(monte_carlo)
+            .with_timeout(std::time::Duration::from_secs(60))
+            .with_threads(threads)
+            .solve(game, None)
+            .unwrap_or_else(|msg| panic!("Game should be winnable! {msg}"))
+    };
+
+    // More threads only make the search faster: it finds the same move.
+    let result = search(1);
+    assert_eq!(search(4), result, "the answer depends on the threads");
+    result
 }
 
 fn is_clue(p: PerformAction) -> bool {
