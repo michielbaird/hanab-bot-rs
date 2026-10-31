@@ -178,3 +178,25 @@ fn real_endgame_mistakes_are_still_reported() {
         last_round.text
     );
 }
+
+/// Upstream issue #64 (our #30): robot2 held an r2 too, but clued the r2 in flackr's hand after flackr didn't play.
+/// The game is replay 1970135 of hanab.live; at turn 51 the bot (robot2, H12) should play its own r2 instead.
+#[test]
+fn it_plays_its_own_copy_instead_of_cluing_the_one_in_a_partner_s_hand() {
+    logger::set_level(LogLevel::Off);
+    let path = format!(
+        "{}/investigations/replay_1970135.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut data = GameData::from_file(&path).expect("the replay");
+    data.actions.truncate(50);
+    let variant = load_variant(&data.options.variant_name, &HashMap::new()).unwrap();
+    let game =
+        build_game(ConventionKind::HGroup(12), &data, variant, 2, true).expect("a replayable game");
+
+    assert_eq!(game.state.turn_count, 50 + 1);
+    assert!(
+        matches!(game.take_action(), PerformAction::Play { .. }),
+        "the bot should play its r2"
+    );
+}
