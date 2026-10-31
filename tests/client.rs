@@ -315,6 +315,35 @@ fn it_saves_feedback_with_the_game_context() {
 }
 
 #[test]
+fn it_saves_feedback_unescaped() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let path = feedback_file("unescaped.jsonl");
+    let (tx, _rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_file: Some(path.clone()),
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot", "playingAtTables": [], "randomTableName": "x"}"#);
+
+    // hanab.live escapes chat text before it reaches the bot.
+    client.handle_msg(&pm(
+        "alice",
+        "/feedback &lt;turn 5: bot told me about 1s &amp; 2s&gt;",
+    ));
+
+    let saved: Vec<Value> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(saved[0]["text"], "<turn 5: bot told me about 1s & 2s>");
+}
+
+#[test]
 fn it_can_have_feedback_turned_off() {
     logger::set_level(LogLevel::Off);
     init_variants();

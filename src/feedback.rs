@@ -117,7 +117,8 @@ impl FeedbackStore {
         context: &Context,
         now: SystemTime,
     ) -> Result<(), FeedbackError> {
-        let text = text.trim();
+        let text = unescape_html(text.trim());
+        let text = text.as_str();
         if text.is_empty() {
             return Err(FeedbackError::Empty);
         }
@@ -176,6 +177,16 @@ fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Val
         "turn": context.turn,
         "seed": context.seed,
     })
+}
+
+/// hanab.live HTML-escapes chat text (`<` arrives as `&lt;`); this turns the five entities it uses back into characters.
+/// (`&amp;` goes last so that `&amp;lt;` becomes `&lt;`, not `<`.)
+pub fn unescape_html(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 #[cfg(test)]
@@ -332,5 +343,15 @@ mod tests {
         // An hour later it's fine again.
         let later = start + WINDOW + Duration::from_secs(1);
         assert!(store.record_at("alice", "hi", &ctx, later).is_ok());
+    }
+
+    #[test]
+    fn unescape_html_decodes_chat_text() {
+        assert_eq!(
+            unescape_html("&lt;turn 5: don&#39;t &quot;play&quot; r1 &amp; g1&gt;"),
+            "<turn 5: don't \"play\" r1 & g1>"
+        );
+        assert_eq!(unescape_html("&amp;lt;"), "&lt;");
+        assert_eq!(unescape_html("plain"), "plain");
     }
 }
