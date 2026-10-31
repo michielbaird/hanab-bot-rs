@@ -655,8 +655,17 @@ impl PerformAction {
 
     /// Parses a message from hanab.live's action format.
     pub fn from_json(json: &Value) -> Result<Self, String> {
-        let target = get_usize(json, "target")?;
         let value = || get_usize(json, "value");
+
+        // Type 5 is how newer games record the end of a game by a vote of the players: it has no target (-1).
+        if json["type"].as_u64() == Some(5) {
+            return Ok(Self::Terminate {
+                target: json["target"].as_u64().unwrap_or(0) as usize,
+                value: value()?,
+            });
+        }
+
+        let target = get_usize(json, "target")?;
 
         match json["type"].as_u64() {
             Some(0) => Ok(Self::Play { target }),
@@ -743,5 +752,23 @@ impl PerformAction {
         } else {
             Self::Discard { target: order }
         }
+    }
+}
+
+#[cfg(test)]
+mod perform_action_tests {
+    use super::PerformAction;
+    use serde_json::json;
+
+    #[test]
+    fn reads_the_end_of_a_game_by_vote_without_a_target() {
+        let action = PerformAction::from_json(&json!({"target": -1, "type": 5, "value": 10}));
+        assert_eq!(
+            action,
+            Ok(PerformAction::Terminate {
+                target: 0,
+                value: 10
+            })
+        );
     }
 }
