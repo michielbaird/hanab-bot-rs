@@ -21,6 +21,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use hanab_bot::basics::Variant;
 use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
 use hanab_bot::client::{BotClient, BotConfig, Out};
+use hanab_bot::settings::BOT_VERSION;
 use hanab_bot::tools::args::{full_env, parse_args};
 use hanab_bot::tools::console::{ConsoleCmd, parse_command};
 
@@ -83,7 +84,7 @@ async fn run_connection(
     let (ws, _) = tokio_tungstenite::connect_async(request)
         .await
         .map_err(|e| e.to_string())?;
-    println!("[{username}] connected!");
+    println!("[{username}] connected! ({BOT_VERSION})");
     let (mut write, mut read) = ws.split();
 
     // The client talks through a std channel (it has no async dependencies); a thread forwards its output to the
@@ -233,6 +234,9 @@ async fn supervise(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result
 }
 
 fn main() -> Result<(), String> {
+    // Say which build this is first, so the log shows it even if the start-up fails later.
+    println!("Starting {BOT_VERSION}");
+
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&raw)?;
     let env: HashMap<String, String> = full_env(&args);
