@@ -280,9 +280,9 @@ fn gives_an_orange_fix_clue_with_played_orange_cards() {
             &["g4", "g4", "b4", "b4", "o1"],
         ],
         Setup {
-            play_stacks: Some(vec![0, 0, 0, 0, 4]),
+            play_stacks: Some(vec![0, 0, 0, 0, 2]),
             variant: TestVariant::Orange5,
-            clue_tokens: 7,
+            clue_tokens: 6,
             ..Setup::default()
         },
     );
@@ -597,4 +597,49 @@ fn recognizes_an_orange_misplay_as_a_pos_dc() {
             target: game.state.hands[Alice.ordinal()][4]
         }
     );
+}
+
+#[test]
+fn doesn_t_do_an_orange_layered_gd_behind_orange_trash() {
+    let mut game = setup(
+        hgroup(10),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r4", "g4", "g4", "o3", "o2"],
+        ],
+        Setup {
+            starting: Bob,
+            variant: TestVariant::Orange5,
+            play_stacks: Some(vec![0, 0, 0, 0, 2]),
+            clue_tokens: 4,
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Bob clues orange to Alice (slot 1)");
+    take_turn(&mut game, "Alice discards o3 (slot 1)");
+    assert_eq!(
+        game.last_move(),
+        Some(Interp::Discard(DiscardInterp::Mistake))
+    );
+}
+
+#[test]
+fn recognizes_an_orange_play_as_a_scream() {
+    let mut game = setup(
+        hgroup(8),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r3", "y3", "g3", "b3", "o3"],
+            &["r1", "y4", "g4", "b4", "o1"],
+        ],
+        Setup {
+            variant: TestVariant::Orange5,
+            starting: Bob,
+            clue_tokens: 1,
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Bob clues red to Cathy");
+    take_turn_draw(&mut game, "Cathy plays o1", "r4"); // This is actually a SDCM.
+    has_status(&game, Alice, 5, CardStatus::ChopMoved);
 }

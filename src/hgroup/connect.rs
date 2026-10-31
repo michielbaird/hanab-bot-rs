@@ -247,6 +247,31 @@ pub fn find_known_conn(
         }
     }
 
+    // Assume the giver knows what they are holding, if that card is going to play into a card in our hand
+    for &o in &state.hands[giver] {
+        let play_link = common
+            .play_links
+            .iter()
+            .find(|pl| pl.orders.contains(&o) && state.our_hand().contains(&pl.target));
+
+        let play = !ignore.contains(o)
+            && state.deck[o].clued
+            && play_link.is_some()
+            && common.thoughts[o].inferred.contains(id)
+            && state.deck[o].matches(&id);
+
+        if play && let Some(pl) = play_link {
+            return Some(Connection::Playable {
+                reacting: giver,
+                order: o,
+                id,
+                linked: pl.orders.clone(),
+                hidden: false,
+                inserting_into: None,
+            });
+        }
+    }
+
     None
 }
 
@@ -615,7 +640,31 @@ pub fn find_unknown_connecting(
             return None;
         };
 
+        if prev.meta[f].status == CardStatus::Finessed
+            && !prev.common.thoughts[f].reset
+            && game.common.thoughts[f].reset
+        {
+            // Attempted to replace this finessed card with a new finessed card: this player cannot be asked to play any cards
+            return None;
+        }
+
         let thought = &game.players[own].thoughts[f];
+
+        if game
+            .xmeta(f)
+            .finesse_ids
+            .is_some_and(|ids| !ids.contains(id))
+        {
+            return Some(Connection::Finesse {
+                reacting,
+                order: f,
+                ids: thought.inferred.iter().collect(),
+                kind: FinesseKind::Hidden,
+                ambiguous_passback: false,
+                inverted: false,
+            });
+        }
+
         let bluffable_ids = thought.inferred.filter(|i| {
             state.is_playable(i) && valid_bluff(game, action, i, reacting, connected, false)
         });
@@ -955,57 +1004,47 @@ pub fn finalize_conns(mut conns: Vec<Connection>, given_by_us: bool) -> Vec<Conn
     conns
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn connect(
-    ctx: &ClueContext,
+/// How a search for connections to an id ended: `Ok` if it reached the id, `Err` with what it found before it failed.
+/// The flag is whether a bluff was assumed on the way.
+type Attempt = (Result<Vec<Connection>, Vec<Connection>>, bool);
+
+/// The parts of [`connect`]'s arguments that stay the same through the search.
+struct ConnectSearch<'a, 'b> {
+    ctx: &'a ClueContext<'b>,
     id: Identity,
-    looks_direct: bool,
-    thinks_stall: FastBitSet,
-    assume_truth: bool,
-    ignore_known: FastBitSet,
     find_own: Option<usize>,
     prefer_own: bool,
-) -> Option<FocusPossibility> {
-    let ClueContext {
-        prev, game, action, ..
-    } = *ctx;
-    let ClueAction {
-        giver,
-        target,
-        clue,
-        ..
-    } = *action;
-    let state = &game.state;
-    let focus_result = ctx.focus_result();
-    let (focus, positional) = (focus_result.focus, focus_result.positional);
+}
 
-    let ignore = if positional == Some(Positional::Mud) {
-        // Assume mud clues aren't selfish
-        ignore_known.union(state.hands[giver].iter().copied().collect())
-    } else {
-        ignore_known
-    };
+impl ConnectSearch<'_, '_> {
+    /// Looks for the connections to `self.id`, one rank at a time. More than one way to continue gives more than
+    /// one attempt.
+    fn search(
+        &self,
+        hypo: &Game,
+        next_rank: usize,
+        connections: Vec<Connection>,
+        conn_ctx: ConnectContext,
+        opts: ConnectOpts,
+    ) -> Vec<Attempt> {
+        let id = self.id;
+        if next_rank >= id.rank {
+            return vec![(Ok(connections), opts.bluff)];
+        }
 
-    let mut hypo = game.clone();
-    let mut next_rank = state.play_stacks[id.suit_index] + 1;
-    let mut connections: Vec<Connection> = Vec::new();
-    let mut conn_ctx = ConnectContext {
-        looks_direct,
-        thinks_stall,
-        connected: FastBitSet::single(focus),
-        ignore,
-    };
-    let mut opts = ConnectOpts {
-        assume_truth,
-        ..ConnectOpts::default()
-    };
+        let ClueContext { game, action, .. } = *self.ctx;
+        let ClueAction {
+            giver,
+            target,
+            clue,
+            ..
+        } = *action;
+        let state = &game.state;
+        let focus_result = self.ctx.focus_result();
+        let (focus, positional) = (focus_result.focus, focus_result.positional);
 
-    // `true` if the loop reached the target id
-    let mut reached = false;
-
-    while next_rank < id.rank {
         let next_id = Identity::new(id.suit_index, next_rank);
-        let new_ctx = ctx.with_game(&hypo);
+        let new_ctx = self.ctx.with_game(hypo);
 
         let seek_own = |player_index: usize| -> Option<Vec<Connection>> {
             let known = find_known_conn(
@@ -1014,7 +1053,7 @@ pub fn connect(
                 id,
                 conn_ctx.ignore.union(conn_ctx.connected),
                 true,
-                prefer_own,
+                self.prefer_own,
             );
 
             // See if we need to correct based on future information
@@ -1075,147 +1114,223 @@ pub fn connect(
             })
         };
 
-        let conn = if prefer_own {
-            seek_own(state.our_player_index)
-                .or_else(|| find_connecting(&new_ctx, next_id, id, &conn_ctx, &opts))
+        // When we may be the one connecting, both ways are followed (we have it, or someone else does).
+        let possible_conns: Vec<Vec<Connection>> = if self.prefer_own {
+            [
+                seek_own(state.our_player_index),
+                find_connecting(&new_ctx, next_id, id, &conn_ctx, &opts),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
         } else {
             find_connecting(&new_ctx, next_id, id, &conn_ctx, &opts)
-                .or_else(|| find_own.and_then(seek_own))
+                .or_else(|| self.find_own.and_then(seek_own))
+                .into_iter()
+                .collect()
         };
 
-        let Some(conns) = conn else {
-            break;
-        };
-
-        let mut new_game = hypo.clone();
-        for c in &conns {
-            let play_id = new_game.state.deck[c.order()]
-                .id()
-                .or_else(|| (c.ids().len() == 1).then(|| c.ids()[0]));
-
-            if let Some(i) = play_id {
-                new_game = play_in_hypo(&new_game, c.order(), i, giver);
-            }
+        if possible_conns.is_empty() {
+            return vec![(Err(connections), opts.bluff)];
         }
 
-        conn_ctx.looks_direct = conn_ctx.looks_direct
-            && ((clue.kind == ClueKind::Colour
-                && next_id
-                    .next()
-                    .is_some_and(|n| game.common.thoughts[focus].possible.contains(n)))
-                || positional.is_some()
-                || !conns.iter().any(|c| {
-                    matches!(c, Connection::Finesse { reacting, .. } if *reacting != target)
-                        && !c.hidden()
-                }));
-        for c in &conns {
-            conn_ctx.connected.insert(c.order());
-        }
-
-        opts.bluff = opts.bluff || conns.iter().any(Connection::is_possibly_bluff);
-        opts.non_target_finessed = opts.non_target_finessed
-            || conns
-                .iter()
-                .any(|c| is_finesse(c) && c.reacting() != target);
-        if opts.inserting_into.is_none() {
-            opts.inserting_into = conns.iter().find_map(|c| match c {
-                Connection::Playable {
-                    inserting_into: Some(ins),
-                    ..
-                } => Some(ins.clone()),
-                _ => None,
-            });
-        }
-
-        connections.extend(conns);
-        hypo = new_game;
-        next_rank += 1;
-    }
-
-    if next_rank >= id.rank {
-        reached = true;
-    }
-
-    if !reached {
-        // Failed connection
-        if let Some(known_order) = connections.iter().find_map(|c| match c {
-            Connection::Known { order, .. } => Some(*order),
-            _ => None,
-        }) {
-            let mut new_ignore = ignore;
-            new_ignore.insert(known_order);
-            return connect(
-                ctx,
-                id,
-                looks_direct,
-                thinks_stall,
-                assume_truth,
-                new_ignore,
-                find_own,
-                prefer_own,
-            );
-        }
-
-        if game.level() >= level::BLUFFS && !assume_truth && opts.bluff {
-            return connect(
-                ctx,
-                id,
-                looks_direct,
-                thinks_stall,
-                true,
-                ignore,
-                find_own,
-                prefer_own,
-            );
-        }
-        return None;
-    }
-
-    let conns = connections;
-
-    let symmetric = !state.deck[focus].matches_assume(&id)
-        || !game.players[target].thoughts[focus].possible.contains(id)
-        // Newly touching a visible dupe
-        || (!prev.is_touched(focus)
-            && visible_find(
-                state,
-                &prev.players[giver],
-                id,
-                VisibleOpts {
-                    infer: true,
-                    exclude_order: Some(focus),
-                    ..VisibleOpts::default()
-                },
-                |_, _| true,
-            )
+        possible_conns
             .into_iter()
-            .any(|o| prev.is_touched(o)))
-        || conns.iter().any(|conn| match conn {
-            Connection::Playable { order, linked, .. } => {
-                if linked.is_empty() {
-                    state.deck[*order].id().is_some_and(|i| !conn.ids().contains(&i))
-                } else {
-                    linked
-                        .iter()
-                        .all(|&l| state.deck[l].id().is_some_and(|i| !conn.ids().contains(&i)))
+            .flat_map(|conns| {
+                let mut new_game = hypo.clone();
+                for c in &conns {
+                    let play_id = new_game.state.deck[c.order()]
+                        .id()
+                        .or_else(|| (c.ids().len() == 1).then(|| c.ids()[0]));
+
+                    if let Some(i) = play_id {
+                        new_game = play_in_hypo(&new_game, c.order(), i, giver);
+                    }
                 }
-            }
-            // A bluff doesn't have to match the actual id
-            c if c.is_bluff() => false,
-            c => state.deck[c.order()].id().is_some_and(|i| !c.ids().contains(&i)),
-        });
 
-    let finalized = finalize_conns(conns, giver == state.our_player_index);
+                let mut new_conn_ctx = conn_ctx;
+                new_conn_ctx.looks_direct = conn_ctx.looks_direct
+                    && ((clue.kind == ClueKind::Colour
+                        && next_id
+                            .next()
+                            .is_some_and(|n| game.common.thoughts[focus].possible.contains(n)))
+                        || positional.is_some()
+                        || !conns.iter().any(|c| {
+                            matches!(c, Connection::Finesse { reacting, .. } if *reacting != target)
+                                && !c.hidden()
+                        }));
+                for c in &conns {
+                    new_conn_ctx.connected.insert(c.order());
+                }
 
-    log_info!(
-        "found connections: {}{}{}",
-        state.log_conns_to(&finalized, id),
-        if symmetric { " (symmetric)" } else { "" },
-        if prefer_own { " (ambiguous)" } else { "" }
+                let mut new_opts = opts.clone();
+                new_opts.bluff = opts.bluff || conns.iter().any(Connection::is_possibly_bluff);
+                new_opts.non_target_finessed = opts.non_target_finessed
+                    || conns
+                        .iter()
+                        .any(|c| is_finesse(c) && c.reacting() != target);
+                if new_opts.inserting_into.is_none() {
+                    new_opts.inserting_into = conns.iter().find_map(|c| match c {
+                        Connection::Playable {
+                            inserting_into: Some(ins),
+                            ..
+                        } => Some(ins.clone()),
+                        _ => None,
+                    });
+                }
+
+                let mut all_conns = connections.clone();
+                all_conns.extend(conns);
+                self.search(&new_game, next_rank + 1, all_conns, new_conn_ctx, new_opts)
+            })
+            .collect()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn connect(
+    ctx: &ClueContext,
+    id: Identity,
+    looks_direct: bool,
+    thinks_stall: FastBitSet,
+    assume_truth: bool,
+    ignore_known: FastBitSet,
+    find_own: Option<usize>,
+    prefer_own: bool,
+) -> Vec<FocusPossibility> {
+    let ClueContext {
+        prev, game, action, ..
+    } = *ctx;
+    let ClueAction { giver, target, .. } = *action;
+    let state = &game.state;
+    let focus_result = ctx.focus_result();
+    let (focus, positional) = (focus_result.focus, focus_result.positional);
+
+    let ignore = if positional == Some(Positional::Mud) {
+        // Assume mud clues aren't selfish
+        ignore_known.union(state.hands[giver].iter().copied().collect())
+    } else {
+        ignore_known
+    };
+
+    let initial_conn_ctx = ConnectContext {
+        looks_direct,
+        thinks_stall,
+        connected: FastBitSet::single(focus),
+        ignore,
+    };
+    let initial_opts = ConnectOpts {
+        assume_truth,
+        ..ConnectOpts::default()
+    };
+
+    let search = ConnectSearch {
+        ctx,
+        id,
+        find_own,
+        prefer_own,
+    };
+    let attempts = search.search(
+        game,
+        state.play_stacks[id.suit_index] + 1,
+        Vec::new(),
+        initial_conn_ctx,
+        initial_opts,
     );
 
-    let mut fp = FocusPossibility::new(id, finalized, ClueInterp::Play.into());
-    fp.symmetric = symmetric;
-    fp.ambiguous = prefer_own;
-    Some(fp)
+    attempts
+        .into_iter()
+        .flat_map(|attempt| match attempt {
+            (Err(conns), _) if conns.iter().any(|c| matches!(c, Connection::Known { .. })) => {
+                // Failed connection: try again without the known card
+                let known_order = conns
+                    .iter()
+                    .find_map(|c| match c {
+                        Connection::Known { order, .. } => Some(*order),
+                        _ => None,
+                    })
+                    .expect("checked above");
+                let mut new_ignore = ignore;
+                new_ignore.insert(known_order);
+                connect(
+                    ctx,
+                    id,
+                    looks_direct,
+                    thinks_stall,
+                    assume_truth,
+                    new_ignore,
+                    find_own,
+                    prefer_own,
+                )
+            }
+
+            (Err(_), bluffed) if game.level() >= level::BLUFFS && !assume_truth && bluffed => {
+                // The bluff connection failed, retry with a true finesse
+                connect(
+                    ctx,
+                    id,
+                    looks_direct,
+                    thinks_stall,
+                    true,
+                    ignore,
+                    find_own,
+                    prefer_own,
+                )
+            }
+
+            (Ok(conns), _) => {
+                let symmetric = !state.deck[focus].matches_assume(&id)
+                    || !game.players[target].thoughts[focus].possible.contains(id)
+                    // Newly touching a visible dupe
+                    || (!prev.is_touched(focus)
+                        && visible_find(
+                            state,
+                            &prev.players[giver],
+                            id,
+                            VisibleOpts {
+                                infer: true,
+                                exclude_order: Some(focus),
+                                ..VisibleOpts::default()
+                            },
+                            |_, _| true,
+                        )
+                        .into_iter()
+                        .any(|o| prev.is_touched(o)))
+                    || conns.iter().any(|conn| match conn {
+                        Connection::Playable { order, linked, .. } => {
+                            if linked.is_empty() {
+                                state.deck[*order]
+                                    .id()
+                                    .is_some_and(|i| !conn.ids().contains(&i))
+                            } else {
+                                linked.iter().all(|&l| {
+                                    state.deck[l].id().is_some_and(|i| !conn.ids().contains(&i))
+                                })
+                            }
+                        }
+                        // A bluff doesn't have to match the actual id
+                        c if c.is_bluff() => false,
+                        c => state.deck[c.order()]
+                            .id()
+                            .is_some_and(|i| !c.ids().contains(&i)),
+                    });
+
+                let finalized = finalize_conns(conns, giver == state.our_player_index);
+
+                log_info!(
+                    "found connections: {}{}{}",
+                    state.log_conns_to(&finalized, id),
+                    if symmetric { " (symmetric)" } else { "" },
+                    if prefer_own { " (ambiguous)" } else { "" }
+                );
+
+                let mut fp = FocusPossibility::new(id, finalized, ClueInterp::Play.into());
+                fp.symmetric = symmetric;
+                fp.ambiguous = prefer_own;
+                vec![fp]
+            }
+
+            _ => Vec::new(),
+        })
+        .collect()
 }

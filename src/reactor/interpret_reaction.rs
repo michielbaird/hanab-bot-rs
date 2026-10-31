@@ -51,9 +51,8 @@ fn calc_target_slot(
     }
 }
 
-/// If the card now has no inferences, it is trash. (Resets `meta` to `orig` first, as the Scala bot does.)
-fn update_meta(meta: &mut Vec<ConvData>, orig: &[ConvData], common: &Player, receive_order: usize) {
-    *meta = orig.to_vec();
+/// If the card now has no inferences, it is trash.
+fn update_meta(meta: &mut [ConvData], common: &Player, receive_order: usize) {
     if common.thoughts[receive_order].inferred.is_empty() {
         meta[receive_order].trash = true;
     }
@@ -69,7 +68,7 @@ fn is_signalled(status: CardStatus) -> bool {
 pub fn elim_dc_dc(
     state: &State,
     common: &mut Player,
-    meta: &mut Vec<ConvData>,
+    meta: &mut [ConvData],
     reacter: usize,
     receiver_hand: &[usize],
     focus_slot: usize,
@@ -120,7 +119,7 @@ pub fn elim_dc_dc(
 pub fn elim_play_dc(
     state: &State,
     common: &mut Player,
-    meta: &mut Vec<ConvData>,
+    meta: &mut [ConvData],
     reacter: usize,
     receiver_hand: &[usize],
     focus_slot: usize,
@@ -170,14 +169,12 @@ pub fn elim_play_dc(
 pub fn elim_dc_play(
     state: &State,
     common: &mut Player,
-    meta: &mut Vec<ConvData>,
+    meta: &mut [ConvData],
     reacter: usize,
     receiver_hand: &[usize],
     focus_slot: usize,
     target_slot: usize,
 ) {
-    let orig = meta.clone();
-
     for (i, &receive_order) in receiver_hand.iter().enumerate().take(target_slot - 1) {
         if is_signalled(meta[receive_order].status) {
             continue;
@@ -200,7 +197,7 @@ pub fn elim_dc_play(
                 i + 1,
                 common.str_infs(state, receive_order)
             );
-            update_meta(meta, &orig, common, receive_order);
+            update_meta(meta, common, receive_order);
         }
     }
 }
@@ -208,14 +205,12 @@ pub fn elim_dc_play(
 pub fn elim_play_play(
     state: &State,
     common: &mut Player,
-    meta: &mut Vec<ConvData>,
+    meta: &mut [ConvData],
     reacter: usize,
     receiver_hand: &[usize],
     focus_slot: usize,
     target_slot: usize,
 ) {
-    let orig = meta.clone();
-
     for (i, &receive_order) in receiver_hand.iter().enumerate().take(target_slot - 1) {
         if is_signalled(meta[receive_order].status) {
             continue;
@@ -243,7 +238,7 @@ pub fn elim_play_play(
                     i + 1,
                     common.str_infs(state, receive_order)
                 );
-                update_meta(meta, &orig, common, receive_order);
+                update_meta(meta, common, receive_order);
             }
             _ => {
                 common.update_thought(receive_order, |t| {
@@ -254,7 +249,7 @@ pub fn elim_play_play(
                     i + 1,
                     common.str_infs(state, receive_order)
                 );
-                update_meta(meta, &orig, common, receive_order);
+                update_meta(meta, common, receive_order);
             }
         }
     }

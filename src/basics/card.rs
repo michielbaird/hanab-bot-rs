@@ -359,7 +359,7 @@ impl ConvData {
 
     /// Adds an entry to the reasoning list (unless it's already the most recent).
     pub fn reason(&mut self, turn_count: usize) {
-        if self.reasoning.last() != Some(&turn_count) {
+        if self.reasoning.first() != Some(&turn_count) {
             Arc::make_mut(&mut self.reasoning).insert(0, turn_count);
         }
     }

@@ -260,6 +260,20 @@ impl Convention for Reactor {
                         orders.contains(o) && orders.last() != Some(o)
                     });
 
+                // The direction the card is dragged in (play or discard) is not known
+                let inverted_not_known = game.state.variant.inverted
+                    && !matches!(
+                        meta[o].status,
+                        CardStatus::CalledToDiscard
+                            | CardStatus::CalledToPlay
+                            | CardStatus::DragToPlay
+                    )
+                    && {
+                        let poss = player.thoughts[o].possibilities();
+                        poss.iter().any(|i| game.state.is_inverted(i))
+                            && poss.iter().any(|i| !game.state.is_inverted(i))
+                    };
+
                 let overtaken = || {
                     orders.iter().any(|&o2| {
                         o2 != o
@@ -278,7 +292,7 @@ impl Convention for Reactor {
                     })
                 };
 
-                !(linked || overtaken())
+                !(linked || inverted_not_known || overtaken())
             })
             .collect()
     }
@@ -480,8 +494,8 @@ impl Convention for Reactor {
                 DiscardResult::GentlemansDiscard {
                     orders: targets, ..
                 } => {
-                    let mut acc = g;
-                    let mut hypo_state = game.state.clone();
+                    let mut acc = g.clone();
+                    let mut hypo_state = g.state.clone();
                     let last = targets.last().copied();
 
                     for &o in &targets {
@@ -491,12 +505,12 @@ impl Convention for Reactor {
                         } else {
                             IdentitySet::from(id)
                         };
-                        if let Some(i) = game.me().thoughts[o].id() {
+                        if let Some(i) = g.me().thoughts[o].id() {
                             hypo_state.add_play(i);
                         }
 
                         acc.common.update_thought(o, |t| t.inferred = inferred);
-                        acc.meta[o] = game.meta[o].clone();
+                        acc.meta[o] = g.meta[o].clone();
                         acc.meta[o].status = CardStatus::GentlemansDiscard;
                         acc.meta[o].hidden = hidden;
                     }
@@ -523,9 +537,9 @@ impl Convention for Reactor {
 
             let reset_ctd = prev.state.hands[player_index][0] == order
                 && !prev.is_touched(order)
-                && prev.chop(player_index).is_some_and(|o| {
-                    o < order && game.meta[o].status == CardStatus::CalledToDiscard
-                });
+                && prev
+                    .chop(player_index)
+                    .is_some_and(|o| o < order && g.meta[o].status == CardStatus::CalledToDiscard);
 
             if reset_ctd {
                 log_highlight!(

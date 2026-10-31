@@ -1157,7 +1157,9 @@ impl HGroupGame for Game {
             .find(|wc| {
                 !wc.symmetric
                     && !wc.ambiguous_self
-                    && !matches!(action, Action::Play(p) if p.order == wc.curr_conn().order())
+                    && !matches!(action, Action::Play(p)
+                        if p.order == wc.curr_conn().order()
+                            || p.id.is_some_and(|id| wc.curr_conn().ids() == [id]))
                     && !self.waiting().iter().any(|w| {
                         w.connections.iter().all(|c| wc.connections.contains(c))
                             && w.inference == wc.inference
@@ -1642,29 +1644,51 @@ impl Convention for HGroup {
                     let mut g = pre;
                     g.reset_important(player_index);
 
-                    match check_ocm(prev, &Action::Play(action.clone())) {
-                        None => g.with_move(PlayInterp::None.into(), false),
-                        Some(orders) => {
-                            let chop = *orders.iter().min().expect("not empty");
-                            let mistake = game.state.deck[chop]
-                                .id()
-                                .is_some_and(|id| game.state.is_basic_trash(id) || id.rank == 1);
+                    // An inverted (orange) card played from chop is a discard to the play stacks: it can be a
+                    // screaming discard chop move or a positional discard.
+                    let discard_interp = (is_inverted && prev.chop(player_index) == Some(order))
+                        .then(|| {
+                            let dc_action = DiscardAction {
+                                player_index,
+                                order,
+                                id,
+                                failed: false,
+                            };
+                            let ctx = DiscardContext {
+                                prev,
+                                game: &g,
+                                action: &dc_action,
+                            };
+                            interpret_sdcm(&ctx).or_else(|| interpret_pos_dc(&ctx))
+                        })
+                        .flatten();
 
-                            if mistake {
-                                log_warn!("bad ocm!");
-                            }
+                    match discard_interp {
+                        Some(replayed) => g = replayed,
+                        None => match check_ocm(prev, &Action::Play(action.clone())) {
+                            None => g.with_move(PlayInterp::None.into(), false),
+                            Some(orders) => {
+                                let chop = *orders.iter().min().expect("not empty");
+                                let mistake = game.state.deck[chop].id().is_some_and(|id| {
+                                    game.state.is_basic_trash(id) || id.rank == 1
+                                });
 
-                            g = perform_cm(&g, &orders);
-                            g.with_move(
                                 if mistake {
-                                    PlayInterp::Mistake
-                                } else {
-                                    PlayInterp::OrderCM
+                                    log_warn!("bad ocm!");
                                 }
-                                .into(),
-                                false,
-                            );
-                        }
+
+                                g = perform_cm(&g, &orders);
+                                g.with_move(
+                                    if mistake {
+                                        PlayInterp::Mistake
+                                    } else {
+                                        PlayInterp::OrderCM
+                                    }
+                                    .into(),
+                                    false,
+                                );
+                            }
+                        },
                     }
                     g.hg_mut().dc_status = DcStatus::None;
                     g.hg_mut().dda = None;

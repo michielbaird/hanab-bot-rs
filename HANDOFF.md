@@ -19,7 +19,7 @@ The user's instructions, in their words or close to it:
 | What | Path |
 |---|---|
 | The new crate (all work happens here) | `/workspace/hanab-bot-rs` (git repo; see `git log`: M0, M1, M3, M4 are separate commits) |
-| Scala source (the spec) | `/workspace/scala-bot` (v1.2.8; `src/scala_bot` ~16.6k lines, `src/test` ~12.7k lines) |
+| Scala source (the spec) | `/workspace/scala-bot` (v1.2.8, plus the v1.3.0 changes ported on 2026-10-30; `src/scala_bot` ~16.6k lines, `src/test` ~12.7k lines) |
 | Older Rust port (reference only; Reactor only, ~9k lines) | `/workspace/rust-bot` |
 | Rust toolchain | `~/.cargo/bin` (rustc/cargo 1.99.1). `export PATH=$HOME/.cargo/bin:$PATH` |
 | JDK 25 + scala-cli | `~/tools` (installed for a `make` that was never run; unused, safe to delete) |

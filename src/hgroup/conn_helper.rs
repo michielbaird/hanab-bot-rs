@@ -528,7 +528,7 @@ pub fn resolve_clue(
             {
                 continue;
             }
-            if let Some(fp) = connect(
+            for fp in connect(
                 ctx,
                 inf,
                 looks_direct,
@@ -575,7 +575,7 @@ pub fn resolve_clue(
                 }
 
                 // An ambiguous connection is always delayed (can't be a bluff)
-                if let Some(fp) = connect(
+                for fp in connect(
                     ctx,
                     inf,
                     looks_direct,
@@ -584,9 +584,10 @@ pub fn resolve_clue(
                     FastBitSet::EMPTY,
                     None,
                     true,
-                ) && !existing.iter().any(|e| e.connections == fp.connections)
-                {
-                    result.push(fp);
+                ) {
+                    if !existing.iter().any(|e| e.connections == fp.connections) {
+                        result.push(fp);
+                    }
                 }
             }
             result

@@ -59,8 +59,8 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
    made to `g` were thrown away. It now continues from `g`.
 10. **fixed** `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` was called with *order 0*, not the discarded card, so the
     condition was nearly always met. It now asks whether the discarded slot-1 card was touched (`is_touched(order)`).
-11. **open** `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` is passed the original `meta`
-    instead of the accumulated one, so only the last processed slot's `trash` flag survives.
+11. **fixed** (Scala v1.3.0 fixed it too) `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` was passed the
+    original `meta` instead of the accumulated one, so only the last processed slot's `trash` flag survived.
 12. **open** `calc_target_slot`: `indexOf` returns -1 when the reacting order isn't in the reacter's old hand, making the slot 0.
 13. **open** `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in Scala.
     The Rust treats "no old inference" as "different from the played identity".
@@ -150,7 +150,8 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 ## E. Upstream issues (will-hanabi-bot/scala-bot), checked 2026-10-28
 
-Our port is exactly upstream's latest commit (`bcf85bb`, v1.2.8, 2026-10-21), so every **closed** upstream issue (the other 77 of 92) is already
+Our port was exactly upstream's commit `bcf85bb` (v1.2.8, 2026-10-21) and now also includes **v1.3.0** (`b48d50e`, 2026-10-28: orange and finesse
+improvements; it closed #82, #87 and #64 below, which are therefore fixed here; the table is as of v1.2.8). Every **closed** upstream issue is already
 fixed in what was ported; the ported tests carry many of the regressions. The **15 open** ones are unfixed upstream, therefore present here too.
 None of the H-Group ones is below level 11, so none affects HGroup 1-10 play as reported.
 
@@ -160,12 +161,12 @@ None of the H-Group ones is below level 11, so none affects HGroup 1-10 play as 
 | 92 | H11, orange | Gentleman's discard "through" an orange card isn't treated like a layered playable | yes | Variant + level 11; later |
 | 89 | H11, orange | Orange 1 misdiscard read as a Gentleman's discard; also clues several 1s including orange ones | yes | Later |
 | 88 | H11 | A prompt through a baton-discarded card isn't considered (4 clue read as self-finesse) | yes | Later |
-| 87 | H11, orange | Screaming-discard chop move not recognised when the discarded card turns out orange | yes | Later |
+| 87 | H11, orange | Screaming-discard chop move not recognised when the discarded card turns out orange | **fixed in v1.3.0, ported** | Later |
 | 86 | H11 | Illegal fill-in/tempo clue stall given when a 5 stall exists; asymmetric stall | yes | Same class as item 28 (common-knowledge desync) |
 | 84 | H11 | Bot misses a stall clue while in DDA (`asymmetric! only [jabot2] think stall`) | yes | Same class as item 28 |
-| 82 | H11, orange | Orange chop card not inferred as known trash (inferred o4) | yes | Later |
+| 82 | H11, orange | Orange chop card not inferred as known trash (inferred o4) | **fixed in v1.3.0, ported** | Later |
 | 78 | H12 | Marks a card known (g3) although a finesse might be ambiguous | yes | Maintainer: by design |
-| 64 | H12 | Clues r2 in the partner's hand without realising it has r2 itself | yes | Needs the replay; later |
+| 64 | H12 | Clues r2 in the partner's hand without realising it has r2 itself | **fixed in v1.3.0, ported** | Needs the replay; later |
 | 61 | H12, black | Black save-clue exception for avoiding bad touch not implemented | yes | Maintainer: hesitant (breaks common-knowledge symmetry); a design discussion |
 | 72 | Reactor, pinkish 5s | Stable reference-discard clues don't give the rank promise | yes | Variant-specific; later |
 | 45 | Reactor | A clue meant as reactive is read as stable by one bot (desync in one edge case) | yes | Needs the replay |
