@@ -110,6 +110,10 @@ pub fn simulate_game(
     let slow_ms: Option<u64> = std::env::var("SELF_PLAY_SLOW_MS")
         .ok()
         .and_then(|v| v.parse().ok());
+    // Set SELF_PLAY_DESYNC to report the first turn where the players' common knowledge differs.
+    let check_desync = std::env::var("SELF_PLAY_DESYNC").is_ok();
+    let mut desynced = false;
+    let mut strikes_seen = 0;
     let mut actions: Vec<PerformAction> = Vec::new();
     let mut error = None;
 
@@ -158,6 +162,20 @@ pub fn simulate_game(
                     current_player_index: Some(next),
                 }))
                 .map_err(|e| e.to_string())?;
+            }
+
+            if check_desync && games[0].state.strikes > strikes_seen {
+                strikes_seen = games[0].state.strikes;
+                eprintln!(
+                    "BOMB turn {} ({} did {:?}){}",
+                    games[0].state.turn_count,
+                    games[0].state.names[current],
+                    perform,
+                    if desynced { " after a desync" } else { "" }
+                );
+            }
+            if check_desync && !desynced {
+                desynced = report_desync(&games, &perform, current);
             }
 
             // Plays and discards of inverted cards are swapped when the server sees them.
@@ -233,6 +251,40 @@ pub fn summary_json(
         "notes": summary.notes,
         "options": {"variant": variant.name},
     })
+}
+
+/// Prints the first turn where the players' games disagree about which cards a player will play.
+///
+/// What everyone expects a player to play is common knowledge, so every player's game should list the same cards
+/// as playable for player `p` (their own and the others'). A difference means that the giver and the receiver of a
+/// move read it differently, and the receiver may blind-play a card the others don't expect (or the reverse).
+fn report_desync(games: &[Game], perform: &PerformAction, current: usize) -> bool {
+    for p in 0..games.len() {
+        let expected: Vec<Vec<usize>> = games
+            .iter()
+            .map(|g| {
+                let mut v = g.common.thinks_playables(g, p, true, true);
+                v.sort_unstable();
+                v
+            })
+            .collect();
+
+        if let Some(j) = (0..games.len()).find(|&j| expected[j] != expected[p]) {
+            let first = &games[0];
+            eprintln!(
+                "DESYNC turn {} ({} did {:?}): {} will play {:?} by their own game, but {} expects {:?}",
+                first.state.turn_count,
+                first.state.names[current],
+                perform,
+                first.state.names[p],
+                expected[p],
+                first.state.names[j],
+                expected[j],
+            );
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
