@@ -7,7 +7,9 @@ use crate::basics::Convention;
 use crate::reactor::Reactor;
 use crate::ref_sieve::RefSieve;
 
-pub const BOT_VERSION: &str = "v1.3.0 (hanab-bot-rs)";
+/// The version the bot reports (in its first-card note, to `/version` and in the log). It comes from `Cargo.toml`, so
+/// there is one place to change it; the number is the scala-bot release it was ported from, until the two drift apart.
+pub const BOT_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), " (hanab-bot-rs)");
 pub const MAX_H_LEVEL: usize = 12;
 
 /// Which set of conventions to play.
@@ -99,6 +101,16 @@ pub fn parse_convention_from_note(note: &str) -> Option<ConventionKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_comes_from_cargo() {
+        assert_eq!(
+            BOT_VERSION,
+            format!("v{} (hanab-bot-rs)", env!("CARGO_PKG_VERSION"))
+        );
+        // The first-card note keeps the shape that other bots and the analysis tool read.
+        assert!(info_note(ConventionKind::HGroup(3)).starts_with("[INFO: v"));
+    }
 
     #[test]
     fn parses_conventions() {
