@@ -110,7 +110,12 @@ pub fn interpret_transfer(
                     let future_ids = if inverted {
                         game.future[f]
                     } else {
-                        game.future[f].intersect(hypo_state.playable_set)
+                        // (An orange card on the finesse position is a layer too, see below.)
+                        game.future[f].intersect(
+                            hypo_state
+                                .playable_set
+                                .union(hypo_state.all_ids.filter(|i| game.state.is_inverted(i))),
+                        )
                     };
 
                     if future_ids.len() == 1 {
@@ -123,6 +128,21 @@ pub fn interpret_transfer(
                 match finesse_id {
                     None => Some(vec![f]),
                     Some(i) if i == id => Some(vec![f]),
+                    // A gentleman's discard can be layered through any orange card: the discard gets the "land mine" out of the
+                    // game early, like a hollow bluff does.
+                    Some(i) if !inverted && game.state.is_inverted(i) => {
+                        let mut next = hypo_game.clone();
+                        next.state.add_discard(i, f);
+                        next.state.hands[holder].retain(|&o| o != f);
+
+                        let mut next_connected = connected;
+                        next_connected.insert(f);
+                        find_gd(ctx, &next, next_connected, holder, inverted, id).map(|rest| {
+                            let mut all = vec![f];
+                            all.extend(rest);
+                            all
+                        })
+                    }
                     Some(i)
                         if if inverted ^ game.state.is_inverted(i) {
                             hypo_state.is_basic_trash(i)
