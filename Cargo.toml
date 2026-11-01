@@ -1,6 +1,6 @@
 [package]
 name = "hanab-bot-rs"
-version = "0.1.0"
+version = "1.3.0"
 edition = "2024"
 description = "A Hanabi bot for hanab.live (H-Group, Referential Sieve and Reactor conventions), a Rust port of scala-bot"
 license = "GPL-3.0-or-later"
