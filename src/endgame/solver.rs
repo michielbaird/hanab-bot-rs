@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::clock::Instant;
 
 /// How long a new solver may search, in milliseconds (3 s, as in the Scala bot, unless [`set_default_timeout`] says otherwise).
 static DEFAULT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(3000);

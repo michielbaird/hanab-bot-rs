@@ -95,3 +95,19 @@ jobs:
           set -e
           echo "$out"
           echo "$out" | grep -q "Missing HANABI_USERNAME0"
+
+  wasm:
+    name: builds for the browser (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target\nwasm -> wasm/target"
+      - name: The library builds for wasm32
+        run: cargo build --no-default-features --lib --target wasm32-unknown-unknown
+      - name: The browser module builds
+        run: cargo build --release --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown
