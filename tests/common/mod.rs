@@ -289,7 +289,10 @@ fn certain_for_stacks(player: &mut hanab_bot::basics::Player, stacks: &[usize]) 
 pub fn setup(conv: Arc<dyn Convention>, hands: &[&[&str]], opts: Setup) -> Game {
     logger::set_level(LogLevel::Off);
 
-    let player_names: Vec<String> = NAMES[..hands.len()].iter().map(|s| s.to_string()).collect();
+    let player_names: Vec<String> = NAMES[..hands.len()]
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     let variant = opts.variant.variant();
     let state = State::new(
         player_names.clone(),
@@ -505,7 +508,14 @@ pub fn parse_action(state: &State, action: &str) -> Action {
                       short: &str,
                       slot: Option<&str>,
                       what: &str| {
-        if player_index != state.our_player_index {
+        if player_index == state.our_player_index {
+            let slot = slot.unwrap_or_else(|| {
+                panic!(
+                    "Not enough arguments provided ({what} from us) in {action}, needs '(slot x)'"
+                )
+            });
+            state.hands[player_index][slot.parse::<usize>().unwrap() - 1]
+        } else {
             let matching: Vec<usize> = state.hands[player_index]
                 .iter()
                 .copied()
@@ -541,13 +551,6 @@ pub fn parse_action(state: &State, action: &str) -> Action {
                     order
                 }
             }
-        } else {
-            let slot = slot.unwrap_or_else(|| {
-                panic!(
-                    "Not enough arguments provided ({what} from us) in {action}, needs '(slot x)'"
-                )
-            });
-            state.hands[player_index][slot.parse::<usize>().unwrap() - 1]
         }
     };
 
@@ -558,21 +561,7 @@ pub fn parse_action(state: &State, action: &str) -> Action {
         let (giver, target) = (parse_player(&c[1]), parse_player(&c[3]));
         let clue = str_to_clue(state, &c[2]);
 
-        if target != state.our_player_index {
-            let list = state.clue_touched(&state.hands[target], &clue);
-            assert!(
-                !list.is_empty(),
-                "No cards touched by clue ({} to {})!",
-                &c[2],
-                &c[3]
-            );
-            Action::Clue(ClueAction {
-                giver,
-                target,
-                list,
-                clue,
-            })
-        } else {
+        if target == state.our_player_index {
             let slots = c.get(4).unwrap_or_else(|| {
                 panic!("Not enough arguments provided (clue to us) in {action}, needs '(slot x)'")
             });
@@ -581,6 +570,20 @@ pub fn parse_action(state: &State, action: &str) -> Action {
                 .split(',')
                 .map(|s| state.our_hand()[s.parse::<usize>().unwrap() - 1])
                 .collect();
+            Action::Clue(ClueAction {
+                giver,
+                target,
+                list,
+                clue,
+            })
+        } else {
+            let list = state.clue_touched(&state.hands[target], &clue);
+            assert!(
+                !list.is_empty(),
+                "No cards touched by clue ({} to {})!",
+                &c[2],
+                &c[3]
+            );
             Action::Clue(ClueAction {
                 giver,
                 target,

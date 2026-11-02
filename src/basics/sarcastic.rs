@@ -22,7 +22,7 @@ pub fn valid_transfer(game: &Game, id: Identity) -> impl Fn(usize) -> bool + '_ 
 
         thought.possible.contains(id)
             // Do not sarcastic on connecting cards
-            && !thought.id_with(true, true).is_some_and(|i| i.rank < id.rank)
+            && thought.id_with(true, true).is_none_or(|i| i.rank >= id.rank)
             && thought.info_lock.forall(|l| l.contains(id))
     }
 }

@@ -313,13 +313,13 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
     }
 
     if player.thinks_locked(game, player_index) {
-        return if !state.can_clue() {
+        return if state.can_clue() {
+            force_clue_value(orig, game, offset, None)
+        } else {
             let locked_dc = player.locked_discard(state, player_index);
             let action = game.players[player_index].try_discard(game, locked_dc);
             log_info!("locked discard! {locked_dc}");
             advance(orig, &game.simulate(&action, None), offset + 1)
-        } else {
-            force_clue_value(orig, game, offset, None)
         };
     }
 
@@ -425,14 +425,14 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
             if hypo.last_move() == Some(Interp::Clue(ClueInterp::Mistake)) {
                 (Some(ClueInterp::Mistake.into()), -100.0)
             } else {
-                let mult = if !game
+                let mult = if game
                     .me()
                     .thinks_playables(game, our, false, true)
                     .is_empty()
                 {
-                    if game.in_endgame() { 0.1 } else { 0.25 }
-                } else {
                     0.5
+                } else {
+                    if game.in_endgame() { 0.1 } else { 0.25 }
                 };
 
                 let initial = get_result(game, &hypo, clue) * mult - 0.5;
@@ -465,10 +465,10 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                     .fold(0.0, f64::max);
 
                 // Unlockable
-                if unlockability != 0.0 {
-                    unlockability
-                } else {
+                if unlockability == 0.0 {
                     0.02 * (5 - id.rank) as f64
+                } else {
+                    unlockability
                 }
             } else {
                 0.02 * (5 - id.rank) as f64
@@ -761,12 +761,12 @@ pub fn eval_game(orig: &Game, game: &Game) -> f64 {
 
     log_info!(
         "state: {state_val}, future: {future_val}, bdr: {bdr_val} touch: {touch_val} locked: {locked_penalty}{}{}",
-        if endgame_penalty != 0.0 {
-            format!(" endgame penalty: {endgame_penalty}")
-        } else {
+        if endgame_penalty == 0.0 {
             String::new()
+        } else {
+            format!(" endgame penalty: {endgame_penalty}")
         },
-        if bad_ptd_val != 0.0 { " badPtd!" } else { "" }
+        if bad_ptd_val == 0.0 { "" } else { " badPtd!" }
     );
     state_val + future_val + bdr_val + touch_val + endgame_penalty + bad_ptd_val + locked_penalty
 }

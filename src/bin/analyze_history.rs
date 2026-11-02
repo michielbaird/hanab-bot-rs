@@ -100,13 +100,12 @@ fn main() -> Result<(), String> {
                     let Some(row) = rows.get(i) else { break };
 
                     let cached = (!force).then(|| load(&out_dir, row.id)).flatten();
-                    let (report, reused) = match cached {
-                        Some(report) => (report, true),
-                        None => {
-                            let report = analyze_game(row, &options);
-                            save(&out_dir, &report, &host);
-                            (report, false)
-                        }
+                    let (report, reused) = if let Some(report) = cached {
+                        (report, true)
+                    } else {
+                        let report = analyze_game(row, &options);
+                        save(&out_dir, &report, &host);
+                        (report, false)
                     };
 
                     println!(

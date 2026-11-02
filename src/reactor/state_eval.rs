@@ -268,13 +268,13 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
     }
 
     if player.obvious_locked(game, player_index) {
-        return if !state.can_clue() {
+        return if state.can_clue() {
+            force_clue_value(orig, game, offset)
+        } else {
             let locked_dc = player.locked_discard(state, player_index);
             let action = game.players[player_index].try_discard(game, locked_dc);
             log_info!("{}locked discard! {locked_dc}", indent(offset));
             advance(orig, &game.simulate(&action, None), offset + 1)
-        } else {
-            force_clue_value(orig, game, offset)
         };
     }
 
@@ -455,14 +455,14 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
     } else {
         match action {
             Action::Clue(clue) => {
-                let mult = if !game
+                let mult = if game
                     .me()
                     .obvious_playables(game, state.our_player_index)
                     .is_empty()
                 {
-                    if game.in_endgame() { 0.1 } else { 0.25 }
-                } else {
                     0.5
+                } else {
+                    if game.in_endgame() { 0.1 } else { 0.25 }
                 };
                 let result = get_result(game, &hypo, clue);
                 let value = result * if result > 0.0 { mult } else { 1.0 } - 0.5;
@@ -524,7 +524,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                     let mut total = 0.0;
                     let mut mistaken = false;
 
-                    for i in poss.iter() {
+                    for i in poss {
                         log_highlight!(logger::GREEN, "discarding {}", state.log_id(i));
                         let discard = Action::Discard(DiscardAction {
                             player_index: *player_index,
@@ -629,9 +629,7 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
     };
 
     let eval_play = |order: usize| -> f64 {
-        if !game.me().hypo_plays.contains(order) {
-            -1.5
-        } else {
+        if game.me().hypo_plays.contains(order) {
             match game.me().thoughts[order].id_with(true, false) {
                 None => 0.4,
                 Some(id) => {
@@ -644,6 +642,8 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
                     }
                 }
             }
+        } else {
+            -1.5
         }
     };
 
@@ -807,15 +807,15 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
     log_info!(
         "{}state: {state_val}, future: {future_val}, bdr: {bdr_val}{}{}",
         indent(offset),
-        if lock_penalty != 0.0 {
+        if lock_penalty == 0.0 {
+            String::new()
+        } else {
             format!(" lock penalty: {lock_penalty}")
-        } else {
-            String::new()
         },
-        if endgame_penalty != 0.0 {
-            format!(" endgame penalty: {endgame_penalty}")
-        } else {
+        if endgame_penalty == 0.0 {
             String::new()
+        } else {
+            format!(" endgame penalty: {endgame_penalty}")
         }
     );
     state_val + future_val + bdr_val + lock_penalty + endgame_penalty

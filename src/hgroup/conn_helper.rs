@@ -200,7 +200,7 @@ pub fn assign_conns(
                         let nexts: Vec<Identity> = g.future[o]
                             .intersect(ids)
                             .iter()
-                            .filter_map(|i| i.next())
+                            .filter_map(super::super::basics::card::Identity::next)
                             .collect();
                         ids = ids.union(nexts.into_iter().collect());
                     }
@@ -362,7 +362,7 @@ pub fn assign_conns(
 
                         let old_inferred = game.common.thoughts[ins].inferred;
                         g.common.update_thought(finesse, |t| {
-                            t.inferred = t.inferred.intersect(old_inferred)
+                            t.inferred = t.inferred.intersect(old_inferred);
                         });
                         g.meta[finesse].status = CardStatus::Finessed;
                         g.meta[finesse].reason(state.turn_count);
@@ -978,10 +978,10 @@ pub fn resolve_clue(
         .id_with(true, false)
         .filter(|&i| state.is_critical(i))
     {
-        for o in state.held_orders.iter() {
+        for o in state.held_orders {
             if o != focus {
                 g.common.update_thought(o, |t| {
-                    t.inferred = t.inferred.difference(IdentitySet::from(focus_id))
+                    t.inferred = t.inferred.difference(IdentitySet::from(focus_id));
                 });
             }
         }

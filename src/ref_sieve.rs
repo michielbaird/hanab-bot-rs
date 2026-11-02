@@ -32,7 +32,7 @@ pub struct RefSieveData {
     pub locked_shifts: Vec<usize>,
 }
 
-/// The RefSieve conventions.
+/// The `RefSieve` conventions.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RefSieve;
 
@@ -556,9 +556,7 @@ impl Convention for RefSieve {
         let playable_orders = me.thinks_playables(game, our, false, true);
         log_info!("playables {playable_orders:?}");
 
-        let all_clues: Vec<(PerformAction, Action)> = if !state.can_clue() {
-            Vec::new()
-        } else {
+        let all_clues: Vec<(PerformAction, Action)> = if state.can_clue() {
             (0..state.num_players)
                 .filter(|&target| target != our)
                 .flat_map(|target| state.all_valid_clues(target))
@@ -568,6 +566,8 @@ impl Convention for RefSieve {
                     (perform, action)
                 })
                 .collect()
+        } else {
+            Vec::new()
         };
 
         let all_plays: Vec<(PerformAction, Action)> = playable_orders
@@ -687,7 +687,8 @@ impl Convention for RefSieve {
                 log_info!("updating {order} to {}", new_inferred.fmt(&state));
 
                 if new_inferred.is_empty() {
-                    game.common.update_thought(order, |t| t.reset_inferences());
+                    game.common
+                        .update_thought(order, super::basics::card::Thought::reset_inferences);
                     game.meta[order].status = CardStatus::None;
                     game.meta[order].by = None;
                     game.meta[order].trash = true;

@@ -46,7 +46,10 @@ fn the_number_of_threads_does_not_change_the_comments() {
     assert_eq!(run(0), sequential);
     assert_eq!(
         game.analyze(),
-        sequential.iter().map(|c| c.fmt()).collect::<Vec<_>>()
+        sequential
+            .iter()
+            .map(hanab_bot::basics::game::AnalysisComment::fmt)
+            .collect::<Vec<_>>()
     );
     // Ordered by turn.
     assert!(sequential.windows(2).all(|w| w[0].turn <= w[1].turn));
@@ -124,7 +127,7 @@ fn an_unused_cancel_flag_changes_nothing() {
     assert_eq!(with_flag, game.analyze_comments());
 }
 
-/// A real game (replay 2045738, HGroup2, won 25/25). In the last round MichielBaird discards b3 and the next two players
+/// A real game (replay 2045738, `HGroup2`, won 25/25). In the last round `MichielBaird` discards b3 and the next two players
 /// play the last two cards, so the discard did not cost the game. The bot's model of a person's hand follows its
 /// own conventions, which this player did not; the endgame winrates must be computed from the real position.
 #[test]
@@ -150,7 +153,7 @@ fn endgame_comments_use_the_true_position() {
     );
 }
 
-/// The same game, but MichielBaird discards g4 instead of playing the y4. Now the yellow 5 can't be played in the
+/// The same game, but `MichielBaird` discards g4 instead of playing the y4. Now the yellow 5 can't be played in the
 /// last round, so discarding b3 at the end really does lose and playing y4 would have won: still a mistake.
 #[test]
 fn real_endgame_mistakes_are_still_reported() {
