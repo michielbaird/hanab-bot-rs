@@ -21,7 +21,7 @@ pub use clue::{BaseClue, CardClue, Clue, ClueKind, ClueLike};
 pub use game::{Convention, Ext, Game, GameError};
 pub use identity_set::{IdentitySet, IdentitySetOpt};
 pub use interp::{ClueInterp, DiscardInterp, Interp, PlayInterp};
-pub use player::{Link, PlayLink, Player};
+pub use player::{Link, PlayLink, Player, PromptOpts};
 pub use state::State;
 pub use variant::{Suit, SuitType, Variant};
 

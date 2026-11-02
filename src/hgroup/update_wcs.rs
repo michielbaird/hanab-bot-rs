@@ -241,12 +241,8 @@ pub fn refresh_wcs(
 
             UpdateResult::Remove => {
                 if hypo.is_none() {
-                    st.to_remove.push(Connection::Prompt {
-                        reacting: usize::MAX,
-                        order: wc.focus,
-                        id: wc.inference,
-                        hidden: false,
-                    });
+                    st.to_remove
+                        .push(Connection::prompt(usize::MAX, wc.focus, wc.inference));
                     if !(wc.symmetric || wc.ambiguous_self) {
                         st.to_remove.extend(conns.iter().cloned());
                     }

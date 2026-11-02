@@ -3,7 +3,7 @@
 use std::cell::OnceCell;
 
 use super::conn_helper::resolve_clue;
-use super::connect::connect;
+use super::connect::{FocusSearch, connect};
 use super::interpret_cm::{interpret_tccm, perform_cm};
 use super::occams::{filter_fps, occams_razor};
 use super::special_clues::{SpecialClueResult, SymmetricInterp, interp_special_clue};
@@ -394,12 +394,11 @@ fn focus_poss_for(
         for fp in connect(
             ctx,
             inf,
-            looks_direct,
-            thinks_stall,
-            false,
-            FastBitSet::EMPTY,
-            None,
-            false,
+            FocusSearch {
+                looks_direct,
+                thinks_stall,
+                ..FocusSearch::default()
+            },
         ) {
             result.push(fp);
         }
@@ -557,12 +556,12 @@ pub fn interp_normal_clue(
             for fp in connect(
                 ctx,
                 inf,
-                own_looks_direct,
-                thinks_stall,
-                false,
-                FastBitSet::EMPTY,
-                Some(state.our_player_index),
-                false,
+                FocusSearch {
+                    looks_direct: own_looks_direct,
+                    thinks_stall,
+                    find_own: Some(state.our_player_index),
+                    ..FocusSearch::default()
+                },
             ) {
                 own_fps.push(fp);
             }
