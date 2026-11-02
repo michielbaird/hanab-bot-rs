@@ -112,6 +112,14 @@ pub struct Player {
     pub possible_map: Vec<FastBitSet>,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct PromptOpts {
+    /// Prompt for a pink identity even if the Pink Prompt Rank Exception applies.
+    pub force_pink: bool,
+    /// Prompt from the right.
+    pub rightmost: bool,
+}
+
 impl Player {
     /// Mutable access to the thoughts (copies them first if another player or game shares them).
     #[inline]
@@ -660,9 +668,6 @@ impl Player {
     ///
     /// * `connected`: the orders that are already connected in this connection (and thus can't be used).
     /// * `ignore`: orders that cannot be used.
-    /// * `force_pink`: whether to force a prompt for a pink identity, even if the Pink Prompt Rank Exception applies.
-    /// * `rightmost`: whether to prompt from the right.
-    #[allow(clippy::too_many_arguments)]
     pub fn find_prompt(
         &self,
         prev: &Game,
@@ -670,9 +675,12 @@ impl Player {
         id: Identity,
         connected: FastBitSet,
         ignore: FastBitSet,
-        force_pink: bool,
-        rightmost: bool,
+        opts: PromptOpts,
     ) -> Option<usize> {
+        let PromptOpts {
+            force_pink,
+            rightmost,
+        } = opts;
         let state = &prev.state;
         let mut hand = state.hands[player_index].clone();
         if rightmost {

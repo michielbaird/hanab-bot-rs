@@ -7,7 +7,7 @@ use crate::basics::action::{Action, ClueAction};
 use crate::basics::card::{CardStatus, Identity};
 use crate::basics::clue::{BaseClue, ClueKind};
 use crate::basics::interp::{ClueInterp, PlayInterp};
-use crate::basics::{Game, Identifiable};
+use crate::basics::{Game, Identifiable, PromptOpts};
 use crate::util::{VisibleOpts, visible_find};
 use crate::{log_highlight, log_info, log_warn};
 
@@ -491,8 +491,7 @@ pub fn interpret_tccm(ctx: &ClueContext) -> Option<Vec<usize>> {
             id,
             Default::default(),
             Default::default(),
-            false,
-            false,
+            PromptOpts::default(),
         );
         prompt.is_some_and(|p| p != focus)
     });

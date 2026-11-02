@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::connect::connect;
+use super::connect::{FocusSearch, connect};
 use super::interpret_clue::ClueContext;
 use super::interpret_cm::{Result5cm, interpret_5cm, interpret_tcm};
 use super::occams::{filter_fps, fp_simplicity, occams_razor};
@@ -14,7 +14,7 @@ use crate::basics::card::CardStatus;
 use crate::basics::clue::ClueKind;
 use crate::basics::connection::{Connection, FinesseKind, FocusPossibility, WaitingConnection};
 use crate::basics::interp::ClueInterp;
-use crate::basics::{Game, Identifiable, Identity, IdentitySet, Link, PlayLink, State};
+use crate::basics::{Game, Identifiable, Identity, IdentitySet, Link, PlayLink, PromptOpts, State};
 use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, visible_find};
 use crate::{log_error, log_highlight, log_info};
@@ -171,7 +171,14 @@ pub fn assign_conns(
                             reacting, order, id, ..
                         } => {
                             g.common
-                                .find_prompt(&g, *reacting, *id, connected.with(*order), FastBitSet::EMPTY, false, false)
+                                .find_prompt(
+                                    &g,
+                                    *reacting,
+                                    *id,
+                                    connected.with(*order),
+                                    FastBitSet::EMPTY,
+                                    PromptOpts::default(),
+                                )
                                 .is_some_and(|o| g.me().thoughts[o].possible.contains(*id))
                                 || possibly_finesse(*id)
                         }
@@ -531,12 +538,11 @@ pub fn resolve_clue(
             for fp in connect(
                 ctx,
                 inf,
-                looks_direct,
-                FastBitSet::EMPTY,
-                false,
-                FastBitSet::EMPTY,
-                Some(target),
-                false,
+                FocusSearch {
+                    looks_direct,
+                    find_own: Some(target),
+                    ..FocusSearch::default()
+                },
             ) {
                 result.push(fp);
             }
@@ -578,12 +584,12 @@ pub fn resolve_clue(
                 for fp in connect(
                     ctx,
                     inf,
-                    looks_direct,
-                    FastBitSet::EMPTY,
-                    true,
-                    FastBitSet::EMPTY,
-                    None,
-                    true,
+                    FocusSearch {
+                        looks_direct,
+                        assume_truth: true,
+                        prefer_own: true,
+                        ..FocusSearch::default()
+                    },
                 ) {
                     if !existing.iter().any(|e| e.connections == fp.connections) {
                         result.push(fp);

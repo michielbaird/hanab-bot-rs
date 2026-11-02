@@ -3,22 +3,33 @@
 use super::RefSieveGame;
 use super::interpret_clue::ClueContext;
 use crate::basics::connection::{Connection, FinesseKind};
-use crate::basics::{Identifiable, Identity};
+use crate::basics::{Identifiable, Identity, PromptOpts};
 use crate::collections::FastBitSet;
 use crate::{log_info, log_warn};
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy, Default)]
+pub struct FindOpts {
+    pub looks_direct: bool,
+    pub ignore: FastBitSet,
+    pub find_own: bool,
+    pub always_connect: bool,
+    pub prefer_f: bool,
+}
+
 pub fn find_connecting(
     ctx: &ClueContext,
     id: Identity,
     player_index: usize,
     connected: FastBitSet,
-    looks_direct: bool,
-    ignore: FastBitSet,
-    find_own: bool,
-    always_connect: bool,
-    prefer_f: bool,
+    opts: FindOpts,
 ) -> Option<Connection> {
+    let FindOpts {
+        looks_direct,
+        ignore,
+        find_own,
+        always_connect,
+        prefer_f,
+    } = opts;
     let ClueContext { prev, game, action } = *ctx;
     let state = &game.state;
     let player = if find_own {
@@ -65,14 +76,7 @@ pub fn find_connecting(
             state.deck[p].matches(&id)
         }) || game.future[p].is_exactly(id))
     {
-        return Some(Connection::Playable {
-            reacting: player_index,
-            order: p,
-            id,
-            linked: Vec::new(),
-            hidden: false,
-            inserting_into: None,
-        });
+        return Some(Connection::playable(player_index, p, id, Vec::new()));
     }
 
     if looks_direct || playable.is_some() || player_index == action.giver {
@@ -91,14 +95,7 @@ pub fn find_connecting(
                         })
                         && game.common.thoughts[o].possible.contains(id))
             })
-            .map(|o| Connection::Finesse {
-                reacting: player_index,
-                order: o,
-                ids: vec![id],
-                kind: FinesseKind::True,
-                ambiguous_passback: false,
-                inverted: false,
-            })
+            .map(|o| Connection::finesse(player_index, o, vec![id], FinesseKind::True))
     };
 
     if prefer_f {
@@ -106,10 +103,17 @@ pub fn find_connecting(
     }
 
     // A candidate prompt, even a wrong one, blocks looking for a finesse.
-    match game
-        .common
-        .find_prompt(prev, player_index, id, connected, ignore, false, true)
-    {
+    match game.common.find_prompt(
+        prev,
+        player_index,
+        id,
+        connected,
+        ignore,
+        PromptOpts {
+            rightmost: true,
+            ..PromptOpts::default()
+        },
+    ) {
         Some(prompt) => {
             if always_connect
                 || ((if find_own {
@@ -118,12 +122,7 @@ pub fn find_connecting(
                     state.deck[prompt].matches(&id)
                 }) && game.common.thoughts[prompt].possible.contains(id))
             {
-                Some(Connection::Prompt {
-                    reacting: player_index,
-                    order: prompt,
-                    id,
-                    hidden: false,
-                })
+                Some(Connection::prompt(player_index, prompt, id))
             } else {
                 if state.deck[prompt].id().is_some() {
                     log_warn!(
@@ -155,24 +154,11 @@ pub fn connect(
     let state = &game.state;
     let suit_index = id.suit_index;
 
-    #[allow(clippy::too_many_arguments)]
-    fn run(
-        ctx: &ClueContext,
-        target_order: usize,
-        id: Identity,
-        unknown: bool,
-        find_own: bool,
-        start_rank: usize,
-        start_player: usize,
-        always_connect: bool,
-        start_rem_f: isize,
-    ) -> Option<Vec<Connection>> {
-        let ClueContext { game, action, .. } = *ctx;
-        let state = &game.state;
-        let Identity { suit_index, rank } = id;
-
+    let run_from = |always_connect: bool, start_rem_f: isize| -> Option<Vec<Connection>> {
+        let rank = id.rank;
         let mut connections: Vec<Connection> = Vec::new();
-        let (mut next_rank, mut player_index) = (start_rank, start_player);
+        let mut next_rank = state.play_stacks[suit_index] + 1;
+        let mut player_index = state.next_player_index(action.giver);
         let mut turns_since_play = 1;
         let mut rem_f = start_rem_f;
 
@@ -187,17 +173,17 @@ pub fn connect(
                 .map(Connection::order)
                 .collect::<FastBitSet>()
                 .with(target_order);
-            let looks_direct = unknown && player_index == action.target;
             let connecting = find_connecting(
                 ctx,
                 next_id,
                 player_index,
                 connected,
-                looks_direct,
-                FastBitSet::EMPTY,
-                false,
-                always_connect,
-                rem_f > 0,
+                FindOpts {
+                    looks_direct: unknown && player_index == action.target,
+                    always_connect,
+                    prefer_f: rem_f > 0,
+                    ..FindOpts::default()
+                },
             );
 
             match connecting {
@@ -209,17 +195,18 @@ pub fn connect(
                     }
 
                     let our = state.our_player_index;
-                    let direct = unknown && our == action.target;
                     let conn = find_connecting(
                         ctx,
                         next_id,
                         our,
                         connected,
-                        direct,
-                        FastBitSet::EMPTY,
-                        true,
-                        always_connect,
-                        rem_f > 0,
+                        FindOpts {
+                            looks_direct: unknown && our == action.target,
+                            find_own: true,
+                            always_connect,
+                            prefer_f: rem_f > 0,
+                            ..FindOpts::default()
+                        },
                     )?;
 
                     if is_finesse(&conn) {
@@ -245,20 +232,6 @@ pub fn connect(
                 }
             }
         }
-    }
-
-    let run_from = |always_connect: bool, rem_f: isize| {
-        run(
-            ctx,
-            target_order,
-            id,
-            unknown,
-            find_own,
-            state.play_stacks[suit_index] + 1,
-            state.next_player_index(action.giver),
-            always_connect,
-            rem_f,
-        )
     };
 
     let conns = if state.num_players == 2 {
@@ -277,18 +250,16 @@ pub fn connect(
                     None => false,
                 })
                 .map(|o| {
-                    vec![Connection::Finesse {
-                        reacting: action.target,
-                        order: o,
-                        ids: game.common.thoughts[o]
+                    vec![Connection::finesse(
+                        action.target,
+                        o,
+                        game.common.thoughts[o]
                             .possible
                             .intersect(state.playable_set)
                             .iter()
                             .collect(),
-                        kind: FinesseKind::Bluff,
-                        ambiguous_passback: false,
-                        inverted: false,
-                    }]
+                        FinesseKind::Bluff,
+                    )]
                 })
         };
 
