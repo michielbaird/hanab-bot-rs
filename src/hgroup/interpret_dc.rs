@@ -291,14 +291,7 @@ pub fn transfer_wcs(ctx: &DiscardContext, game: &Game, result: &DiscardResult) -
             for wc in &mut g.hg_mut().waiting {
                 rewrite(
                     wc,
-                    Connection::Playable {
-                        reacting: state.holder_of[chosen],
-                        order: chosen,
-                        id,
-                        linked: orders.clone(),
-                        hidden: false,
-                        inserting_into: None,
-                    },
+                    Connection::playable(state.holder_of[chosen], chosen, id, orders.clone()),
                 );
             }
         }
@@ -306,14 +299,7 @@ pub fn transfer_wcs(ctx: &DiscardContext, game: &Game, result: &DiscardResult) -
             for wc in &mut g.hg_mut().waiting {
                 rewrite(
                     wc,
-                    Connection::Playable {
-                        reacting: state.holder_of[orders[0]],
-                        order: orders[0],
-                        id,
-                        linked: orders.clone(),
-                        hidden: false,
-                        inserting_into: None,
-                    },
+                    Connection::playable(state.holder_of[orders[0]], orders[0], id, orders.clone()),
                 );
             }
         }

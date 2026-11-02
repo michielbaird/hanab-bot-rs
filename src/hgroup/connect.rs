@@ -10,7 +10,7 @@ use crate::basics::clue::ClueKind;
 use crate::basics::connection::{Connection, FinesseKind, FocusPossibility};
 use crate::basics::fix::rainbow_mismatch;
 use crate::basics::interp::ClueInterp;
-use crate::basics::{Game, Identifiable, Identity, Link};
+use crate::basics::{Game, Identifiable, Identity, Link, PromptOpts};
 use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, in_between, players_until, visible_find};
 use crate::{log_info, log_warn};
@@ -211,14 +211,7 @@ pub fn find_known_conn(
             });
 
         if let Some(order) = playable_order {
-            return Some(Connection::Playable {
-                reacting: player_index,
-                order,
-                id,
-                linked: playables,
-                hidden: false,
-                inserting_into: None,
-            });
+            return Some(Connection::playable(player_index, order, id, playables));
         }
     }
 
@@ -236,14 +229,7 @@ pub fn find_known_conn(
             });
 
         if play {
-            return Some(Connection::Playable {
-                reacting: player_index,
-                order: o,
-                id,
-                linked: vec![o],
-                hidden: false,
-                inserting_into: None,
-            });
+            return Some(Connection::playable(player_index, o, id, vec![o]));
         }
     }
 
@@ -261,14 +247,7 @@ pub fn find_known_conn(
             && state.deck[o].matches(&id);
 
         if play && let Some(pl) = play_link {
-            return Some(Connection::Playable {
-                reacting: giver,
-                order: o,
-                id,
-                linked: pl.orders.clone(),
-                hidden: false,
-                inserting_into: None,
-            });
+            return Some(Connection::playable(giver, o, id, pl.orders.clone()));
         }
     }
 
@@ -301,14 +280,7 @@ pub fn find_unknown_connecting(
             }
         });
 
-        return matched.map(|order| Connection::Playable {
-            reacting,
-            order,
-            id,
-            linked: clued,
-            hidden: false,
-            inserting_into: None,
-        });
+        return matched.map(|order| Connection::playable(reacting, order, id, clued));
     }
 
     let try_prompt = |order: usize| -> Option<Connection> {
@@ -321,20 +293,10 @@ pub fn find_unknown_connecting(
             None => opts
                 .find_own
                 .is_some_and(|p| game.players[p].thoughts[order].possible.contains(id))
-                .then_some(Connection::Prompt {
-                    reacting,
-                    order,
-                    id,
-                    hidden: false,
-                }),
+                .then_some(Connection::prompt(reacting, order, id)),
             Some(prompt_id) => {
                 if prompt_id == id {
-                    Some(Connection::Prompt {
-                        reacting,
-                        order,
-                        id,
-                        hidden: false,
-                    })
+                    Some(Connection::prompt(reacting, order, id))
                 } else if level >= super::level::INTERMEDIATE_FINESSES
                     && state.is_playable(prompt_id)
                 {
@@ -375,8 +337,7 @@ pub fn find_unknown_connecting(
         id,
         connected,
         ignore.union(unclued_new),
-        false,
-        false,
+        PromptOpts::default(),
     );
     // Need to use 'game' to exclude newly clued cards
     let override_layer = opts
@@ -409,9 +370,17 @@ pub fn find_unknown_connecting(
         });
 
     if try_pink_prompt {
-        let pink_prompt = prev
-            .common
-            .find_prompt(prev, reacting, id, connected, ignore, true, false);
+        let pink_prompt = prev.common.find_prompt(
+            prev,
+            reacting,
+            id,
+            connected,
+            ignore,
+            PromptOpts {
+                force_pink: true,
+                ..PromptOpts::default()
+            },
+        );
         let conn = pink_prompt
             .filter(|p| prompt != Some(*p))
             .and_then(try_prompt);
@@ -614,14 +583,12 @@ pub fn find_unknown_connecting(
     if finesse_id.is_none()
         && let (Some(f), Some(ids)) = (finesse, known_layered_ids)
     {
-        return Some(Connection::Finesse {
+        return Some(Connection::finesse(
             reacting,
-            order: f,
-            ids: ids.iter().collect(),
-            kind: FinesseKind::Hidden,
-            ambiguous_passback: false,
-            inverted: false,
-        });
+            f,
+            ids.iter().collect(),
+            FinesseKind::Hidden,
+        ));
     }
 
     if let Some((order, inserts)) = inserting_into {
@@ -655,14 +622,12 @@ pub fn find_unknown_connecting(
             .finesse_ids
             .is_some_and(|ids| !ids.contains(id))
         {
-            return Some(Connection::Finesse {
+            return Some(Connection::finesse(
                 reacting,
-                order: f,
-                ids: thought.inferred.iter().collect(),
-                kind: FinesseKind::Hidden,
-                ambiguous_passback: false,
-                inverted: false,
-            });
+                f,
+                thought.inferred.iter().collect(),
+                FinesseKind::Hidden,
+            ));
         }
 
         let bluffable_ids = thought.inferred.filter(|i| {
@@ -707,14 +672,7 @@ pub fn find_unknown_connecting(
                 .collect()
         };
 
-        return Some(Connection::Finesse {
-            reacting,
-            order: f,
-            ids,
-            kind: f_kind,
-            ambiguous_passback: false,
-            inverted: false,
-        });
+        return Some(Connection::finesse(reacting, f, ids, f_kind));
     }
 
     let (f, finesse_id) = (finesse.expect("has an id"), finesse_id.expect("checked"));
@@ -731,18 +689,16 @@ pub fn find_unknown_connecting(
             let possibly_bluff = !opts.assume_truth
                 && valid_bluff(game, action, finesse_id, reacting, connected, false);
 
-            Some(Connection::Finesse {
+            Some(Connection::finesse(
                 reacting,
-                order: f,
-                ids: vec![id],
-                kind: if possibly_bluff {
+                f,
+                vec![id],
+                if possibly_bluff {
                     FinesseKind::Bluff
                 } else {
                     FinesseKind::True
                 },
-                ambiguous_passback: false,
-                inverted: false,
-            })
+            ))
         }
     } else if matches!(
         game.meta[f].status,
@@ -766,18 +722,16 @@ pub fn find_unknown_connecting(
         if opts.find_own.is_some_and(|i| {
             i != state.our_player_index && game.players[i].thoughts[f].possible.contains(id)
         }) {
-            Some(Connection::Finesse {
+            Some(Connection::finesse(
                 reacting,
-                order: f,
-                ids: vec![id],
-                kind: if possibly_bluff {
+                f,
+                vec![id],
+                if possibly_bluff {
                     FinesseKind::Bluff
                 } else {
                     FinesseKind::True
                 },
-                ambiguous_passback: false,
-                inverted: false,
-            })
+            ))
         } else if !opts.no_layer
             && level >= super::level::INTERMEDIATE_FINESSES
             && state.is_playable(finesse_id)
@@ -814,18 +768,16 @@ pub fn find_unknown_connecting(
                     log_warn!("disallowed bluff when the focus is an orange card!");
                     None
                 } else {
-                    Some(Connection::Finesse {
+                    Some(Connection::finesse(
                         reacting,
-                        order: f,
-                        ids: vec![finesse_id],
-                        kind: if possibly_bluff {
+                        f,
+                        vec![finesse_id],
+                        if possibly_bluff {
                             FinesseKind::Bluff
                         } else {
                             FinesseKind::Hidden
                         },
-                        ambiguous_passback: false,
-                        inverted: false,
-                    })
+                    ))
                 }
             }
         } else {
@@ -1186,17 +1138,30 @@ impl ConnectSearch<'_, '_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// What `connect` should look for, besides the identity itself.
+#[derive(Clone, Copy, Default)]
+pub struct FocusSearch {
+    pub looks_direct: bool,
+    pub thinks_stall: FastBitSet,
+    pub assume_truth: bool,
+    pub ignore_known: FastBitSet,
+    pub find_own: Option<usize>,
+    pub prefer_own: bool,
+}
+
 pub fn connect(
     ctx: &ClueContext,
     id: Identity,
-    looks_direct: bool,
-    thinks_stall: FastBitSet,
-    assume_truth: bool,
-    ignore_known: FastBitSet,
-    find_own: Option<usize>,
-    prefer_own: bool,
+    focus_search: FocusSearch,
 ) -> Vec<FocusPossibility> {
+    let FocusSearch {
+        looks_direct,
+        thinks_stall,
+        assume_truth,
+        ignore_known,
+        find_own,
+        prefer_own,
+    } = focus_search;
     let ClueContext {
         prev, game, action, ..
     } = *ctx;
@@ -1254,12 +1219,10 @@ pub fn connect(
                 connect(
                     ctx,
                     id,
-                    looks_direct,
-                    thinks_stall,
-                    assume_truth,
-                    new_ignore,
-                    find_own,
-                    prefer_own,
+                    FocusSearch {
+                        ignore_known: new_ignore,
+                        ..focus_search
+                    },
                 )
             }
 
@@ -1268,12 +1231,10 @@ pub fn connect(
                 connect(
                     ctx,
                     id,
-                    looks_direct,
-                    thinks_stall,
-                    true,
-                    ignore,
-                    find_own,
-                    prefer_own,
+                    FocusSearch {
+                        assume_truth: true,
+                        ..focus_search
+                    },
                 )
             }
 

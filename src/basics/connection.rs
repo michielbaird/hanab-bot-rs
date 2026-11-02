@@ -65,6 +65,37 @@ pub enum Connection {
 }
 
 impl Connection {
+    pub fn prompt(reacting: usize, order: usize, id: Identity) -> Self {
+        Self::Prompt {
+            reacting,
+            order,
+            id,
+            hidden: false,
+        }
+    }
+
+    pub fn finesse(reacting: usize, order: usize, ids: Vec<Identity>, kind: FinesseKind) -> Self {
+        Self::Finesse {
+            reacting,
+            order,
+            ids,
+            kind,
+            ambiguous_passback: false,
+            inverted: false,
+        }
+    }
+
+    pub fn playable(reacting: usize, order: usize, id: Identity, linked: Vec<usize>) -> Self {
+        Self::Playable {
+            reacting,
+            order,
+            id,
+            linked,
+            hidden: false,
+            inserting_into: None,
+        }
+    }
+
     /// The index of the player holding the card.
     pub fn reacting(&self) -> usize {
         match self {
