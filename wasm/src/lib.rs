@@ -38,7 +38,14 @@ pub fn analyze(
     endgame_timeout_ms: u32,
     progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
-    run(game_json, variant, convention, endgame_timeout_ms, progress.as_ref()).map_err(|e| JsError::new(&e))
+    run(
+        game_json,
+        variant,
+        convention,
+        endgame_timeout_ms,
+        progress.as_ref(),
+    )
+    .map_err(|e| JsError::new(&e))
 }
 
 fn run(
@@ -96,4 +103,11 @@ fn run(
 #[wasm_bindgen]
 pub fn version() -> String {
     hanab_bot::settings::BOT_VERSION.to_string()
+}
+
+/// Whether the bot can analyse games of the variant: false for the variants it knows it cannot play (Blind, Mute, Up or
+/// Down, ...). The list is `UNSUPPORTED_VARIANTS` in the bot's `client.rs`.
+#[wasm_bindgen]
+pub fn is_variant_supported(name: &str) -> bool {
+    !hanab_bot::client::is_unsupported_variant(name)
 }

@@ -213,6 +213,11 @@ const UNSUPPORTED_VARIANTS: [&str; 17] = [
     "Sudoku",
 ];
 
+/// Whether the bot knows that it cannot play the variant (and so can't analyse games of it either).
+pub fn is_unsupported_variant(name: &str) -> bool {
+    UNSUPPORTED_VARIANTS.iter().any(|v| name.contains(v))
+}
+
 impl BotClient {
     pub fn new(config: BotConfig, out: Sender<Out>) -> Self {
         Self {
@@ -753,10 +758,7 @@ impl BotClient {
             ));
         }
 
-        if UNSUPPORTED_VARIANTS
-            .iter()
-            .any(|v| o.variant_name.contains(v))
-        {
+        if is_unsupported_variant(&o.variant_name) {
             self.send_chat(&format!(
                 "This bot doesn't support the variant {} and may crash or behave nonsensically.",
                 o.variant_name
@@ -1184,4 +1186,18 @@ fn fallback_action(game: &Game) -> PerformAction {
         .find(|clue| !state.clue_touched(&state.hands[next], clue).is_empty())
         .expect("some clue touches a card");
     PerformAction::from_clue(&clue)
+}
+
+#[cfg(test)]
+mod variant_support_tests {
+    use super::is_unsupported_variant;
+
+    #[test]
+    fn knows_the_variants_it_cannot_play() {
+        assert!(is_unsupported_variant("Rainbow & Blind Fours (5 Suits)"));
+        assert!(is_unsupported_variant("Up or Down (6 Suits)"));
+        assert!(is_unsupported_variant("Mute (No Variant)"));
+        assert!(!is_unsupported_variant("No Variant"));
+        assert!(!is_unsupported_variant("Rainbow (6 Suits)"));
+    }
 }
