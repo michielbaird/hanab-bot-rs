@@ -179,10 +179,9 @@ function place(element: HTMLElement, left: number, top: number) {
 
 function update() {
   const info = getAnalyzableInfo();
-  if (info === null || info.databaseID !== resultGameID) {
-    if (result !== null && (info === null || info.databaseID !== resultGameID)) {
-      clearResult();
-    }
+  // The result is for one game; another game (or none) discards it.
+  if (result !== null && (info === null || info.databaseID !== resultGameID)) {
+    clearResult();
   }
 
   const supported = info === null ? false : isSupported(info);
