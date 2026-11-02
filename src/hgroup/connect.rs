@@ -283,13 +283,214 @@ pub fn find_unknown_connecting(
     ignore: FastBitSet,
     opts: &ConnectOpts,
 ) -> Option<Connection> {
-    let ClueContext {
-        prev, game, action, ..
-    } = *ctx;
-    let (state, level) = (&game.state, game.level());
-    let ClueAction { giver, target, .. } = *action;
+    UnknownConnecting {
+        ctx,
+        reacting,
+        id,
+        connected,
+        ignore,
+        opts,
+    }
+    .find()
+}
 
-    if opts.bluff {
+/// The inputs of `find_unknown_connecting`; its stages are the methods.
+struct UnknownConnecting<'a> {
+    ctx: &'a ClueContext<'a>,
+    reacting: usize,
+    id: Identity,
+    connected: FastBitSet,
+    ignore: FastBitSet,
+    opts: &'a ConnectOpts,
+}
+
+impl UnknownConnecting<'_> {
+    fn find(&self) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            ignore,
+            opts,
+            ..
+        } = self;
+        let ClueContext {
+            prev, game, action, ..
+        } = *ctx;
+        let state = &game.state;
+
+        if opts.bluff {
+            return self.bluff();
+        }
+
+        // Need to use 'game' to exclude non-omni cards after a colour clue
+        // But we also can't use newly clued cards
+        let unclued_new: FastBitSet = state.hands[reacting]
+            .iter()
+            .copied()
+            .filter(|&o| !prev.state.deck[o].clued)
+            .collect();
+        let prompt = game.common.find_prompt(
+            game,
+            reacting,
+            id,
+            connected,
+            ignore.union(unclued_new),
+            false,
+            false,
+        );
+        // Need to use 'game' to exclude newly clued cards
+        let override_layer = opts
+            .inserting_into
+            .as_ref()
+            .is_some_and(|ins| ins.iter().any(|o| prev.state.hands[reacting].contains(o)));
+        let potential_finesse =
+            game.find_finesse_id(reacting, id, connected, ignore, override_layer);
+
+        if let Some(p) = prompt
+            && !rainbow_mismatch(prev, game, action, id, p)
+        {
+            return self.prompt_connection(p);
+        }
+
+        if let Some(conn) = self.pink_prompt(prompt, potential_finesse) {
+            return Some(conn);
+        }
+
+        if self.has_clued_dupe() {
+            return None;
+        }
+
+        let inserting_into = self.insertion(potential_finesse);
+
+        let known_layered_ids = potential_finesse.and_then(|f| {
+            let future = game.future[f];
+            let playable_ids = future.intersect(state.playable_set);
+
+            (!future.contains(id) && !playable_ids.is_empty()).then_some(playable_ids)
+        });
+
+        let finesse = self.replacement_finesse(potential_finesse, &inserting_into, override_layer);
+        let finesse_id = finesse.and_then(|o| state.deck[o].id());
+
+        if let Some(f) = finesse
+            && game.future[f].len() < game.common.thoughts[f].possible.len()
+        {
+            return self.layered_finesse(f);
+        }
+
+        if finesse_id.is_none()
+            && let (Some(f), Some(ids)) = (finesse, known_layered_ids)
+        {
+            return Some(Connection::Finesse {
+                reacting,
+                order: f,
+                ids: ids.iter().collect(),
+                kind: FinesseKind::Hidden,
+                ambiguous_passback: false,
+                inverted: false,
+            });
+        }
+
+        if let Some((order, inserts)) = inserting_into {
+            return Some(Connection::Playable {
+                reacting,
+                order,
+                id,
+                linked: Vec::new(),
+                hidden: false,
+                inserting_into: Some(inserts),
+            });
+        }
+
+        if finesse_id.is_none() {
+            return self.own_finesse(finesse);
+        }
+
+        let (f, finesse_id) = (finesse.expect("has an id"), finesse_id.expect("checked"));
+        self.visible_finesse(f, finesse_id)
+    }
+
+    fn pink_prompt(
+        &self,
+        prompt: Option<usize>,
+        potential_finesse: Option<usize>,
+    ) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            ignore,
+            ..
+        } = self;
+        let ClueContext { prev, game, .. } = *ctx;
+        let state = &game.state;
+        let level = game.level();
+
+        // Try prompting a wrongly-ranked pink card
+        let try_pink_prompt = state.variant.pinkish
+            && potential_finesse.is_none_or(|f| {
+                if level < super::level::BLUFFS {
+                    !game.common.thoughts[f]
+                        .possible
+                        .intersect(state.playable_set)
+                        .iter()
+                        .any(|i| state.variant.suits[i.suit_index].suit_type.pinkish)
+                } else {
+                    game.common.thoughts[f]
+                        .possible
+                        .intersect(state.playable_set)
+                        .is_empty()
+                }
+            });
+
+        if try_pink_prompt {
+            let pink_prompt = prev
+                .common
+                .find_prompt(prev, reacting, id, connected, ignore, true, false);
+            let conn = pink_prompt
+                .filter(|p| prompt != Some(*p))
+                .and_then(|o| self.prompt_connection(o));
+
+            if conn.is_some() {
+                return conn;
+            }
+        }
+
+        None
+    }
+
+    fn has_clued_dupe(&self) -> bool {
+        let &Self { ctx, id, .. } = self;
+        let ClueContext {
+            prev, game, action, ..
+        } = *ctx;
+        let state = &game.state;
+        let ClueAction { giver, .. } = *action;
+
+        state.hands.iter().enumerate().any(|(i, hand)| {
+            i != giver
+                && hand
+                    .iter()
+                    .any(|&o| prev.state.deck[o].clued && state.deck[o].matches(&id))
+        })
+    }
+
+    fn bluff(&self) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            ignore,
+            opts,
+            ..
+        } = self;
+        let ClueContext { prev, game, .. } = *ctx;
+        let state = &game.state;
+
         let clued = prev
             .common
             .find_clued(prev, reacting, id, ignore.union(connected));
@@ -301,17 +502,28 @@ pub fn find_unknown_connecting(
             }
         });
 
-        return matched.map(|order| Connection::Playable {
+        matched.map(|order| Connection::Playable {
             reacting,
             order,
             id,
             linked: clued,
             hidden: false,
             inserting_into: None,
-        });
+        })
     }
 
-    let try_prompt = |order: usize| -> Option<Connection> {
+    fn prompt_connection(&self, order: usize) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            opts,
+            ..
+        } = self;
+        let ClueContext { game, .. } = *ctx;
+        let state = &game.state;
+        let level = game.level();
+
         let prompt_id = match opts.find_own {
             Some(p) => game.players[p].thoughts[order].id(),
             None => state.deck[order].id(),
@@ -360,221 +572,187 @@ pub fn find_unknown_connecting(
                 }
             }
         }
-    };
-
-    // Need to use 'game' to exclude non-omni cards after a colour clue
-    // But we also can't use newly clued cards
-    let unclued_new: FastBitSet = state.hands[reacting]
-        .iter()
-        .copied()
-        .filter(|&o| !prev.state.deck[o].clued)
-        .collect();
-    let prompt = game.common.find_prompt(
-        game,
-        reacting,
-        id,
-        connected,
-        ignore.union(unclued_new),
-        false,
-        false,
-    );
-    // Need to use 'game' to exclude newly clued cards
-    let override_layer = opts
-        .inserting_into
-        .as_ref()
-        .is_some_and(|ins| ins.iter().any(|o| prev.state.hands[reacting].contains(o)));
-    let potential_finesse = game.find_finesse_id(reacting, id, connected, ignore, override_layer);
-
-    if let Some(p) = prompt
-        && !rainbow_mismatch(prev, game, action, id, p)
-    {
-        return try_prompt(p);
     }
 
-    // Try prompting a wrongly-ranked pink card
-    let try_pink_prompt = state.variant.pinkish
-        && potential_finesse.is_none_or(|f| {
-            if level < super::level::BLUFFS {
-                !game.common.thoughts[f]
-                    .possible
-                    .intersect(state.playable_set)
-                    .iter()
-                    .any(|i| state.variant.suits[i.suit_index].suit_type.pinkish)
-            } else {
-                game.common.thoughts[f]
-                    .possible
-                    .intersect(state.playable_set)
-                    .is_empty()
-            }
-        });
+    fn insertion(&self, potential_finesse: Option<usize>) -> Option<(usize, Vec<usize>)> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            ignore,
+            opts,
+            ..
+        } = self;
+        let ClueContext { game, .. } = *ctx;
+        let state = &game.state;
 
-    if try_pink_prompt {
-        let pink_prompt = prev
-            .common
-            .find_prompt(prev, reacting, id, connected, ignore, true, false);
-        let conn = pink_prompt
-            .filter(|p| prompt != Some(*p))
-            .and_then(try_prompt);
+        // Try to insert into an earlier finesse
+        let cant_insert = game.level() < super::level::INTERMEDIATE_FINESSES
+            || opts.find_own != Some(reacting)
+            || state.is_inverted(id)
+            || potential_finesse.is_some_and(|f| game.common.thinks_inverted(state, f));
 
-        if conn.is_some() {
-            return conn;
-        }
-    }
-
-    let clued_dupe = state.hands.iter().enumerate().any(|(i, hand)| {
-        i != giver
-            && hand
-                .iter()
-                .any(|&o| prev.state.deck[o].clued && state.deck[o].matches(&id))
-    });
-
-    if clued_dupe {
-        return None;
-    }
-
-    // Try to insert into an earlier finesse
-    let cant_insert = game.level() < super::level::INTERMEDIATE_FINESSES
-        || opts.find_own != Some(reacting)
-        || state.is_inverted(id)
-        || potential_finesse.is_some_and(|f| game.common.thinks_inverted(state, f));
-
-    let inserting_into: Option<(usize, Vec<usize>)> = if cant_insert {
-        None
-    } else {
-        let prev_hand: Vec<usize> = state.hands[reacting]
-            .iter()
-            .copied()
-            .skip_while(|&f| {
-                game.meta[f].status != CardStatus::Finessed || game.future[f].len() == 1
-            })
-            .collect();
-
-        if prev_hand.is_empty() {
+        let inserting_into: Option<(usize, Vec<usize>)> = if cant_insert {
             None
         } else {
-            // Checks whether all inserting orders can be placed
-            let insertable = |hypo: &Game, insert_orders: &[usize]| -> bool {
-                let mut new_connected = connected;
-
-                for &o in insert_orders {
-                    let finesse_ids = hypo
-                        .xmeta(o)
-                        .finesse_ids
-                        .expect("a finessed card without finesse ids");
-                    let next_finesse = hypo.find_finesse(reacting, new_connected, ignore);
-
-                    // At least one id is possible on the next card on finesse position
-                    let possible = next_finesse.is_some_and(|o| {
-                        !hypo.future[o]
-                            .intersect(hypo.common.thoughts[o].possible)
-                            .intersect(finesse_ids)
-                            .is_empty()
-                    });
-
-                    if !possible {
-                        return false;
-                    }
-                    new_connected.insert(next_finesse.expect("checked"));
-                }
-                !new_connected.is_empty()
-            };
-
-            let can_insert =
-                |prev_hand: &[usize], insert_orders: &[usize], first_insert: bool| -> bool {
-                    if prev_hand.is_empty() || insert_orders.is_empty() {
-                        return false;
-                    }
-                    let replacement = prev_hand[0];
-                    let possible_ids = if first_insert {
-                        game.xmeta(replacement)
-                            .finesse_ids
-                            .expect("a finessed card without finesse ids")
-                    } else {
-                        game.common.thoughts[replacement].possible
-                    };
-
-                    possible_ids.contains(id) && {
-                        let mut hypo = game.clone();
-                        hypo.state.hands[reacting] = prev_hand[1..].to_vec();
-                        insertable(&hypo, insert_orders)
-                    }
-                };
-
-            match &opts.inserting_into {
-                None => {
-                    let insert_orders: Vec<usize> = prev_hand
-                        .iter()
-                        .copied()
-                        .filter(|&o| {
-                            game.meta[o].status == CardStatus::Finessed && !game.meta[o].hidden
-                        })
-                        .collect();
-
-                    can_insert(&prev_hand, &insert_orders, true)
-                        .then(|| (prev_hand[0], insert_orders))
-                }
-                Some(insert_orders) => {
-                    let first = insert_orders[0];
-                    let prev_hand2: Vec<usize> = state.hands[reacting]
-                        .iter()
-                        .copied()
-                        .skip_while(|&o| o > first)
-                        .collect();
-
-                    can_insert(&prev_hand2, insert_orders, false)
-                        .then(|| (prev_hand2[0], insert_orders.clone()))
-                }
-            }
-        }
-    };
-
-    let known_layered_ids = potential_finesse.and_then(|f| {
-        let future = game.future[f];
-        let playable_ids = future.intersect(state.playable_set);
-
-        (!future.contains(id) && !playable_ids.is_empty()).then_some(playable_ids)
-    });
-
-    // We previously inserted, but we can't insert any more: leave a spot for the replacements
-    let finesse = match (&opts.inserting_into, &inserting_into) {
-        (Some(insert_orders), None) => {
-            let first = insert_orders[0];
             let prev_hand: Vec<usize> = state.hands[reacting]
                 .iter()
                 .copied()
-                .skip_while(|&o| o > first)
+                .skip_while(|&f| {
+                    game.meta[f].status != CardStatus::Finessed || game.future[f].len() == 1
+                })
                 .collect();
-            let mut hypo = prev.clone();
-            hypo.state.hands[reacting] = prev_hand;
 
-            let mut new_connected = connected;
-            let mut failed = false;
-            for _ in 0..insert_orders.len() {
-                match hypo.find_finesse(reacting, new_connected, ignore) {
-                    None => {
-                        failed = true;
-                        break;
+            if prev_hand.is_empty() {
+                None
+            } else {
+                // Checks whether all inserting orders can be placed
+                let insertable = |hypo: &Game, insert_orders: &[usize]| -> bool {
+                    let mut new_connected = connected;
+
+                    for &o in insert_orders {
+                        let finesse_ids = hypo
+                            .xmeta(o)
+                            .finesse_ids
+                            .expect("a finessed card without finesse ids");
+                        let next_finesse = hypo.find_finesse(reacting, new_connected, ignore);
+
+                        // At least one id is possible on the next card on finesse position
+                        let possible = next_finesse.is_some_and(|o| {
+                            !hypo.future[o]
+                                .intersect(hypo.common.thoughts[o].possible)
+                                .intersect(finesse_ids)
+                                .is_empty()
+                        });
+
+                        if !possible {
+                            return false;
+                        }
+                        new_connected.insert(next_finesse.expect("checked"));
                     }
-                    Some(f) => {
-                        new_connected.insert(f);
+                    !new_connected.is_empty()
+                };
+
+                let can_insert =
+                    |prev_hand: &[usize], insert_orders: &[usize], first_insert: bool| -> bool {
+                        if prev_hand.is_empty() || insert_orders.is_empty() {
+                            return false;
+                        }
+                        let replacement = prev_hand[0];
+                        let possible_ids = if first_insert {
+                            game.xmeta(replacement)
+                                .finesse_ids
+                                .expect("a finessed card without finesse ids")
+                        } else {
+                            game.common.thoughts[replacement].possible
+                        };
+
+                        possible_ids.contains(id) && {
+                            let mut hypo = game.clone();
+                            hypo.state.hands[reacting] = prev_hand[1..].to_vec();
+                            insertable(&hypo, insert_orders)
+                        }
+                    };
+
+                match &opts.inserting_into {
+                    None => {
+                        let insert_orders: Vec<usize> = prev_hand
+                            .iter()
+                            .copied()
+                            .filter(|&o| {
+                                game.meta[o].status == CardStatus::Finessed && !game.meta[o].hidden
+                            })
+                            .collect();
+
+                        can_insert(&prev_hand, &insert_orders, true)
+                            .then(|| (prev_hand[0], insert_orders))
+                    }
+                    Some(insert_orders) => {
+                        let first = insert_orders[0];
+                        let prev_hand2: Vec<usize> = state.hands[reacting]
+                            .iter()
+                            .copied()
+                            .skip_while(|&o| o > first)
+                            .collect();
+
+                        can_insert(&prev_hand2, insert_orders, false)
+                            .then(|| (prev_hand2[0], insert_orders.clone()))
                     }
                 }
             }
+        };
 
-            if failed || new_connected.is_empty() {
-                None
-            } else {
-                game.find_finesse_id(reacting, id, new_connected, ignore, override_layer)
+        inserting_into
+    }
+
+    fn replacement_finesse(
+        &self,
+        potential_finesse: Option<usize>,
+        inserting_into: &Option<(usize, Vec<usize>)>,
+        override_layer: bool,
+    ) -> Option<usize> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            ignore,
+            opts,
+            ..
+        } = self;
+        let ClueContext { prev, game, .. } = *ctx;
+        let state = &game.state;
+
+        // We previously inserted, but we can't insert any more: leave a spot for the replacements
+
+        match (&opts.inserting_into, inserting_into) {
+            (Some(insert_orders), None) => {
+                let first = insert_orders[0];
+                let prev_hand: Vec<usize> = state.hands[reacting]
+                    .iter()
+                    .copied()
+                    .skip_while(|&o| o > first)
+                    .collect();
+                let mut hypo = prev.clone();
+                hypo.state.hands[reacting] = prev_hand;
+
+                let mut new_connected = connected;
+                let mut failed = false;
+                for _ in 0..insert_orders.len() {
+                    match hypo.find_finesse(reacting, new_connected, ignore) {
+                        None => {
+                            failed = true;
+                            break;
+                        }
+                        Some(f) => {
+                            new_connected.insert(f);
+                        }
+                    }
+                }
+
+                if failed || new_connected.is_empty() {
+                    None
+                } else {
+                    game.find_finesse_id(reacting, id, new_connected, ignore, override_layer)
+                }
             }
+            _ => potential_finesse,
         }
-        _ => potential_finesse,
-    };
+    }
 
-    let finesse_id = finesse.and_then(|o| state.deck[o].id());
+    fn layered_finesse(&self, f: usize) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            opts,
+            ..
+        } = self;
+        let ClueContext { game, action, .. } = *ctx;
+        let state = &game.state;
 
-    if let Some(f) = finesse
-        && game.future[f].len() < game.common.thoughts[f].possible.len()
-    {
         let inverted = state.is_inverted(id);
         let possible_ids = if inverted {
             state
@@ -585,7 +763,7 @@ pub fn find_unknown_connecting(
         };
         let future_ids = game.future[f].intersect(possible_ids);
 
-        return if future_ids.is_empty() {
+        if future_ids.is_empty() {
             None
         } else {
             let f_kind = if future_ids.is_exactly(id) {
@@ -608,34 +786,24 @@ pub fn find_unknown_connecting(
                 ambiguous_passback: false,
                 inverted,
             })
-        };
+        }
     }
 
-    if finesse_id.is_none()
-        && let (Some(f), Some(ids)) = (finesse, known_layered_ids)
-    {
-        return Some(Connection::Finesse {
+    fn own_finesse(&self, finesse: Option<usize>) -> Option<Connection> {
+        let &Self {
+            ctx,
             reacting,
-            order: f,
-            ids: ids.iter().collect(),
-            kind: FinesseKind::Hidden,
-            ambiguous_passback: false,
-            inverted: false,
-        });
-    }
-
-    if let Some((order, inserts)) = inserting_into {
-        return Some(Connection::Playable {
-            reacting,
-            order,
             id,
-            linked: Vec::new(),
-            hidden: false,
-            inserting_into: Some(inserts),
-        });
-    }
+            connected,
+            opts,
+            ..
+        } = self;
+        let ClueContext {
+            prev, game, action, ..
+        } = *ctx;
+        let state = &game.state;
+        let ClueAction { giver, .. } = *action;
 
-    if finesse_id.is_none() {
         let (Some(own), Some(f)) = (opts.find_own, finesse) else {
             return None;
         };
@@ -707,129 +875,143 @@ pub fn find_unknown_connecting(
                 .collect()
         };
 
-        return Some(Connection::Finesse {
+        Some(Connection::Finesse {
             reacting,
             order: f,
             ids,
             kind: f_kind,
             ambiguous_passback: false,
             inverted: false,
-        });
+        })
     }
 
-    let (f, finesse_id) = (finesse.expect("has an id"), finesse_id.expect("checked"));
+    fn visible_finesse(&self, f: usize, finesse_id: Identity) -> Option<Connection> {
+        let &Self {
+            ctx,
+            reacting,
+            id,
+            connected,
+            opts,
+            ..
+        } = self;
+        let ClueContext { game, action, .. } = *ctx;
+        let state = &game.state;
+        let level = game.level();
+        let ClueAction { giver, target, .. } = *action;
 
-    if finesse_id == id {
-        if level == 1 && !in_between(state.num_players, reacting, giver, target) {
-            log_warn!(
-                "found non-forward finesse {} in {}'s hand at lv 1!",
-                state.log_id(id),
-                state.names[reacting]
-            );
-            None
+        if finesse_id == id {
+            if level == 1 && !in_between(state.num_players, reacting, giver, target) {
+                log_warn!(
+                    "found non-forward finesse {} in {}'s hand at lv 1!",
+                    state.log_id(id),
+                    state.names[reacting]
+                );
+                None
+            } else {
+                let possibly_bluff = !opts.assume_truth
+                    && valid_bluff(game, action, finesse_id, reacting, connected, false);
+
+                Some(Connection::Finesse {
+                    reacting,
+                    order: f,
+                    ids: vec![id],
+                    kind: if possibly_bluff {
+                        FinesseKind::Bluff
+                    } else {
+                        FinesseKind::True
+                    },
+                    ambiguous_passback: false,
+                    inverted: false,
+                })
+            }
+        } else if matches!(
+            game.meta[f].status,
+            CardStatus::GentlemansDiscard | CardStatus::Sarcastic
+        ) && state.is_playable(finesse_id)
+            && !state.is_inverted(finesse_id)
+            && !state.is_inverted(id)
+        {
+            Some(Connection::Playable {
+                reacting,
+                order: f,
+                id: finesse_id,
+                linked: Vec::new(),
+                hidden: true,
+                inserting_into: None,
+            })
         } else {
             let possibly_bluff = !opts.assume_truth
                 && valid_bluff(game, action, finesse_id, reacting, connected, false);
 
-            Some(Connection::Finesse {
-                reacting,
-                order: f,
-                ids: vec![id],
-                kind: if possibly_bluff {
-                    FinesseKind::Bluff
-                } else {
-                    FinesseKind::True
-                },
-                ambiguous_passback: false,
-                inverted: false,
-            })
-        }
-    } else if matches!(
-        game.meta[f].status,
-        CardStatus::GentlemansDiscard | CardStatus::Sarcastic
-    ) && state.is_playable(finesse_id)
-        && !state.is_inverted(finesse_id)
-        && !state.is_inverted(id)
-    {
-        Some(Connection::Playable {
-            reacting,
-            order: f,
-            id: finesse_id,
-            linked: Vec::new(),
-            hidden: true,
-            inserting_into: None,
-        })
-    } else {
-        let possibly_bluff =
-            !opts.assume_truth && valid_bluff(game, action, finesse_id, reacting, connected, false);
-
-        if opts.find_own.is_some_and(|i| {
-            i != state.our_player_index && game.players[i].thoughts[f].possible.contains(id)
-        }) {
-            Some(Connection::Finesse {
-                reacting,
-                order: f,
-                ids: vec![id],
-                kind: if possibly_bluff {
-                    FinesseKind::Bluff
-                } else {
-                    FinesseKind::True
-                },
-                ambiguous_passback: false,
-                inverted: false,
-            })
-        } else if !opts.no_layer
-            && level >= super::level::INTERMEDIATE_FINESSES
-            && state.is_playable(finesse_id)
-            && !state.is_inverted(finesse_id)
-            && !state.is_inverted(id)
-        {
-            if game.meta[f].status == CardStatus::Finessed && game.is_definite(f) {
-                Some(Connection::Playable {
+            if opts.find_own.is_some_and(|i| {
+                i != state.our_player_index && game.players[i].thoughts[f].possible.contains(id)
+            }) {
+                Some(Connection::Finesse {
                     reacting,
                     order: f,
-                    id: finesse_id,
-                    linked: Vec::new(),
-                    hidden: true,
-                    inserting_into: None,
+                    ids: vec![id],
+                    kind: if possibly_bluff {
+                        FinesseKind::Bluff
+                    } else {
+                        FinesseKind::True
+                    },
+                    ambiguous_passback: false,
+                    inverted: false,
                 })
-            } else {
-                // TODO(Scala): Check in resolver that we don't give uncertain finesses or likely dupes
-                // Giver cannot give a layered finesse when they have a card matching the desired id
-                let uncertain_finesse = !possibly_bluff
-                    && state.hands[giver].iter().any(|&o| {
-                        state.deck[o].clued && game.players[giver].thoughts[o].inferred.contains(id)
-                    });
-
-                let orange_fib = state.is_inverted(id) && !state.is_inverted(finesse_id);
-
-                if uncertain_finesse {
-                    log_warn!(
-                        "disallowed hidden finesse on {}, {} could be duplicated in giver's hand",
-                        state.names[reacting],
-                        state.log_id(id)
-                    );
-                    None
-                } else if orange_fib {
-                    log_warn!("disallowed bluff when the focus is an orange card!");
-                    None
-                } else {
-                    Some(Connection::Finesse {
+            } else if !opts.no_layer
+                && level >= super::level::INTERMEDIATE_FINESSES
+                && state.is_playable(finesse_id)
+                && !state.is_inverted(finesse_id)
+                && !state.is_inverted(id)
+            {
+                if game.meta[f].status == CardStatus::Finessed && game.is_definite(f) {
+                    Some(Connection::Playable {
                         reacting,
                         order: f,
-                        ids: vec![finesse_id],
-                        kind: if possibly_bluff {
-                            FinesseKind::Bluff
-                        } else {
-                            FinesseKind::Hidden
-                        },
-                        ambiguous_passback: false,
-                        inverted: false,
+                        id: finesse_id,
+                        linked: Vec::new(),
+                        hidden: true,
+                        inserting_into: None,
                     })
+                } else {
+                    // TODO(Scala): Check in resolver that we don't give uncertain finesses or likely dupes
+                    // Giver cannot give a layered finesse when they have a card matching the desired id
+                    let uncertain_finesse = !possibly_bluff
+                        && state.hands[giver].iter().any(|&o| {
+                            state.deck[o].clued
+                                && game.players[giver].thoughts[o].inferred.contains(id)
+                        });
+
+                    let orange_fib = state.is_inverted(id) && !state.is_inverted(finesse_id);
+
+                    if uncertain_finesse {
+                        log_warn!(
+                            "disallowed hidden finesse on {}, {} could be duplicated in giver's hand",
+                            state.names[reacting],
+                            state.log_id(id)
+                        );
+                        None
+                    } else if orange_fib {
+                        log_warn!("disallowed bluff when the focus is an orange card!");
+                        None
+                    } else {
+                        Some(Connection::Finesse {
+                            reacting,
+                            order: f,
+                            ids: vec![finesse_id],
+                            kind: if possibly_bluff {
+                                FinesseKind::Bluff
+                            } else {
+                                FinesseKind::Hidden
+                            },
+                            ambiguous_passback: false,
+                            inverted: false,
+                        })
+                    }
                 }
+            } else {
+                None
             }
-        } else {
-            None
         }
     }
 }
