@@ -77,18 +77,16 @@ impl CertainMapEntry {
     pub fn update(&mut self, order: usize, unknown_to: Option<usize>) {
         let slot = Self::make_slot(order, unknown_to);
 
-        match self.iter().position(|(o, _)| o == order) {
-            Some(i) => self.overwrite_slot(i, slot),
-            None => {
-                let size = self.len();
-                assert!(size < MAX_SLOTS, "CertainMapEntry is full");
-                self.overwrite_slot(size, slot);
-                self.0 = (self.0 & !SIZE_MASK) | (size as u64 + 1);
-            }
+        if let Some(i) = self.iter().position(|(o, _)| o == order) {
+            self.overwrite_slot(i, slot);
+        } else {
+            let size = self.len();
+            assert!(size < MAX_SLOTS, "CertainMapEntry is full");
+            self.overwrite_slot(size, slot);
+            self.0 = (self.0 & !SIZE_MASK) | (size as u64 + 1);
         }
     }
 
-    /// Whether a slot has this order.
     pub fn contains_order(self, order: usize) -> bool {
         self.iter().any(|(o, _)| o == order)
     }
@@ -100,7 +98,6 @@ impl CertainMapEntry {
         self.iter().any(|(o, u)| o == order || u == unknown_to)
     }
 
-    /// The set of orders stored.
     pub fn orders(self) -> FastBitSet {
         self.iter().map(|(o, _)| o).collect()
     }

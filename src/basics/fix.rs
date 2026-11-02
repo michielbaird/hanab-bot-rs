@@ -107,7 +107,6 @@ pub fn connectable_simple(
         let mut new_game = game.clone();
         new_game.no_recurse = true;
         if state.current_player_index != start {
-            // Go to starting player's turn
             let turn = TurnAction {
                 num: state.turn_count,
                 current_player_index: Some(start),

@@ -1,4 +1,4 @@
-//! The clock used for time limits: `std`'s everywhere, except in a browser, where `std::time::Instant` panics.
+//! `std`'s `Instant` panics in a browser (`wasm32-unknown-unknown`), so there it is `web-time`'s.
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub use web_time::Instant;

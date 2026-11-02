@@ -111,7 +111,6 @@ impl RemainingMap {
         self.0.iter().all(|&m| m == 0)
     }
 
-    /// The total number of cards remaining.
     pub fn total(&self) -> usize {
         self.0.iter().map(|&m| usize::from(m)).sum()
     }
@@ -471,12 +470,11 @@ impl EndgameSolver {
                     .collect();
 
                 sum_prob += arr.prob;
-                match index.get(&non_trash) {
-                    Some(&i) => grouped[i].prob += arr.prob,
-                    None => {
-                        index.insert(non_trash, grouped.len());
-                        grouped.push(arr);
-                    }
+                if let Some(&i) = index.get(&non_trash) {
+                    grouped[i].prob += arr.prob;
+                } else {
+                    index.insert(non_trash, grouped.len());
+                    grouped.push(arr);
                 }
             }
 
@@ -698,17 +696,16 @@ impl EndgameSolver {
             });
 
             for (index, &(action, first_winrate)) in initial_actions.iter().enumerate() {
-                let winrate = match &parallel {
-                    Some(results) => match results[index] {
+                let winrate = if let Some(results) = &parallel {
+                    match results[index] {
                         Some(winrate) => winrate,
                         None => break,
-                    },
-                    None => {
-                        if Instant::now() > deadline {
-                            break;
-                        }
-                        test_action(self, action, first_winrate, best.1)
                     }
+                } else {
+                    if Instant::now() > deadline {
+                        break;
+                    }
+                    test_action(self, action, first_winrate, best.1)
                 };
 
                 if winrate == Frac::ONE {
@@ -1002,9 +999,7 @@ impl EndgameSolver {
                 }
             };
 
-        let clue_actions: Actions = if !clue_winnable {
-            Vec::new()
-        } else {
+        let clue_actions: Actions = if clue_winnable {
             // If everyone knows exactly where all the remaining useful cards are, clues are only useful
             // for stalling, so we only need to consider 1 clue
             let fully_known = (remaining.is_empty()
@@ -1025,6 +1020,8 @@ impl EndgameSolver {
                 .take(take)
                 .map(|c| (c, Vec::new()))
                 .collect()
+        } else {
+            Vec::new()
         };
 
         if Instant::now() > deadline {
@@ -1197,12 +1194,11 @@ impl EndgameSolver {
         });
 
         for (index, action) in actions.iter().enumerate() {
-            let winrate = match &parallel {
-                Some(rates) => rates[index],
-                None => {
-                    let arrs = if action.0.is_clue() { undrawn } else { drawn };
-                    self.action_winrate(game, arrs, action, player_turn, deadline)
-                }
+            let winrate = if let Some(rates) = &parallel {
+                rates[index]
+            } else {
+                let arrs = if action.0.is_clue() { undrawn } else { drawn };
+                self.action_winrate(game, arrs, action, player_turn, deadline)
             };
 
             if shortcut && winrate == Frac::ONE {
@@ -1406,25 +1402,24 @@ impl EndgameSolver {
 
         for (index, action) in sorted_actions.iter().enumerate() {
             let perform = &action.0;
-            let winrate = match &parallel {
-                Some(results) => match results[index] {
+            let winrate = if let Some(results) = &parallel {
+                match results[index] {
                     Some(winrate) => winrate,
                     None => return Ok((best_actions, best_winrate)),
-                },
-                None => {
-                    if Instant::now() > deadline {
-                        return Ok((best_actions, best_winrate));
-                    }
-                    self.action_value(
-                        game,
-                        arrs,
-                        action,
-                        player_turn,
-                        deadline,
-                        depth,
-                        best_winrate,
-                    )
                 }
+            } else {
+                if Instant::now() > deadline {
+                    return Ok((best_actions, best_winrate));
+                }
+                self.action_value(
+                    game,
+                    arrs,
+                    action,
+                    player_turn,
+                    deadline,
+                    depth,
+                    best_winrate,
+                )
             };
 
             if sure_win(winrate) {

@@ -129,7 +129,6 @@ pub fn interpret_reactive_colour(
     let state = &game.state;
     let (possible_conns, known_plays, hypo_state) = reactive_context(prev, game, action, reacter);
 
-    // Try targeting all play targets
     let targets = play_targets(prev, game, receiver, &known_plays, &hypo_state, true);
 
     let found = targets.iter().find_map(|&(order, index)| {
@@ -219,15 +218,11 @@ pub fn interpret_reactive_colour(
             .collect();
         unknown_trash.sort_by_key(|&(o, _)| if prev.state.deck[o].clued { -1 } else { 1 });
 
-        if !unknown_trash.is_empty() {
-            unknown_trash
-        } else {
+        if unknown_trash.is_empty() {
             let known_trash: Vec<(usize, usize)> = indexed()
                 .filter(|&(o, _)| state.is_basic_trash(id_of(o)))
                 .collect();
-            if !known_trash.is_empty() {
-                known_trash
-            } else {
+            if known_trash.is_empty() {
                 let unknown_dupes: Vec<(usize, usize)> = indexed()
                     .filter(|&(o, _)| {
                         !prev_kt.contains(&o)
@@ -236,9 +231,7 @@ pub fn interpret_reactive_colour(
                             })
                     })
                     .collect();
-                if !unknown_dupes.is_empty() {
-                    unknown_dupes
-                } else {
+                if unknown_dupes.is_empty() {
                     let mut sacrifices: Vec<(usize, usize)> = indexed()
                         .filter(|&(o, _)| !prev_kt.contains(&o) && !state.is_critical(id_of(o)))
                         .collect();
@@ -247,8 +240,14 @@ pub fn interpret_reactive_colour(
                         -game.common.playable_away(id) * 10 + (5 - id.rank as isize)
                     });
                     sacrifices
+                } else {
+                    unknown_dupes
                 }
+            } else {
+                known_trash
             }
+        } else {
+            unknown_trash
         }
     };
 
@@ -473,7 +472,7 @@ pub fn interpret_reactive_rank(
         return match result {
             StableResult::Stable(_, mut next_game) => {
                 next_game.common.update_thought(react_order, |t| {
-                    t.inferred = IdentitySet::from(connecting_id)
+                    t.inferred = IdentitySet::from(connecting_id);
                 });
                 (ClueInterp::Reactive, next_game)
             }

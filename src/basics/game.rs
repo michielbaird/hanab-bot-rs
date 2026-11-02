@@ -121,7 +121,6 @@ pub trait Convention: fmt::Debug + Send + Sync {
     /// Interprets the given play. `game` has already had the play applied.
     fn interpret_play(&self, prev: &Game, game: &mut Game, action: &PlayAction);
 
-    /// The best action to take.
     fn take_action(&self, game: &Game) -> PerformAction;
 
     /// Called between every play, clue and discard.
@@ -166,7 +165,6 @@ pub trait Convention: fmt::Debug + Send + Sync {
     fn inject_replay(&self, _orig: &Game, _hypo: &mut Game) {}
 }
 
-/// The players and common perspective for a fresh state.
 pub fn gen_players(state: &State) -> (Vec<Player>, Player) {
     let all_possible = state.all_ids;
     let hypo_stacks = vec![0; state.variant.suits.len()];
@@ -375,7 +373,6 @@ impl Game {
         self.move_history.last().copied()
     }
 
-    /// The suggested action (using the convention set).
     pub fn take_action(&self) -> PerformAction {
         crate::stats::count(crate::stats::Counter::TakeAction);
         self.conv.take_action(self)
@@ -528,7 +525,6 @@ impl Game {
                 .all(|id| state.is_inverted(id))
     }
 
-    /// The note to write on the card.
     pub fn get_note(&self, order: usize) -> String {
         if self.meta[order].trash {
             return "kt".to_string();

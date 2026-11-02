@@ -14,7 +14,7 @@ use crate::basics::clue::{BaseClue, ClueLike};
 use crate::basics::interp::{ClueInterp, DiscardInterp, PlayInterp};
 use crate::basics::sarcastic::{DiscardResult, interpret_useful_dc};
 use crate::basics::{
-    Convention, Ext, Game, Identifiable, Identity, IdentitySet, Link, PerformAction,
+    Convention, Ext, Game, Identifiable, Identity, IdentitySet, IdentitySetOpt, Link, PerformAction,
 };
 use crate::collections::FastBitSet;
 use crate::endgame::EndgameSolver;
@@ -209,8 +209,8 @@ impl Reactor {
                     .old_inferred
                     .get()
                     .unwrap_or_else(|| panic!("No old inferred on {urgent}!"));
-                t.old_inferred = Default::default();
-                t.info_lock = Default::default();
+                t.old_inferred = IdentitySetOpt::default();
+                t.info_lock = IdentitySetOpt::default();
             });
             let turn_count = game.state.turn_count;
             game.meta[urgent].clear();
@@ -627,7 +627,8 @@ impl Convention for Reactor {
                 .intersect(state.playable_set);
 
             if new_inferred.is_empty() {
-                game.common.update_thought(order, |t| t.reset_inferences());
+                game.common
+                    .update_thought(order, super::basics::card::Thought::reset_inferences);
                 game.meta[order].status = CardStatus::None;
                 game.meta[order].by = None;
                 game.meta[order].trash = true;
@@ -919,11 +920,9 @@ impl Reactor {
 
         log_info!("playables {playable_orders:?}");
 
-        let can_clue = state.can_clue() && !game.waiting().is_some_and(|wc| wc.receiver == our);
+        let can_clue = state.can_clue() && game.waiting().is_none_or(|wc| wc.receiver != our);
 
-        let all_clues: Vec<(PerformAction, Action)> = if !can_clue {
-            Vec::new()
-        } else {
+        let all_clues: Vec<(PerformAction, Action)> = if can_clue {
             (0..state.num_players)
                 .filter(|&target| target != our)
                 .flat_map(|target| state.all_valid_clues(target))
@@ -933,6 +932,8 @@ impl Reactor {
                     (perform, action)
                 })
                 .collect()
+        } else {
+            Vec::new()
         };
 
         let all_plays: Vec<(PerformAction, Action)> = playable_orders
@@ -1025,7 +1026,6 @@ impl Reactor {
                 PerformAction::try_discard(game, me.locked_discard(state, our))
             }
         } else {
-            // The first action with the highest value.
             let mut best: Option<(&PerformAction, f64)> = None;
             for (perform, action) in all_actions {
                 let value = self.eval_action(game, action);

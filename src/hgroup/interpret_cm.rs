@@ -8,6 +8,7 @@ use crate::basics::card::{CardStatus, Identity};
 use crate::basics::clue::{BaseClue, ClueKind};
 use crate::basics::interp::{ClueInterp, PlayInterp};
 use crate::basics::{Game, Identifiable};
+use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, visible_find};
 use crate::{log_highlight, log_info, log_warn};
 
@@ -489,8 +490,8 @@ pub fn interpret_tccm(ctx: &ClueContext) -> Option<Vec<usize>> {
             prev,
             target,
             id,
-            Default::default(),
-            Default::default(),
+            FastBitSet::default(),
+            FastBitSet::default(),
             false,
             false,
         );
@@ -503,29 +504,26 @@ pub fn interpret_tccm(ctx: &ClueContext) -> Option<Vec<usize>> {
         return None;
     }
 
-    match game.chop(target) {
-        Some(chop) => {
-            log_info!(
-                "tccm, chop moving {}",
-                if target == state.our_player_index {
-                    format!(
-                        "slot {}",
-                        state
-                            .our_hand()
-                            .iter()
-                            .position(|&o| o == chop)
-                            .map_or(0, |i| i + 1)
-                    )
-                } else {
-                    state.log_order(chop)
-                }
-            );
-            Some(vec![chop])
-        }
-        None => {
-            log_warn!("looked like tccm but no chop!");
-            None
-        }
+    if let Some(chop) = game.chop(target) {
+        log_info!(
+            "tccm, chop moving {}",
+            if target == state.our_player_index {
+                format!(
+                    "slot {}",
+                    state
+                        .our_hand()
+                        .iter()
+                        .position(|&o| o == chop)
+                        .map_or(0, |i| i + 1)
+                )
+            } else {
+                state.log_order(chop)
+            }
+        );
+        Some(vec![chop])
+    } else {
+        log_warn!("looked like tccm but no chop!");
+        None
     }
 }
 

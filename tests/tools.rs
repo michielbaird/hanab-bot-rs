@@ -4,11 +4,12 @@ use hanab_bot::logger::{self, LogLevel};
 use hanab_bot::settings::ConventionKind;
 use hanab_bot::tools::game_data::{GameData, build_game, load_variant};
 use hanab_bot::tools::self_play::{Rng, full_deck, simulate_game, summary_json};
+use std::collections::HashMap;
 
 #[test]
 fn a_self_play_game_exports_and_replays_to_the_same_score() {
     logger::set_level(LogLevel::Off);
-    let variant = load_variant("No Variant", &Default::default()).unwrap();
+    let variant = load_variant("No Variant", &HashMap::default()).unwrap();
     let conv = ConventionKind::Reactor.build().unwrap();
 
     let mut deck = full_deck(&variant);

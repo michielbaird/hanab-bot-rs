@@ -32,8 +32,8 @@ impl GameData {
     pub fn fetch_id(hostname: &str, id: &str) -> Result<Self, String> {
         let url = format!("https://{hostname}/export/{id}");
         let text = reqwest::blocking::get(&url)
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.text())
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .and_then(reqwest::blocking::Response::text)
             .map_err(|e| format!("{url}: {e}"))?;
         Self::parse(&serde_json::from_str(&text).map_err(|e| e.to_string())?)
     }
