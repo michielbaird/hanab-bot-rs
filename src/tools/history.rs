@@ -52,8 +52,8 @@ pub fn normalize_datetime(raw: &str) -> String {
 
 pub fn fetch_text(url: &str) -> Result<String, String> {
     reqwest::blocking::get(url)
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.text())
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .and_then(reqwest::blocking::Response::text)
         .map_err(|e| format!("{url}: {e}"))
 }
 
@@ -219,7 +219,11 @@ pub fn analyze_game(row: &HistoryRow, options: &AnalyzeOptions) -> GameReport {
             let msg = panic
                 .downcast_ref::<String>()
                 .cloned()
-                .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                .or_else(|| {
+                    panic
+                        .downcast_ref::<&str>()
+                        .map(std::string::ToString::to_string)
+                })
                 .unwrap_or_else(|| "panic".to_string());
             report.error = Some(format!("panicked: {msg}"));
         }

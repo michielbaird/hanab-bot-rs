@@ -37,8 +37,8 @@ type ConsoleSink = Arc<Mutex<Option<mpsc::Sender<ClientIn>>>>;
 
 fn fetch(url: &str) -> Result<String, String> {
     reqwest::blocking::get(url)
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.text())
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .and_then(reqwest::blocking::Response::text)
         .map_err(|e| format!("{url}: {e}"))
 }
 
@@ -338,15 +338,14 @@ fn main() -> Result<(), String> {
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines().map_while(Result::ok) {
                 let line = line.trim();
-                let (target, command) = match consoles.as_slice() {
-                    [only] => (Some(only), line),
-                    _ => {
-                        let (who, rest) = line.split_once(' ').unwrap_or((line, ""));
-                        let found = consoles
-                            .iter()
-                            .find(|(i, name, _)| i.to_string() == who || name == who);
-                        (found, rest)
-                    }
+                let (target, command) = if let [only] = consoles.as_slice() {
+                    (Some(only), line)
+                } else {
+                    let (who, rest) = line.split_once(' ').unwrap_or((line, ""));
+                    let found = consoles
+                        .iter()
+                        .find(|(i, name, _)| i.to_string() == who || name == who);
+                    (found, rest)
                 };
 
                 let Some((_, _, sink)) = target else {

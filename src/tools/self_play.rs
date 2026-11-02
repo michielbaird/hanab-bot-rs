@@ -29,7 +29,7 @@ pub struct GameSummary {
     pub error: Option<String>,
 }
 
-/// A small, dependency-free PRNG (SplitMix64). Seeds do not reproduce the Scala bot's shuffles.
+/// A small, dependency-free PRNG (`SplitMix64`). Seeds do not reproduce the Scala bot's shuffles.
 pub struct Rng(u64);
 
 impl Rng {
@@ -80,7 +80,10 @@ pub fn simulate_game(
     num_players: usize,
     deck: &[Identity],
 ) -> GameSummary {
-    let names: Vec<String> = NAMES[..num_players].iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = NAMES[..num_players]
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     let options = TableOptions::new(num_players, &variant.name);
 
     let hidden_draw = |player_index: usize, viewer: usize, order: usize| DrawAction {

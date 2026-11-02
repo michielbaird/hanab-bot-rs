@@ -1,5 +1,5 @@
 //! General helpers. Most of `utils.scala` is iterator plumbing that `std` already provides
-//! (see PORTING_NOTES.md); what remains is here.
+//! (see `PORTING_NOTES.md`); what remains is here.
 
 use crate::basics::card::{Identifiable, Identity};
 use crate::basics::player::Player;

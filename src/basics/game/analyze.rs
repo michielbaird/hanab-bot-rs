@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::{Base, Game};
 use crate::basics::action::{Action, DrawAction, PerformAction};
-use crate::basics::card::{Identifiable, Identity};
+use crate::basics::card::Identity;
 use crate::basics::identity_set::IdentitySet;
 use crate::endgame::EndgameSolver;
 use crate::frac::Frac;
@@ -163,13 +163,13 @@ impl Game {
                         order,
                         ..
                     }) => {
-                        let id = if *player_index != index {
+                        let id = if *player_index == index {
+                            None
+                        } else {
                             Some(
                                 self.deck_ids[*order]
                                     .expect("analyzing a game with an unknown card"),
                             )
-                        } else {
-                            None
                         };
                         let draw = Action::Draw(DrawAction {
                             player_index: *player_index,
@@ -200,8 +200,12 @@ impl Game {
                         let suggested_perform = g.take_action();
 
                         if suggested_perform != PerformAction::from_action(action) {
-                            let deck: Option<Vec<Identity>> =
-                                self.state.deck.iter().map(|c| c.id()).collect();
+                            let deck: Option<Vec<Identity>> = self
+                                .state
+                                .deck
+                                .iter()
+                                .map(super::super::card::Identifiable::id)
+                                .collect();
                             let suggested_action = suggested_perform.to_action(
                                 &g.state,
                                 g.state.current_player_index,
@@ -209,37 +213,7 @@ impl Game {
                                 false,
                             );
 
-                            if !g.in_endgame() {
-                                let suggested_value = g.conv.eval_action(&g, &suggested_action);
-                                let actual_value = g.conv.eval_action(&g, action);
-                                let diff = suggested_value - actual_value;
-
-                                if diff < 1.0 {
-                                    // Not worth mentioning
-                                } else if diff > 50.0 {
-                                    comments.push(AnalysisComment {
-                                        turn: g.state.turn_count,
-                                        player_index: index,
-                                        mistake: true,
-                                        text: format!(
-                                            "mistake! prefer ({}) over ({})",
-                                            suggested_action.fmt(&g.state),
-                                            action.fmt(&g.state)
-                                        ),
-                                    });
-                                } else {
-                                    comments.push(AnalysisComment {
-                                        turn: g.state.turn_count,
-                                        player_index: index,
-                                        mistake: false,
-                                        text: format!(
-                                            "suggest ({}) over ({})",
-                                            suggested_action.fmt(&g.state),
-                                            action.fmt(&g.state)
-                                        ),
-                                    });
-                                }
-                            } else {
+                            if g.in_endgame() {
                                 // The winrates are computed from the real position at this move, in which the mover knows
                                 // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
                                 let mut real = seen_all.clone();
@@ -275,6 +249,36 @@ impl Game {
                                         mistake: true,
                                         text: format!(
                                             "mistake! ({}) has winrate {suggested_winrate} vs. ({}) has winrate {actual_winrate}",
+                                            suggested_action.fmt(&g.state),
+                                            action.fmt(&g.state)
+                                        ),
+                                    });
+                                }
+                            } else {
+                                let suggested_value = g.conv.eval_action(&g, &suggested_action);
+                                let actual_value = g.conv.eval_action(&g, action);
+                                let diff = suggested_value - actual_value;
+
+                                if diff < 1.0 {
+                                    // Not worth mentioning
+                                } else if diff > 50.0 {
+                                    comments.push(AnalysisComment {
+                                        turn: g.state.turn_count,
+                                        player_index: index,
+                                        mistake: true,
+                                        text: format!(
+                                            "mistake! prefer ({}) over ({})",
+                                            suggested_action.fmt(&g.state),
+                                            action.fmt(&g.state)
+                                        ),
+                                    });
+                                } else {
+                                    comments.push(AnalysisComment {
+                                        turn: g.state.turn_count,
+                                        player_index: index,
+                                        mistake: false,
+                                        text: format!(
+                                            "suggest ({}) over ({})",
                                             suggested_action.fmt(&g.state),
                                             action.fmt(&g.state)
                                         ),

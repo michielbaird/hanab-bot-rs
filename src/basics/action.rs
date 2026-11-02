@@ -573,7 +573,7 @@ impl PerformAction {
             state
                 .deck
                 .get(order)
-                .and_then(|c| c.id())
+                .and_then(super::card::Identifiable::id)
                 .or_else(|| deck.and_then(|d| d.get(order).copied()))
         };
         let clue_touched = |target: usize, clue: &BaseClue| -> Vec<usize> {

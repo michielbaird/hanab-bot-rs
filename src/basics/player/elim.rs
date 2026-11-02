@@ -566,7 +566,7 @@ impl Player {
                             self.name
                         );
                         self.update_thought(viable.first().unwrap(), |t| {
-                            t.inferred = IdentitySet::single(id)
+                            t.inferred = IdentitySet::single(id);
                         });
                     } else {
                         if viable.len() < orders.len() {

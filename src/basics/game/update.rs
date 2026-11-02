@@ -198,7 +198,7 @@ impl Game {
         if order == self.meta.len() {
             let all_possible = self.common.all_possible;
             for (i, player) in self.players.iter_mut().enumerate() {
-                let seen = if i != player_index { id } else { None };
+                let seen = if i == player_index { None } else { id };
                 player
                     .thoughts_mut()
                     .push(Thought::new(seen, order, all_possible));
@@ -235,7 +235,7 @@ impl Game {
             state.endgame_turns = Some(state.num_players as isize);
 
             for (i, player) in self.players.iter_mut().enumerate() {
-                let seen = if i != player_index { id } else { None };
+                let seen = if i == player_index { None } else { id };
                 let all_possible = player.all_possible;
                 player
                     .thoughts_mut()
@@ -490,7 +490,7 @@ impl Game {
                 .links
                 .iter()
                 .filter(|link| link.orders().contains(order))
-                .filter_map(|link| link.promise())
+                .filter_map(super::super::player::Link::promise)
                 .map(|id| self.state.log_id(id))
                 .collect::<Vec<_>>()
                 .join("? ");

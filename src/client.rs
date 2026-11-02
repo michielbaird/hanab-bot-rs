@@ -905,7 +905,7 @@ impl BotClient {
                     self.send_pm(who, "2P RS: https://willflame14.github.io/rs-docs/intro");
                 }
                 ConventionKind::HGroup(_) => {
-                    self.send_pm(who, "H-Group: https://hanabi.github.io/reference")
+                    self.send_pm(who, "H-Group: https://hanabi.github.io/reference");
                 }
             }
         } else if starts("/feedback") {

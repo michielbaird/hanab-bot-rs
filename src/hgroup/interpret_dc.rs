@@ -446,23 +446,22 @@ pub fn interpret_useful_dc_h(ctx: &DiscardContext) -> Option<Game> {
                 None
             };
 
-            match shout {
-                Some(g) => g,
-                None => {
-                    let mut g = game.clone();
-                    if orders.iter().all(|&o| state.deck[o].clued) {
-                        g.common.links.insert(
-                            0,
-                            Link::Sarcastic {
-                                orders: orders.iter().copied().collect(),
-                                id,
-                            },
-                        );
-                    }
-                    g.hg_mut().dda = None;
-                    g.with_move(DiscardInterp::Sarcastic.into(), false);
-                    transfer_wcs(ctx, &g, &DiscardResult::Sarcastic(orders))
+            if let Some(g) = shout {
+                g
+            } else {
+                let mut g = game.clone();
+                if orders.iter().all(|&o| state.deck[o].clued) {
+                    g.common.links.insert(
+                        0,
+                        Link::Sarcastic {
+                            orders: orders.iter().copied().collect(),
+                            id,
+                        },
+                    );
                 }
+                g.hg_mut().dda = None;
+                g.with_move(DiscardInterp::Sarcastic.into(), false);
+                transfer_wcs(ctx, &g, &DiscardResult::Sarcastic(orders))
             }
         }
     };
@@ -759,11 +758,11 @@ fn check_pos_dc(ctx: &DiscardContext) -> PosDcResult {
     let unintended = (failed && prev_playables.contains(&order))
         || (prev_playables.is_empty()
             && expected_dc.is_none_or(|o| {
-                if !failed {
-                    order == o
-                } else {
+                if failed {
                     prev.meta[order].status == CardStatus::ChopMoved
                         && !thought.possible.intersect(state.playable_set).is_empty()
+                } else {
+                    order == o
                 }
             }));
 
@@ -772,11 +771,11 @@ fn check_pos_dc(ctx: &DiscardContext) -> PosDcResult {
     }
 
     let num_plays = if (failed && expected_dc != Some(order) && prev.state.clue_tokens < 8)
-        != id.is_some_and(|i| state.is_inverted(i))
+        == id.is_some_and(|i| state.is_inverted(i))
     {
-        2
-    } else {
         1
+    } else {
+        2
     };
 
     let mut targets: Vec<(usize, Vec<Identity>)> = Vec::new();
