@@ -6,3 +6,6 @@ analysis/
 /wasm/target
 /wasm/pkg
 /wasm/dist
+/extension/node_modules
+/extension/dist
+/extension/build

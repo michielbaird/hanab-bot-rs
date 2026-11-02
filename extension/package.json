@@ -1,0 +1,21 @@
+{
+  "name": "hanab-analysis-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension: the game analysis of hanab-bot-rs on hanab.live replays (unofficial)",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/e2e.mjs"
+  },
+  "dependencies": {
+    "hanab-bot-wasm": "https://github.com/michielbaird/hanab-bot-rs/releases/download/wasm-v0.1.0/hanab-bot-wasm-0.1.0.tgz"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.64.1",
+    "typescript": "5.9.3"
+  }
+}
