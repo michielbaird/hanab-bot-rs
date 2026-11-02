@@ -304,58 +304,53 @@ impl Variant {
         let mut short_forms = Vec::new();
         let mut colourable_suits = Vec::new();
 
-        match shorts {
-            Some(shorts) => {
-                for (i, &suit_name) in suit_names.iter().enumerate() {
-                    suits.push(Suit::new(suit_name, Some(shorts[i])));
-                    short_forms.push(shorts[i]);
-                    if !NO_COLOUR.matches(suit_name) {
-                        colourable_suits.push(i);
-                    }
+        if let Some(shorts) = shorts {
+            for (i, &suit_name) in suit_names.iter().enumerate() {
+                suits.push(Suit::new(suit_name, Some(shorts[i])));
+                short_forms.push(shorts[i]);
+                if !NO_COLOUR.matches(suit_name) {
+                    colourable_suits.push(i);
                 }
             }
-            None => {
-                let registry = REGISTRY.read().unwrap();
-                for (i, &suit_name) in suit_names.iter().enumerate() {
-                    let colour = registry.colours.iter().find(|c| c.name == suit_name);
+        } else {
+            let registry = REGISTRY.read().unwrap();
+            for (i, &suit_name) in suit_names.iter().enumerate() {
+                let colour = registry.colours.iter().find(|c| c.name == suit_name);
 
-                    let short = match suit_name {
-                        "Black" => 'k',
-                        "Pink" => 'i',
-                        "Brown" => 'n',
-                        _ => {
-                            let abbreviation = colour
-                                .and_then(|c| c.abbreviation)
-                                .or_else(|| {
-                                    suit_name.chars().next().map(|c| c.to_ascii_lowercase())
-                                })
-                                .ok_or("empty suit name")?;
+                let short = match suit_name {
+                    "Black" => 'k',
+                    "Pink" => 'i',
+                    "Brown" => 'n',
+                    _ => {
+                        let abbreviation = colour
+                            .and_then(|c| c.abbreviation)
+                            .or_else(|| suit_name.chars().next().map(|c| c.to_ascii_lowercase()))
+                            .ok_or("empty suit name")?;
 
-                            if !short_forms.contains(&abbreviation) {
-                                abbreviation
-                            } else {
-                                suit_name
-                                    .to_lowercase()
-                                    .chars()
-                                    .find(|c| !short_forms.contains(c))
-                                    .ok_or_else(|| {
-                                        format!(
-                                            "No unused character found for suit '{suit_name}' in {suit_names:?}!"
-                                        )
-                                    })?
-                            }
+                        if short_forms.contains(&abbreviation) {
+                            suit_name
+                                .to_lowercase()
+                                .chars()
+                                .find(|c| !short_forms.contains(c))
+                                .ok_or_else(|| {
+                                    format!(
+                                        "No unused character found for suit '{suit_name}' in {suit_names:?}!"
+                                    )
+                                })?
+                        } else {
+                            abbreviation
                         }
-                    };
-
-                    suits.push(
-                        colour
-                            .cloned()
-                            .unwrap_or_else(|| Suit::new(suit_name, Some(short))),
-                    );
-                    short_forms.push(short);
-                    if !NO_COLOUR.matches(suit_name) {
-                        colourable_suits.push(i);
                     }
+                };
+
+                suits.push(
+                    colour
+                        .cloned()
+                        .unwrap_or_else(|| Suit::new(suit_name, Some(short))),
+                );
+                short_forms.push(short);
+                if !NO_COLOUR.matches(suit_name) {
+                    colourable_suits.push(i);
                 }
             }
         }

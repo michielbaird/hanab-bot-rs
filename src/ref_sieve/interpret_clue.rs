@@ -427,10 +427,10 @@ fn interpret_2p_locked_clue(ctx: &ClueContext) -> Game {
         g.with_move(ClueInterp::Stall.into(), false);
     }
 
-    if !g.common.thinks_trash(game, target).is_empty() {
-        log_info!("target had previous trash {prev_trash:?}, colour stall");
-    } else {
+    if g.common.thinks_trash(game, target).is_empty() {
         write_lh_ptd(&mut g);
+    } else {
+        log_info!("target had previous trash {prev_trash:?}, colour stall");
     }
     g
 }
@@ -543,7 +543,7 @@ pub fn interpret_clue_impl(prev_orig: &Game, game_orig: &Game, action: &ClueActi
             let bad_fix = giver == state.our_player_index && !game.me().order_trash(game, intent);
 
             g.common.update_thought(intent, |t| {
-                t.inferred = t.possible.intersect(state.trash_set)
+                t.inferred = t.possible.intersect(state.trash_set);
             });
             g.meta[intent].trash = true;
             g.with_move(
@@ -572,17 +572,15 @@ pub fn interpret_clue_impl(prev_orig: &Game, game_orig: &Game, action: &ClueActi
                         _ => true,
                     };
 
-                let (second, valid) =
-                    match game.find_finesse(target, FastBitSet::single(f1), FastBitSet::EMPTY) {
-                        Some(f2) => {
-                            log_info!("no-info double bluff on {f1} and {f2}!");
-                            (f2, valid_ni(f1, f2))
-                        }
-                        None => {
-                            let m = *list.iter().max().expect("clue touched nothing");
-                            (m, valid_ni(f1, m))
-                        }
-                    };
+                let (second, valid) = if let Some(f2) =
+                    game.find_finesse(target, FastBitSet::single(f1), FastBitSet::EMPTY)
+                {
+                    log_info!("no-info double bluff on {f1} and {f2}!");
+                    (f2, valid_ni(f1, f2))
+                } else {
+                    let m = *list.iter().max().expect("clue touched nothing");
+                    (m, valid_ni(f1, m))
+                };
 
                 finesse_meta(&mut g, f1, turn);
                 finesse_meta(&mut g, second, turn);

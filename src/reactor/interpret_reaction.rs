@@ -41,11 +41,11 @@ fn calc_target_slot(
             None
         }
         Some(receive_order) => {
-            if !game.state.hands[receiver].contains(receive_order) {
+            if game.state.hands[receiver].contains(receive_order) {
+                Some((react_slot, target_slot))
+            } else {
                 log_warn!("receiver no longer has order {receive_order}!");
                 None
-            } else {
-                Some((react_slot, target_slot))
             }
         }
     }
@@ -106,7 +106,7 @@ pub fn elim_dc_dc(
         }
 
         common.update_thought(receive_order, |t| {
-            t.inferred = t.inferred.difference(state.trash_set)
+            t.inferred = t.inferred.difference(state.trash_set);
         });
         log_info!(
             "eliminated trash from slot {} {receive_order} - {}",
@@ -155,7 +155,7 @@ pub fn elim_play_dc(
                 .is_empty()
         {
             common.update_thought(receive_order, |t| {
-                t.inferred = t.inferred.difference(state.trash_set)
+                t.inferred = t.inferred.difference(state.trash_set);
             });
             log_info!(
                 "eliminated trash from slot {} {receive_order} - {}",
@@ -190,7 +190,7 @@ pub fn elim_dc_play(
             .is_empty()
         {
             common.update_thought(receive_order, |t| {
-                t.inferred = t.inferred.difference(state.playable_set)
+                t.inferred = t.inferred.difference(state.playable_set);
             });
             log_info!(
                 "eliminated playables from slot {} {receive_order} - {}",
@@ -230,7 +230,7 @@ pub fn elim_play_play(
             1 => {
                 let id = playable.first().expect("one element");
                 common.update_thought(receive_order, |t| {
-                    t.inferred = t.inferred.filter(|i| !state.is_playable(i) || i == id)
+                    t.inferred = t.inferred.filter(|i| !state.is_playable(i) || i == id);
                 });
                 log_info!(
                     "eliminated playables except {} from slot {} {receive_order} - {}",
@@ -242,7 +242,7 @@ pub fn elim_play_play(
             }
             _ => {
                 common.update_thought(receive_order, |t| {
-                    t.inferred = t.inferred.difference(state.playable_set)
+                    t.inferred = t.inferred.difference(state.playable_set);
                 });
                 log_info!(
                     "eliminated playables from slot {} {receive_order} - {}",
@@ -313,7 +313,7 @@ fn target_i_play(
 
     let mut self_playables = state.playable_set;
     for &o in &obvious_plays {
-        for id in game.common.thoughts[o].inferred.iter() {
+        for id in game.common.thoughts[o].inferred {
             if let Some(next) = id.next() {
                 self_playables.insert(next);
             }
@@ -492,11 +492,11 @@ pub fn react_play(
         // This should only trigger in 8 clue/locked/endgame situations, since
         // it wouldn't be inverted or reacter would have obvious playables otherwise.
 
-        return if !known_playables.contains(&order) {
-            rewind_as_reactive(game, turn, PlayInterp::None.into())
-        } else {
+        return if known_playables.contains(&order) {
             game.with_move(PlayInterp::None.into(), false);
             game
+        } else {
+            rewind_as_reactive(game, turn, PlayInterp::None.into())
         };
     }
 
