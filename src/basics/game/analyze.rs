@@ -1,5 +1,5 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -54,13 +54,28 @@ pub struct AnalysisOptions<'a> {
     pub cancel: Option<&'a AtomicBool>,
 }
 
-/// How long each endgame winrate may take: 500 ms, or `ANALYZE_ENDGAME_TIMEOUT_MS`. (A search that runs out of time
-/// counts as a winrate of 0, so a busy machine can produce spurious "mistake!" comments with the short default.)
+/// How long each endgame winrate may take, in milliseconds, if [`set_endgame_timeout_ms`] has set it (0 if not).
+static ENDGAME_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Sets how long each endgame winrate in an analysis may take, for programs that can't set
+/// `ANALYZE_ENDGAME_TIMEOUT_MS` (a browser has no environment). Slow machines want a longer limit.
+pub fn set_endgame_timeout_ms(ms: u64) {
+    ENDGAME_TIMEOUT_MS.store(ms, Ordering::Relaxed);
+}
+
+/// How long each endgame winrate may take: [`set_endgame_timeout_ms`], else `ANALYZE_ENDGAME_TIMEOUT_MS`, else
+/// 500 ms. (A search that runs out of time counts as a winrate of 0, so a busy machine can produce spurious
+/// "mistake!" comments with the short default.)
 fn endgame_timeout() -> Duration {
-    let ms = std::env::var("ANALYZE_ENDGAME_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(500);
+    let set = ENDGAME_TIMEOUT_MS.load(Ordering::Relaxed);
+    let ms = if set > 0 {
+        set
+    } else {
+        std::env::var("ANALYZE_ENDGAME_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(500)
+    };
     Duration::from_millis(ms)
 }
 

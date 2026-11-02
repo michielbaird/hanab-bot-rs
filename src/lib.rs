@@ -2,6 +2,7 @@
 
 pub mod basics;
 pub mod client;
+pub mod clock;
 pub mod collections;
 pub mod endgame;
 pub mod feedback;

@@ -1,6 +1,6 @@
 //! Cheap winnability checks that work on the bare [`State`] (no conventions, no inferences).
 
-use std::time::Instant;
+use crate::clock::Instant;
 
 use super::helper::unwinnable_state;
 use super::solver::RemainingMap;

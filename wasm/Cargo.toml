@@ -1,0 +1,24 @@
+[package]
+name = "hanab-bot-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The bot's game analysis for the browser (WebAssembly)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hanab-bot-rs = { path = "..", default-features = false }
+serde_json = "1"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Not part of the main crate's build: it needs the wasm target and `wasm-bindgen-cli` (see build.sh).
+[workspace]
