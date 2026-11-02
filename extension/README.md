@@ -22,14 +22,8 @@ Games with a variant or table option that the bot knows it can't play get no but
 
 ## Building and installing
 
-```sh
-cd extension
-npm ci
-npm run build          # dist/chrome and dist/firefox, for https://hanab.live
-```
-
-- Chrome, Edge: `chrome://extensions`, "Developer mode", "Load unpacked", pick `dist/chrome`.
-- Firefox (128 or newer): `about:debugging`, "This Firefox", "Load Temporary Add-on", pick `dist/firefox/manifest.json`.
+See [INSTALL.md](INSTALL.md). In short: `npm ci && npm run build` makes `dist/chrome` and `dist/firefox`, which you load as
+an unpacked extension (Chrome, Edge) or a temporary add-on (Firefox 128 or newer).
 
 The build needs the network once: it downloads the site's `variants.json` and `suits.json` (a pinned commit of the
 hanabi-live repository, see `build.mjs`) into `build/`. `hanab-bot-wasm` is the release package built by
