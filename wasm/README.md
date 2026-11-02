@@ -19,3 +19,11 @@ const result = JSON.parse(analyze(exportJson, "No Variant", "HGroup3", 2000, (do
 
 `./build.sh` builds `pkg/` (about 1.6 MB of wasm). The output was checked against the native `analyze` binary on
 `investigations/replay_1970135.json` (identical comments).
+
+## Releasing it
+
+Programs that use the module should download it rather than keep the generated files in their source. Push a tag like
+`wasm-v0.1.0` and `.github/workflows/wasm-release.yml` builds it and publishes a release with
+`hanab-bot-wasm.tar.gz` (`hanab_bot_wasm.js`, `hanab_bot_wasm.d.ts`, `hanab_bot_wasm_bg.wasm`) and its `.sha256`. The user
+pins the tag and the checksum. `./package.sh` makes the same archive locally in `dist/`; it is the same for the same build,
+because the archive has no timestamps or owners in it.

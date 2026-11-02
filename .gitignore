@@ -5,3 +5,4 @@ feedback.jsonl
 analysis/
 /wasm/target
 /wasm/pkg
+/wasm/dist
