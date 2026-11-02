@@ -89,7 +89,6 @@ impl Player {
                 res.resets.insert(order);
             }
 
-            // Card can be further eliminated
             if new_possible.len() == 1 {
                 let recursive_id = new_possible.first().unwrap();
                 self.certain_map[recursive_id.to_ord()].update(order, None);
@@ -207,7 +206,6 @@ impl Player {
             }
         }
 
-        // Now elim all the cards outside of this entry
         for id in ids {
             let inner = self.update_map(state, id, entries);
             res.merge(inner);
@@ -288,7 +286,6 @@ impl Player {
         let mut certain_map = vec![CertainMapEntry::EMPTY; num_ids];
         let mut possible_map = vec![FastBitSet::EMPTY; num_ids];
 
-        // Populate the possible and certain maps based on hands
         for hand in &state.hands {
             for &order in hand {
                 let thought = &self.thoughts[order];
@@ -317,7 +314,6 @@ impl Player {
             next_free_order
         };
 
-        // Add all the certain entries for played/discarded cards
         for suit_index in 0..state.variant.suits.len() {
             for rank in 0..state.discard_stacks[suit_index].len() {
                 let ord = Identity::new(suit_index, rank + 1).to_ord();
@@ -469,7 +465,6 @@ impl Player {
         let state = &game.state;
 
         for hand in &state.hands {
-            // Newest entry first.
             let mut inf_map: Vec<InfEntry> = Vec::new();
 
             for &o in hand {

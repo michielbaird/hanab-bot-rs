@@ -111,7 +111,6 @@ impl RemainingMap {
         self.0.iter().all(|&m| m == 0)
     }
 
-    /// The total number of cards remaining.
     pub fn total(&self) -> usize {
         self.0.iter().map(|&m| usize::from(m)).sum()
     }

@@ -508,11 +508,9 @@ impl Convention for RefSieve {
             && g.common
                 .thinks_locked(&g, g.state.next_player_index(action.player_index))
         {
-            // Unlock promise
             match g.unlock_promise(prev, action) {
                 None => {
                     log_info!("failed to unlock");
-                    // Shift all other playables
                     Self::shift_playables(&mut g, action.player_index);
                 }
                 Some(order) => {

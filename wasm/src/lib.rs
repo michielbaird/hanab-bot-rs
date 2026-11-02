@@ -1,7 +1,4 @@
-//! The bot's analysis of a finished game, for the browser.
-//!
-//! Build with `wasm/build.sh`, then call [`analyze`] from a Web Worker (it runs to the end on the calling thread, which can
-//! take many seconds on a long game). A browser has no threads for us, so the players are replayed one after another.
+//! The bot's analysis of a finished game, for the browser. Call [`analyze`] from a Web Worker: it blocks until it is done.
 
 use std::sync::atomic::AtomicBool;
 
@@ -13,23 +10,17 @@ use hanab_bot::tools::game_data::{GameData, build_game};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
-/// Loads the variant tables: the text of hanabi-live's `variants.json` and `suits.json` (`packages/game/src/json`).
-/// Call once, before [`analyze`].
+/// Loads hanabi-live's `variants.json` and `suits.json`. Call once, before [`analyze`].
 #[wasm_bindgen]
 pub fn init_variants(variants_json: &str, colours_json: &str) -> Result<(), JsError> {
     Variant::init(variants_json, colours_json).map_err(|e| JsError::new(&e))
 }
 
-/// Analyses a finished game: every move that is not what the bot would have done.
+/// Lists the moves of a game (as hanab.live's `/export/<id>` gives it) that the bot would have played differently, as JSON:
+/// `{"players": [...], "comments": [{"turn", "player", "mistake", "text"}]}`.
 ///
-/// * `game_json`: the game as hanab.live exports it (`/export/<id>`): `players`, `deck` and `actions`.
-/// * `variant`: the variant's name, e.g. `"No Variant"`.
-/// * `convention`: `"HGroup"`, `"Reactor"` or `"RefSieve"` (with a level where it has one, e.g. `"HGroup3"`).
-/// * `endgame_timeout_ms`: how long each endgame winrate may take (0 for the default, 500 ms). A search that runs out
-///   of time counts as a winrate of 0, so on a slow device a longer limit avoids spurious "mistake" comments.
-/// * `progress`: optional `(movesDone, movesTotal) => void`, called after every move examined.
-///
-/// Returns JSON text: `{"players": [...], "comments": [{"turn", "player", "mistake", "text"}]}`.
+/// `convention` is `HGroup1` to `HGroup12`, `Reactor` or `RefSieve`. An endgame search that runs out of
+/// `endgame_timeout_ms` (0: 500) counts as lost, so slow devices want more. `progress(movesDone, movesTotal)` is optional.
 #[wasm_bindgen]
 pub fn analyze(
     game_json: &str,
@@ -99,15 +90,12 @@ fn run(
     .to_string())
 }
 
-/// The bot version, e.g. `v1.3.0 (hanab-bot-rs)`.
 #[wasm_bindgen]
 pub fn version() -> String {
     hanab_bot::settings::BOT_VERSION.to_string()
 }
 
-/// Whether the bot can follow games with this variant and these table options: false for the variants it knows it cannot
-/// play (Blind, Mute, Up or Down, ...) and for the options it can't handle. The lists are in the bot's `client.rs`, so
-/// that the page does not need a copy of them.
+/// Whether the bot can play this variant and these table options.
 #[wasm_bindgen]
 pub fn is_game_supported(
     variant: &str,

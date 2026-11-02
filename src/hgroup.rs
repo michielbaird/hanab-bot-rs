@@ -1589,7 +1589,6 @@ impl Convention for HGroup {
                     CardStatus::None | CardStatus::PermissionToDiscard
                 );
 
-            // Write staleness if ending early game
             let stale = end_early_game && g.level() >= level::CONTEXT && prev.state.can_clue();
 
             // Whether cluing 1 to the discarder was blocked by this card
@@ -1927,7 +1926,6 @@ impl Convention for HGroup {
             };
         }
 
-        // The first action with the highest value.
         let mut best = &all_actions[0];
         for a in &all_actions[1..] {
             if a.2 > best.2 {

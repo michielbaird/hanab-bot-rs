@@ -224,7 +224,6 @@ impl Action {
         }
     }
 
-    /// The index of the player associated with the action, if any.
     pub fn player_index(&self) -> Option<usize> {
         match self {
             Self::Status(_) | Self::Strike(_) | Self::Interp(_) => None,
@@ -237,7 +236,6 @@ impl Action {
         }
     }
 
-    /// Whether the action is followed by the player drawing a card.
     pub fn requires_draw(&self) -> bool {
         matches!(self, Self::Play(_) | Self::Discard(_))
     }
@@ -310,7 +308,6 @@ impl Action {
         Ok(Some(action))
     }
 
-    /// The action produced by giving the clue.
     pub fn from_clue(state: &State, clue: &Clue, giver: usize) -> ClueAction {
         ClueAction {
             giver,

@@ -51,7 +51,6 @@ impl<'a> ClueContext<'a> {
         })
     }
 
-    /// The same context, with the focus replaced.
     pub fn with_focus(&self, new_focus: usize) -> ClueContext<'a> {
         let mut result = self.focus_result();
         result.focus = new_focus;

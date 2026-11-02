@@ -881,7 +881,6 @@ pub fn find_single_conn(
     let conn =
         find_unknown_connecting(ctx, reacting, id, conn_ctx.connected, conn_ctx.ignore, opts)?;
 
-    // Try again
     if conn.hidden() {
         let self_clandestine = reacting == action.target
             && conn.ids()[0]

@@ -366,7 +366,6 @@ fn analyze_into(
     Ok(())
 }
 
-/// One game's details as text.
 pub fn render_game(report: &GameReport, host: &str) -> String {
     let mut out = format!(
         "Game {} ({}), {} ({}), seed {}\nPlayers: {}\nBots: {}\nScore {}/{}, {} strike(s)\n{}\n",

@@ -403,7 +403,6 @@ pub fn important_finesse(state: &State, action: &ClueAction, fps: &[FocusPossibi
         let mut player_index = state.next_player_index(giver);
 
         loop {
-            // Looped around
             if player_index == giver {
                 return false;
             }
@@ -975,7 +974,6 @@ pub fn resolve_clue(
         g.meta[original_focus].trash = trash;
     }
 
-    // Perform 1 round of elim
     if let Some(focus_id) = g.common.thoughts[focus]
         .id_with(true, false)
         .filter(|&i| state.is_critical(i))

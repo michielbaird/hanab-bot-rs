@@ -271,7 +271,6 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
             .collect()
     };
 
-    // Try connecting with an unknown playable
     let reveal_connectable = || -> Option<(usize, Identity)> {
         if next_player_index == target {
             return None;
@@ -640,9 +639,7 @@ pub fn bad_stable(
     {
         log_warn!("bad turn 1 rank clue! {alt_clue:?} is possible");
         true
-    }
-    // Check for bad lock
-    else if interp == ClueInterp::Lock && alt_clue.is_some() {
+    } else if interp == ClueInterp::Lock && alt_clue.is_some() {
         log_warn!("alternative clue {alt_clue:?} was available!");
         true
     } else if !stall {

@@ -129,7 +129,6 @@ pub fn interpret_reactive_colour(
     let state = &game.state;
     let (possible_conns, known_plays, hypo_state) = reactive_context(prev, game, action, reacter);
 
-    // Try targeting all play targets
     let targets = play_targets(prev, game, receiver, &known_plays, &hypo_state, true);
 
     let found = targets.iter().find_map(|&(order, index)| {
