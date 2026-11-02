@@ -19,7 +19,6 @@ pub enum ConsoleCmd {
     Username,
 }
 
-/// Parses a line of console input.
 pub fn parse_command(input: &str) -> Result<ConsoleCmd, String> {
     let parts: Vec<&str> = input.split(' ').filter(|p| !p.is_empty()).collect();
 

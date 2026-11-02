@@ -78,7 +78,6 @@ impl LevelGuard {
         Self(prev)
     }
 
-    /// Sets the level to exactly `level`.
     pub fn set(level: LogLevel) -> Self {
         let prev = THREAD_LEVEL.with(Cell::get);
         set_level(level);

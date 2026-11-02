@@ -213,7 +213,6 @@ const UNSUPPORTED_VARIANTS: [&str; 17] = [
     "Sudoku",
 ];
 
-/// The table options that the bot cannot play with, by name.
 pub fn unsupported_table_options(
     empty_clues: bool,
     detrimental_characters: bool,
@@ -1167,7 +1166,6 @@ impl BotClient {
     }
 }
 
-/// The text of a caught panic.
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<String>()

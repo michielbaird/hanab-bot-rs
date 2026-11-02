@@ -88,7 +88,6 @@ impl CertainMapEntry {
         }
     }
 
-    /// Whether a slot has this order.
     pub fn contains_order(self, order: usize) -> bool {
         self.iter().any(|(o, _)| o == order)
     }
@@ -100,7 +99,6 @@ impl CertainMapEntry {
         self.iter().any(|(o, u)| o == order || u == unknown_to)
     }
 
-    /// The set of orders stored.
     pub fn orders(self) -> FastBitSet {
         self.iter().map(|(o, _)| o).collect()
     }

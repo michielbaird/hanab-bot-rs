@@ -12,7 +12,6 @@ pub trait Identifiable {
     /// * `symmetric`: whether to ignore info from "looking" at the card.
     fn id_with(&self, infer: bool, symmetric: bool) -> Option<Identity>;
 
-    /// The contained identity, or `None` if unknown.
     fn id(&self) -> Option<Identity> {
         self.id_with(false, false)
     }
@@ -78,12 +77,10 @@ impl Identity {
         }
     }
 
-    /// The previous identity in the suit, if it exists.
     pub fn prev(self) -> Option<Self> {
         (self.rank > 1).then(|| Self::new(self.suit_index, self.rank - 1))
     }
 
-    /// The next identity in the suit, if it exists.
     pub fn next(self) -> Option<Self> {
         (self.rank < 5).then(|| Self::new(self.suit_index, self.rank + 1))
     }

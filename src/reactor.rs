@@ -1025,7 +1025,6 @@ impl Reactor {
                 PerformAction::try_discard(game, me.locked_discard(state, our))
             }
         } else {
-            // The first action with the highest value.
             let mut best: Option<(&PerformAction, f64)> = None;
             for (perform, action) in all_actions {
                 let value = self.eval_action(game, action);
