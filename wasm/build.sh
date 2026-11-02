@@ -4,6 +4,16 @@
 # in Cargo.lock (cargo install wasm-bindgen-cli --version <that version> --locked).
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# The generated glue only works with the wasm of the same wasm-bindgen version.
+locked=$(awk '/^name = "wasm-bindgen"$/ { getline; print $3 }' Cargo.lock | tr -d '"')
+installed=$(wasm-bindgen --version | awk '{ print $2 }')
+if [[ $locked != "$installed" ]]; then
+  echo "wasm-bindgen-cli $installed does not match the wasm-bindgen $locked in Cargo.lock:" >&2
+  echo "  cargo install wasm-bindgen-cli --version $locked --locked" >&2
+  exit 1
+fi
+
 cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/hanab_bot_wasm.wasm
 ls -l pkg/*.wasm

@@ -1,0 +1,47 @@
+name: wasm release
+
+# Publishes the browser module of the game analysis (wasm/) as a release: push a tag like `wasm-v0.1.0` (the version in
+# wasm/Cargo.toml). The archive is an npm package, so a web project depends on the URL of the .tgz in its package.json and
+# npm pins its checksum in the lock file, instead of keeping the generated files in its source.
+on:
+  push:
+    tags: ["wasm-v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target\nwasm -> wasm/target"
+      - name: Install the wasm-bindgen-cli that matches Cargo.lock
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; print $3 }' wasm/Cargo.lock | tr -d '"')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: The tag names the version of the package
+        run: |
+          version=$(awk -F'"' '/^version/ { print $2; exit }' wasm/Cargo.toml)
+          if [[ $GITHUB_REF_NAME != "wasm-v$version" ]]; then
+            echo "::error::the tag is $GITHUB_REF_NAME, but wasm/Cargo.toml says version $version"
+            exit 1
+          fi
+      - name: Build and pack
+        run: wasm/package.sh
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          archive=$(cd wasm/dist && ls hanab-bot-wasm-*.tgz)
+          gh release create "$GITHUB_REF_NAME" "wasm/dist/$archive" "wasm/dist/$archive.sha256" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "The browser module of the game analysis as an npm package, built from $GITHUB_SHA. Depend on it with the URL of the .tgz in package.json."

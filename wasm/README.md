@@ -19,3 +19,17 @@ const result = JSON.parse(analyze(exportJson, "No Variant", "HGroup3", 2000, (do
 
 `./build.sh` builds `pkg/` (about 1.6 MB of wasm). The output was checked against the native `analyze` binary on
 `investigations/replay_1970135.json` (identical comments).
+
+## Releasing it
+
+A web project should depend on the module like on any other package, not keep the generated files in its source. Push a tag
+like `wasm-v0.1.0` (the version in `Cargo.toml`) and `.github/workflows/wasm-release.yml` builds it and publishes a release
+with `hanab-bot-wasm-0.1.0.tgz`, an npm package, and its `.sha256`. In the project's `package.json`:
+
+```json
+"hanab-bot-wasm": "https://github.com/michielbaird/hanab-bot-rs/releases/download/wasm-v0.1.0/hanab-bot-wasm-0.1.0.tgz"
+```
+
+and `npm install` records the checksum in the lock file. `./package.sh` makes the same package locally in `dist/` (for
+trying a change: `npm install <path to the .tgz>`); the archive is the same for the same build, because it has no
+timestamps or owners in it.
