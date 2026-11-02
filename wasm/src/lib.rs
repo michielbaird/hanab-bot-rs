@@ -105,9 +105,23 @@ pub fn version() -> String {
     hanab_bot::settings::BOT_VERSION.to_string()
 }
 
-/// Whether the bot can analyse games of the variant: false for the variants it knows it cannot play (Blind, Mute, Up or
-/// Down, ...). The list is `UNSUPPORTED_VARIANTS` in the bot's `client.rs`.
+/// Whether the bot can follow games with this variant and these table options: false for the variants it knows it cannot
+/// play (Blind, Mute, Up or Down, ...) and for the options it can't handle. The lists are in the bot's `client.rs`, so
+/// that the page does not need a copy of them.
 #[wasm_bindgen]
-pub fn is_variant_supported(name: &str) -> bool {
-    !hanab_bot::client::is_unsupported_variant(name)
+pub fn is_game_supported(
+    variant: &str,
+    empty_clues: bool,
+    detrimental_characters: bool,
+    one_extra_card: bool,
+    one_less_card: bool,
+) -> bool {
+    !hanab_bot::client::is_unsupported_variant(variant)
+        && hanab_bot::client::unsupported_table_options(
+            empty_clues,
+            detrimental_characters,
+            one_extra_card,
+            one_less_card,
+        )
+        .is_empty()
 }

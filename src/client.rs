@@ -213,6 +213,24 @@ const UNSUPPORTED_VARIANTS: [&str; 17] = [
     "Sudoku",
 ];
 
+/// The table options that the bot cannot play with, by name.
+pub fn unsupported_table_options(
+    empty_clues: bool,
+    detrimental_characters: bool,
+    one_extra_card: bool,
+    one_less_card: bool,
+) -> Vec<&'static str> {
+    [
+        (empty_clues, "emptyClues"),
+        (detrimental_characters, "detrimentalChars"),
+        (one_extra_card, "oneExtraCard"),
+        (one_less_card, "oneLessCard"),
+    ]
+    .into_iter()
+    .filter_map(|(set, name)| set.then_some(name))
+    .collect()
+}
+
 /// Whether the bot knows that it cannot play the variant (and so can't analyse games of it either).
 pub fn is_unsupported_variant(name: &str) -> bool {
     UNSUPPORTED_VARIANTS.iter().any(|v| name.contains(v))
@@ -736,15 +754,12 @@ impl BotClient {
 
     fn check_supported_settings(&self, table: &Table) {
         let o = &table.options;
-        let unsupported_options: Vec<&str> = [
-            (o.empty_clues, "emptyClues"),
-            (o.detrimental_characters, "detrimentalChars"),
-            (o.one_extra_card, "oneExtraCard"),
-            (o.one_less_card, "oneLessCard"),
-        ]
-        .into_iter()
-        .filter_map(|(set, name)| set.then_some(name))
-        .collect();
+        let unsupported_options = unsupported_table_options(
+            o.empty_clues,
+            o.detrimental_characters,
+            o.one_extra_card,
+            o.one_less_card,
+        );
 
         if !unsupported_options.is_empty() {
             self.send_chat(&format!(
@@ -1190,7 +1205,7 @@ fn fallback_action(game: &Game) -> PerformAction {
 
 #[cfg(test)]
 mod variant_support_tests {
-    use super::is_unsupported_variant;
+    use super::{is_unsupported_variant, unsupported_table_options};
 
     #[test]
     fn knows_the_variants_it_cannot_play() {
@@ -1199,5 +1214,14 @@ mod variant_support_tests {
         assert!(is_unsupported_variant("Mute (No Variant)"));
         assert!(!is_unsupported_variant("No Variant"));
         assert!(!is_unsupported_variant("Rainbow (6 Suits)"));
+    }
+
+    #[test]
+    fn knows_the_table_options_it_cannot_play() {
+        assert!(unsupported_table_options(false, false, false, false).is_empty());
+        assert_eq!(
+            unsupported_table_options(true, false, false, true),
+            ["emptyClues", "oneLessCard"]
+        );
     }
 }
