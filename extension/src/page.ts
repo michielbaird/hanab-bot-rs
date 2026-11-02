@@ -1,9 +1,5 @@
-// The page bridge. It runs in the page's own JavaScript context (a content script with
-// `"world": "MAIN"`), because the game keeps its state in objects that the extension's isolated
-// content script can't see: the site sets "window.globals" (the game's UI state, with the Redux
-// store and the Konva objects of the canvas). This script reads what the extension needs, tells the
-// content script when it changes, and moves the replay when asked. It does nothing else, and it
-// never throws into the site.
+// Runs in the page's own context (`"world": "MAIN"`): the isolated content script can't see "window.globals", where the
+// site keeps the game's state. Reads what the extension needs and moves the replay. Never throws into the site.
 
 import {
   CONTENT_SOURCE,
@@ -13,7 +9,6 @@ import {
   type PageState,
 } from "./protocol";
 
-/** The parts of a Konva node that are used. */
 interface KonvaNode {
   getAbsolutePosition: () => { x: number; y: number };
   width: () => number;
@@ -46,7 +41,6 @@ interface Store {
   dispatch: (action: unknown) => void;
 }
 
-/** The parts of the site's "window.globals" that are used. */
 interface PageGlobals {
   store: Store | null;
   stage: { container: () => HTMLElement };
@@ -63,7 +57,6 @@ function getGlobals(): PageGlobals | undefined {
   return (window as unknown as { globals?: PageGlobals }).globals;
 }
 
-/** What is on the page now. Anything unexpected reads as "no game". */
 function read(): PageState {
   try {
     const pageGlobals = getGlobals();

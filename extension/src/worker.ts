@@ -1,6 +1,5 @@
-// The bot's game analysis, in a Web Worker so that the page stays responsive while it thinks (an
-// analysis takes many seconds). The content script starts it from a Blob (a page can't load a worker
-// from an extension's URL) and sends the WebAssembly file as the first message.
+// The bot, in a Web Worker so that the page stays responsive. The content script starts it from a Blob (a page can't
+// load a worker from an extension's URL) and sends the WebAssembly file as the first message.
 
 import init, {
   analyze,
@@ -11,7 +10,6 @@ import suitsJSON from "../build/data/suits.json";
 import variantsJSON from "../build/data/variants.json";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
 
-/** The parts of the worker's global scope that are used (this is compiled for the DOM). */
 interface WorkerScope {
   postMessage: (message: WorkerResponse) => void;
   addEventListener: (

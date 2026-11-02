@@ -1,9 +1,5 @@
-// The content script: the extension's part that lives on hanab.live. It shows a robot button for
-// finished games, lets you pick a convention, has the bot go through the game (in a worker, see
-// "worker.ts") and marks the moves it would have played differently on the replay bar. What it
-// knows about the game and the canvas comes from the page bridge ("page.ts").
-//
-// The extension is unofficial. Its disclaimer is shown wherever the bot's opinions are.
+// The extension's part on hanab.live: the interface, the `/export/<id>` request and the bot. What it knows about the
+// game and the canvas comes from the page bridge (`page.ts`).
 
 import {
   CONTENT_SOURCE,
@@ -37,20 +33,11 @@ const MISTAKE_COLOR = "#ff4040";
 const SUGGESTION_COLOR = "#ffb000";
 const SUMMARY_COLOR = "#58a6ff";
 
-// ------
-// State
-// ------
-
 let page: PageState = { info: null, geometry: null };
 let result: AnalysisResult | null = null;
 let resultGameID: number | null = null;
 let resultConvention = "";
-/** Whether the bot can follow a game, by its variant and options. */
 const supportCache = new Map<string, boolean>();
-
-// ---
-// UI
-// ---
 
 const STYLE = `
   :host { all: initial; }
@@ -127,10 +114,6 @@ if (document.body === null) {
   mount();
 }
 
-// -----------------------
-// The page bridge's state
-// -----------------------
-
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (event.source !== window) {
     return;
@@ -149,7 +132,6 @@ function goTo(segment: number) {
   window.postMessage(message, window.location.origin);
 }
 
-/** The finished games that are in the database are the ones that "/export/<id>" has. */
 function getAnalyzableInfo(): (GameInfo & { databaseID: number }) | null {
   const info = page.info;
   if (info === null || !info.finished || info.databaseID === null || info.databaseID <= 0) {
@@ -167,10 +149,6 @@ function getSegment(c: AnalysisComment): number {
 function getStops(analysis: AnalysisResult, finalSegment: number): number[] {
   return [...new Set([...analysis.comments.map(getSegment), finalSegment])].sort((a, b) => a - b);
 }
-
-// -------------------
-// Updating the screen
-// -------------------
 
 function place(element: HTMLElement, left: number, top: number) {
   element.style.left = `${Math.round(left)}px`;
@@ -197,7 +175,6 @@ function update() {
     return;
   }
 
-  // The robot is above the right end of the replay bar and its markers, with the jump buttons to its left.
   const top = getMarkerTop(geometry) - 32;
   const right = geometry.bar.x + geometry.bar.width;
   place(robot, right - 28, top);
@@ -218,7 +195,6 @@ function update() {
   drawComment(info, geometry);
 }
 
-/** The size of a marker, from the thickness of the replay bar. */
 function getMarkerSize(bar: { height: number }) {
   return {
     width: Math.max(4, Math.round(bar.height * 0.9)),
@@ -311,10 +287,6 @@ function clearResult() {
   comment.hidden = true;
 }
 
-// -----------------
-// The bot's worker
-// -----------------
-
 let worker: Worker | null = null;
 let onSupports: ((supported: boolean) => void) | null = null;
 let onAnalysisMessage: ((message: WorkerResponse) => void) | null = null;
@@ -351,7 +323,6 @@ async function startWorker(): Promise<Worker> {
     }
   });
   newWorker.addEventListener("error", () => {
-    // The bot could not be loaded, or it stopped.
     onSupports?.(false);
     onAnalysisMessage?.({ type: "error", message: "The analysis stopped unexpectedly." });
   });
@@ -373,11 +344,7 @@ function stopWorker() {
   onAnalysisMessage = null;
 }
 
-/**
- * Whether the bot can follow the game, which only the bot knows (it can't play some variants and
- * table options). The first time this is asked about a kind of game it starts the bot and answers
- * false until the bot has replied, which then updates the screen.
- */
+/** Answers false until the bot (which alone knows what it can't play) has replied; the reply updates the screen. */
 function isSupported(info: GameInfo): boolean {
   const query = {
     variant: info.variant,
@@ -408,10 +375,6 @@ function isSupported(info: GameInfo): boolean {
   }
   return false;
 }
-
-// -------------------------------
-// The box next to the robot button
-// -------------------------------
 
 function closePanel() {
   panel?.remove();
@@ -479,10 +442,6 @@ function jump(direction: -1 | 1) {
   }
 }
 
-// -------------------------------------
-// The progress bar in the middle of the screen
-// -------------------------------------
-
 function dismissProgress() {
   progress?.remove();
   progress = null;
@@ -507,7 +466,6 @@ function showProgress(): { text: HTMLElement; bar: HTMLProgressElement } {
   return { text, bar };
 }
 
-/** An error stays on the screen for a few seconds, or until it is clicked. */
 function showError(message: string) {
   stopWorker();
   const { text, bar } = showProgress();
@@ -523,10 +481,6 @@ function showError(message: string) {
     }
   }, 8000);
 }
-
-// -----------------
-// Running the bot
-// -----------------
 
 async function run(convention: string, conventionLabel: string) {
   const info = getAnalyzableInfo();
