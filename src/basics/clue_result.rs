@@ -235,7 +235,6 @@ pub fn playables_result(prev: &Game, game: &Game) -> (Vec<usize>, Vec<usize>) {
     (blind_plays, playables)
 }
 
-/// Whether the clue is a rank clue (used when ordering clue statistics).
 pub fn is_rank_clue(action: &ClueAction) -> bool {
     action.clue.kind == ClueKind::Rank
 }

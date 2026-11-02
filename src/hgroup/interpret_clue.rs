@@ -51,7 +51,6 @@ impl<'a> ClueContext<'a> {
         })
     }
 
-    /// The same context, with the focus replaced.
     pub fn with_focus(&self, new_focus: usize) -> ClueContext<'a> {
         let mut result = self.focus_result();
         result.focus = new_focus;
@@ -304,10 +303,10 @@ pub fn check_h_fix(ctx: &ClueContext) -> Option<Game> {
                 }
             }
             g.with_move(
-                if !mistake {
-                    ClueInterp::Fix
-                } else {
+                if mistake {
                     ClueInterp::Mistake
+                } else {
+                    ClueInterp::Fix
                 }
                 .into(),
                 false,
@@ -450,9 +449,7 @@ pub fn interp_normal_clue(
             }
     };
 
-    let save_poss: Vec<FocusPossibility> = if !chop {
-        Vec::new()
-    } else {
+    let save_poss: Vec<FocusPossibility> = if chop {
         common.thoughts[focus]
             .inferred
             .iter()
@@ -464,6 +461,8 @@ pub fn interp_normal_clue(
                 fp
             })
             .collect()
+    } else {
+        Vec::new()
     };
 
     if !save_poss.is_empty() {

@@ -192,7 +192,6 @@ impl State {
         }
     }
 
-    /// Records a play of `id`, if it is playable.
     pub fn try_play(&mut self, id: Identity) {
         if self.is_playable(id) {
             self.add_play(id);
@@ -224,7 +223,6 @@ impl State {
         self.max_ranks.iter().sum()
     }
 
-    /// The remaining score that can be achieved.
     pub fn rem_score(&self) -> usize {
         self.max_score() - self.score()
     }
@@ -373,7 +371,6 @@ impl State {
         id.map_or_else(|| "xx".to_string(), |id| self.log_id(id))
     }
 
-    /// Logs the identity of the card with the given order.
     pub fn log_order(&self, order: usize) -> String {
         self.log_id_opt(self.deck[order].id())
     }

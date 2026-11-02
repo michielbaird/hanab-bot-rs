@@ -93,7 +93,7 @@ pub fn find_known_conn(
         }
     }
 
-    for o in state.held_orders.iter() {
+    for o in state.held_orders {
         // Check whether the giver knows their card isn't a crit that they are currently cluing
         let asymmetric_known = || {
             state.holder_of[o] == giver
@@ -122,7 +122,7 @@ pub fn find_known_conn(
         }
     }
 
-    for o in state.held_orders.iter() {
+    for o in state.held_orders {
         if ignore.contains(o)
             || !common.thoughts[o]
                 .inferred
@@ -215,7 +215,7 @@ pub fn find_known_conn(
         }
     }
 
-    for o in state.held_orders.iter() {
+    for o in state.held_orders {
         let player_index = state.holder_of[o];
         let play = !ignore.contains(o)
             && player_index != giver
@@ -641,7 +641,7 @@ pub fn find_unknown_connecting(
             .contains(id)
             && thought.matches_assume(&id);
 
-        if !(true_finesse || !bluffable_ids.is_empty()) {
+        if !true_finesse && bluffable_ids.is_empty() {
             return None;
         }
 
@@ -833,7 +833,6 @@ pub fn find_single_conn(
     let conn =
         find_unknown_connecting(ctx, reacting, id, conn_ctx.connected, conn_ctx.ignore, opts)?;
 
-    // Try again
     if conn.hidden() {
         let self_clandestine = reacting == action.target
             && conn.ids()[0]

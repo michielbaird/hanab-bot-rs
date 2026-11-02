@@ -12,6 +12,7 @@ use crate::basics::clue_result::{
 use crate::basics::eval::{ForceClueResult, force_clue};
 use crate::basics::interp::{ClueInterp, DiscardInterp, Interp, PlayInterp};
 use crate::basics::{Game, Identity, PerformAction, State};
+use crate::collections::FastBitSet;
 use crate::logger::{self, LevelGuard, LogLevel};
 use crate::util::{VisibleOpts, indent, visible_find};
 use crate::{log_highlight, log_info, log_warn};
@@ -56,10 +57,10 @@ pub fn get_result(game: &Game, hypo: &Game, action: &ClueAction, log: bool) -> f
             .count();
 
     const TOUCH_VALUES: [f64; 6] = [0.0, 0.125, 0.25, 0.35, 0.45, 0.55];
-    let good_touch: f64 = if !bad_touch.is_empty() {
-        -(bad_touch.len() as f64) * 4.0
-    } else {
+    let good_touch: f64 = if bad_touch.is_empty() {
         2.0 * TOUCH_VALUES[new_touched.len().min(5)]
+    } else {
+        -(bad_touch.len() as f64) * 4.0
     };
 
     let precision = list
@@ -70,7 +71,7 @@ pub fn get_result(game: &Game, hypo: &Game, action: &ClueAction, log: bool) -> f
 
     let pang_of_guilt = if state.clue_tokens > 1
         && target != state.next_player_index(state.our_player_index)
-        && game.find_finesse(target, Default::default(), Default::default()) == Some(focus)
+        && game.find_finesse(target, FastBitSet::default(), FastBitSet::default()) == Some(focus)
     {
         -0.25
     } else {
@@ -159,7 +160,7 @@ fn force_clue_value(orig: &Game, game: &Game, offset: usize, only: Option<usize>
     let finessable = state.num_players > 2
         && !game.common.thinks_loaded(game, bob)
         && game
-            .find_finesse(bob, Default::default(), Default::default())
+            .find_finesse(bob, FastBitSet::default(), FastBitSet::default())
             .is_some_and(|o| state.deck[o].id().is_some_and(|i| state.is_playable(i)));
 
     if finessable {
@@ -400,9 +401,7 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
                 && !game.must_clue(player_index)
                 && !game.common.thinks_loaded(game, bob);
 
-            if !can_sdcm {
-                None
-            } else {
+            if can_sdcm {
                 match trash().first() {
                     Some(&kt) => Some(force_sdcm(orig, game, player_index, kt, offset, true)),
                     None if !state.can_clue() => game
@@ -410,6 +409,8 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
                         .map(|chop| force_sdcm(orig, game, player_index, chop, offset, false)),
                     None => None,
                 }
+            } else {
+                None
             }
         };
 
@@ -444,17 +445,19 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
     if player.thinks_locked(game, player_index) {
         log_info!("{}{} locked!", indent(offset), state.names[player_index]);
 
-        return if !state.can_clue() {
+        return if state.can_clue() {
+            force_clue_value(orig, game, offset, None).0
+        } else {
             let (order, is_anxiety) = match player.anxiety_play(state, player_index) {
                 Some(anxiety) if game.level() >= level::STALLING => (anxiety, true),
                 _ => (player.locked_discard(state, player_index), false),
             };
 
             let id = game.me().thoughts[order].id_with(true, false);
-            let action = if is_anxiety != game.players[player_index].thinks_inverted(state, order) {
-                Action::drag_play(state, player_index, order, None)
-            } else {
+            let action = if is_anxiety == game.players[player_index].thinks_inverted(state, order) {
                 Action::drag_discard(state, player_index, order, None)
+            } else {
+                Action::drag_play(state, player_index, order, None)
             };
 
             log_info!(
@@ -471,8 +474,6 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             );
 
             advance(orig, &game.simulate(&action, None), offset + 1)
-        } else {
-            force_clue_value(orig, game, offset, None).0
         };
     }
 
@@ -562,27 +563,24 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
                 i != our && hand.iter().any(|&o| state.deck[o].id().is_none())
             });
 
-            match drew_new {
-                Some(drew) => {
-                    let hypo_val = 0.2 * (clue_val + 1.0) + 0.8 * dc_val;
-                    log_highlight!(
-                        logger::CYAN,
-                        "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {} but {} may have drawn something ({hypo_val:.2})",
-                        indent(offset),
-                        state.names[player_index],
-                        state.names[drew]
-                    );
-                    hypo_val
-                }
-                None => {
-                    log_highlight!(
-                        logger::CYAN,
-                        "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {}, lowering clue prob to 0 ({dc_val:.2})",
-                        indent(offset),
-                        state.names[player_index]
-                    );
-                    dc_val
-                }
+            if let Some(drew) = drew_new {
+                let hypo_val = 0.2 * (clue_val + 1.0) + 0.8 * dc_val;
+                log_highlight!(
+                    logger::CYAN,
+                    "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {} but {} may have drawn something ({hypo_val:.2})",
+                    indent(offset),
+                    state.names[player_index],
+                    state.names[drew]
+                );
+                hypo_val
+            } else {
+                log_highlight!(
+                    logger::CYAN,
+                    "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {}, lowering clue prob to 0 ({dc_val:.2})",
+                    indent(offset),
+                    state.names[player_index]
+                );
+                dc_val
             }
         } else {
             let clue_prob = if player_index == our {
@@ -838,7 +836,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
 
             let mut total = 0.0;
             let mut mistaken = false;
-            for i in poss.iter() {
+            for i in poss {
                 log_highlight!(logger::GREEN, "discarding {}", state.log_id(i));
                 let hypo = hypo_of(&Action::Discard(DiscardAction {
                     player_index: *player_index,

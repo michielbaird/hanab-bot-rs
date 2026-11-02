@@ -151,12 +151,10 @@ pub fn occams_razor(
     let mut impossible: Vec<&FocusPossibility> = Vec::new();
 
     for fp in sorted {
-        if !game.players[player_index].thoughts[focus]
+        if game.players[player_index].thoughts[focus]
             .possible
             .contains(fp.id)
         {
-            impossible.insert(0, fp);
-        } else {
             let simplicity = fp_simplicity(state, fp, player_index, our);
 
             if simplicity < min && actual_id.is_none_or(|a| a == fp.id) {
@@ -165,6 +163,8 @@ pub fn occams_razor(
             } else if simplicity == min {
                 acc.insert(0, fp);
             }
+        } else {
+            impossible.insert(0, fp);
         }
     }
 

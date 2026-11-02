@@ -270,7 +270,11 @@ fn remove_and_draw(s: &mut State, player_index: usize, order: usize, draw: Optio
         None => None,
     };
 
-    if s.deck.get(new_card_order).and_then(|c| c.id()).is_none() {
+    if s.deck
+        .get(new_card_order)
+        .and_then(super::super::basics::card::Identifiable::id)
+        .is_none()
+    {
         let new_card = draw.unwrap_or_else(|| Card::new(None, new_card_order, s.turn_count));
 
         if s.deck.len() == new_card_order {

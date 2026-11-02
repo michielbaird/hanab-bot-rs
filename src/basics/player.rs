@@ -261,7 +261,6 @@ impl Player {
                 && self.thoughts[o].matches_infer(&id)
                 && state.deck[o].matches_assume(&id) // card must actually match
                 && game.me().thoughts[o].possible.contains(id)
-                // Not sharing a link
                 && !self.links.iter().any(|link| {
                     let shares = |orders: FastBitSet| {
                         exclude_order.is_none_or(|e| orders.contains(e)) && orders.contains(o)
@@ -566,7 +565,6 @@ impl Player {
             })
     }
 
-    /// Whether the given order is a valid prompt for the given identity.
     pub fn valid_prompt(
         &self,
         prev: &Game,

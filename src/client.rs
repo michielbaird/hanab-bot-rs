@@ -213,7 +213,6 @@ const UNSUPPORTED_VARIANTS: [&str; 17] = [
     "Sudoku",
 ];
 
-/// The table options that the bot cannot play with, by name.
 pub fn unsupported_table_options(
     empty_clues: bool,
     detrimental_characters: bool,
@@ -905,7 +904,7 @@ impl BotClient {
                     self.send_pm(who, "2P RS: https://willflame14.github.io/rs-docs/intro");
                 }
                 ConventionKind::HGroup(_) => {
-                    self.send_pm(who, "H-Group: https://hanabi.github.io/reference")
+                    self.send_pm(who, "H-Group: https://hanabi.github.io/reference");
                 }
             }
         } else if starts("/feedback") {
@@ -1167,7 +1166,6 @@ impl BotClient {
     }
 }
 
-/// The text of a caught panic.
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<String>()

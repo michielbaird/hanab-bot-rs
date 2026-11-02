@@ -834,14 +834,14 @@ impl HGroupGame for Game {
                 && variant.pinkish
                 && stall_severity(prev, &prev.common, giver) > 0;
 
-            if !valid {
-                None
-            } else {
+            if valid {
                 newly_clued
                     .iter()
                     .copied()
                     .filter(|&o| !prev.is_cm(o))
                     .min()
+            } else {
+                None
             }
         };
 
@@ -1118,7 +1118,7 @@ impl HGroupGame for Game {
         })
     }
 
-    /// Removes the 'id_uncertain' flag if no longer applicable.
+    /// Removes the '`id_uncertain`' flag if no longer applicable.
     fn refresh_uncertain(&mut self) {
         let me = self.me();
         let our_hand = self.state.our_hand().to_vec();
@@ -1417,96 +1417,93 @@ impl Convention for HGroup {
         updated.refresh_uncertain();
         updated.elim(None, false);
 
-        let mut result = match check_reveal_layer(prev, &updated, action) {
-            Some(replayed) => replayed,
-            None => {
-                let mut pre = refresh_wcs(
+        let mut result = if let Some(replayed) = check_reveal_layer(prev, &updated, action) {
+            replayed
+        } else {
+            let mut pre = refresh_wcs(
+                prev,
+                &updated,
+                &Action::Clue(action.clone()),
+                true,
+                true,
+                None,
+            );
+            pre.reset_important(action.giver);
+
+            let real_waiting = |g: &Game| {
+                g.waiting()
+                    .iter()
+                    .filter(|wc| !wc.symmetric && !wc.ambiguous_self)
+                    .count()
+            };
+
+            if !game.hg().allow_find_own
+                && pre.wc_lost(prev, &Action::Clue(action.clone())).is_some()
+            {
+                let lost = pre
+                    .wc_lost(prev, &Action::Clue(action.clone()))
+                    .expect("checked");
+                log_warn!(
+                    "removed wc {}! mistake",
+                    game.state.log_conns(&lost.connections)
+                );
+                pre.with_move(ClueInterp::Mistake.into(), false);
+                pre
+            } else {
+                let ctx = ClueContext::new(prev, &pre, action);
+                let interpreted = interp_clue(&ctx);
+
+                let mut updated_pre = pre.clone();
+                updated_pre.hg_mut().important_finesse = interpreted.hg().important_finesse.clone();
+                updated_pre.hg_mut().saved_ctx = interpreted.hg().saved_ctx.clone();
+                updated_pre.with_move(
+                    interpreted.last_move().expect("interpretation has a move"),
+                    false,
+                );
+
+                let refreshed = refresh_wcs(
                     prev,
-                    &updated,
+                    &updated_pre,
                     &Action::Clue(action.clone()),
-                    true,
+                    false,
                     true,
                     None,
                 );
-                pre.reset_important(action.giver);
 
-                let real_waiting = |g: &Game| {
-                    g.waiting()
-                        .iter()
-                        .filter(|wc| !wc.symmetric && !wc.ambiguous_self)
-                        .count()
-                };
-
-                if !game.hg().allow_find_own
-                    && pre.wc_lost(prev, &Action::Clue(action.clone())).is_some()
-                {
-                    let lost = pre
-                        .wc_lost(prev, &Action::Clue(action.clone()))
-                        .expect("checked");
-                    log_warn!(
-                        "removed wc {}! mistake",
-                        game.state.log_conns(&lost.connections)
-                    );
-                    pre.with_move(ClueInterp::Mistake.into(), false);
-                    pre
+                let mut g = if real_waiting(&refreshed) < real_waiting(&pre) && !game.no_recurse {
+                    if refreshed.hypothetical && action.giver == game.state.our_player_index {
+                        log_warn!("lost wc! mistake");
+                        let mut g = refreshed;
+                        g.with_move(ClueInterp::Mistake.into(), true);
+                        g
+                    } else {
+                        log_highlight!(logger::GREEN, "----- REINTERPRETING CLUE -----");
+                        let mut again = refreshed.clone();
+                        again.move_history.pop();
+                        let res = interp_clue(&ClueContext::new(prev, &again, action));
+                        log_highlight!(logger::GREEN, "----- DONE REINTERPRETING -----");
+                        res
+                    }
                 } else {
-                    let ctx = ClueContext::new(prev, &pre, action);
-                    let interpreted = interp_clue(&ctx);
-
-                    let mut updated_pre = pre.clone();
-                    updated_pre.hg_mut().important_finesse =
-                        interpreted.hg().important_finesse.clone();
-                    updated_pre.hg_mut().saved_ctx = interpreted.hg().saved_ctx.clone();
-                    updated_pre.with_move(
-                        interpreted.last_move().expect("interpretation has a move"),
-                        false,
-                    );
-
-                    let refreshed = refresh_wcs(
+                    log_highlight!(logger::GREEN, "refreshing interpreted!");
+                    refresh_wcs(
                         prev,
-                        &updated_pre,
+                        &interpreted,
                         &Action::Clue(action.clone()),
                         false,
                         true,
                         None,
-                    );
+                    )
+                };
 
-                    let mut g = if real_waiting(&refreshed) < real_waiting(&pre) && !game.no_recurse
-                    {
-                        if refreshed.hypothetical && action.giver == game.state.our_player_index {
-                            log_warn!("lost wc! mistake");
-                            let mut g = refreshed;
-                            g.with_move(ClueInterp::Mistake.into(), true);
-                            g
-                        } else {
-                            log_highlight!(logger::GREEN, "----- REINTERPRETING CLUE -----");
-                            let mut again = refreshed.clone();
-                            again.move_history.pop();
-                            let res = interp_clue(&ClueContext::new(prev, &again, action));
-                            log_highlight!(logger::GREEN, "----- DONE REINTERPRETING -----");
-                            res
-                        }
-                    } else {
-                        log_highlight!(logger::GREEN, "refreshing interpreted!");
-                        refresh_wcs(
-                            prev,
-                            &interpreted,
-                            &Action::Clue(action.clone()),
-                            false,
-                            true,
-                            None,
-                        )
-                    };
-
-                    let keep_stall = g.last_move() == Some(ClueInterp::Stall.into());
-                    let data = g.hg_mut();
-                    data.dc_status = DcStatus::None;
-                    data.dda = None;
-                    if !keep_stall {
-                        data.stall_interp = None;
-                    }
-                    g
+                let keep_stall = g.last_move() == Some(ClueInterp::Stall.into());
+                let data = g.hg_mut();
+                data.dc_status = DcStatus::None;
+                data.dda = None;
+                if !keep_stall {
+                    data.stall_interp = None;
                 }
+                g
             }
         };
 
@@ -1565,18 +1562,17 @@ impl Convention for HGroup {
             .or_else(|| interpret_sdcm(&ctx))
             .or_else(|| interpret_pos_dc(&ctx));
 
-        let mut g = match interpreted {
-            Some(g) => g,
-            None => {
-                let mut g = refreshed.clone();
-                if !failed != id.is_some_and(|id| g.state.is_inverted(id)) {
-                    g.write_extra_cms(prev, player_index, order);
-                }
-                g.hg_mut().dc_status = DcStatus::None;
-                g.check_dda(player_index, id);
-                g.with_move(DiscardInterp::None.into(), false);
-                g
+        let mut g = if let Some(g) = interpreted {
+            g
+        } else {
+            let mut g = refreshed.clone();
+            if failed == id.is_some_and(|id| g.state.is_inverted(id)) {
+                g.write_extra_cms(prev, player_index, order);
             }
+            g.hg_mut().dc_status = DcStatus::None;
+            g.check_dda(player_index, id);
+            g.with_move(DiscardInterp::None.into(), false);
+            g
         };
 
         if g.hg().in_early_game {
@@ -1589,7 +1585,6 @@ impl Convention for HGroup {
                     CardStatus::None | CardStatus::PermissionToDiscard
                 );
 
-            // Write staleness if ending early game
             let stale = end_early_game && g.level() >= level::CONTEXT && prev.state.can_clue();
 
             // Whether cluing 1 to the discarder was blocked by this card
@@ -1618,9 +1613,10 @@ impl Convention for HGroup {
         let mut updated = game.clone();
         updated.refresh_uncertain();
 
-        let mut g = match reinterp_play(prev, &updated, &Action::Play(action.clone())) {
-            Some(replayed) => replayed,
-            None => {
+        let mut g =
+            if let Some(replayed) = reinterp_play(prev, &updated, &Action::Play(action.clone())) {
+                replayed
+            } else {
                 let pre = refresh_wcs(
                     prev,
                     &updated,
@@ -1702,8 +1698,7 @@ impl Convention for HGroup {
                     g.write_extra_cms(prev, player_index, order);
                 }
                 g
-            }
-        };
+            };
 
         if g.hg().in_early_game {
             // Dragging an inverted card to the discard stacks ends early game even if it plays
@@ -1759,12 +1754,12 @@ impl Convention for HGroup {
                     .iter()
                     .copied()
                     .partition(|&o| state.deck[o].clued);
-                if !clued.is_empty() {
+                if clued.is_empty() {
+                    unclued.iter().copied().min().into_iter().collect()
+                } else {
                     let mut result = clued;
                     result.extend(unclued.iter().copied().min());
                     result
-                } else {
-                    unclued.iter().copied().min().into_iter().collect()
                 }
             } else {
                 discardable
@@ -1927,7 +1922,6 @@ impl Convention for HGroup {
             };
         }
 
-        // The first action with the highest value.
         let mut best = &all_actions[0];
         for a in &all_actions[1..] {
             if a.2 > best.2 {
@@ -1974,7 +1968,7 @@ impl Convention for HGroup {
             let (focus, inference) = (wc.focus, wc.inference);
             for p in &mut game.players {
                 p.update_thought(focus, |t| {
-                    t.inferred = t.inferred.difference(IdentitySet::from(inference))
+                    t.inferred = t.inferred.difference(IdentitySet::from(inference));
                 });
             }
         }

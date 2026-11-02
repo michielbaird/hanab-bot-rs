@@ -142,10 +142,10 @@ pub fn colour_save(prev: &Game, action: &ClueAction, id: Identity, focus: usize)
     }
 
     // If there is a dark colour, save with that, otherwise red.
-    let muddy_save_colour = if !state.includes_variant(MUDDY_SAVE_COLOUR_VARIANTS) {
-        0
-    } else {
+    let muddy_save_colour = if state.includes_variant(MUDDY_SAVE_COLOUR_VARIANTS) {
         state.variant.suits.len() - 2
+    } else {
+        0
     };
 
     // Note that critical 2,3,4 can be saved with anything.
@@ -294,7 +294,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
             // Pink promise on stalls
             if state.variant.pinkish && clue.kind == ClueKind::Rank {
                 g.common.update_thought(focus, |t| {
-                    t.inferred = t.inferred.filter(|i| i.rank == clue.value)
+                    t.inferred = t.inferred.filter(|i| i.rank == clue.value);
                 });
             }
             g.hg_mut().stall_interp = Some(interp);
@@ -528,7 +528,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
 
                 let mut g = game.clone();
                 g.common.update_thought(fix_target, |t| {
-                    t.inferred = t.possible.intersect(state.trash_set)
+                    t.inferred = t.possible.intersect(state.trash_set);
                 });
                 g.meta[fix_target].trash = true;
                 g.with_move(

@@ -143,7 +143,7 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
         if trash_push {
             let focus = *new_touched.iter().max().expect("not empty");
             g.common.update_thought(focus, |t| {
-                t.inferred = t.inferred.intersect(state.trash_set)
+                t.inferred = t.inferred.intersect(state.trash_set);
             });
             g.meta[focus].trash = true;
         } else {
@@ -271,7 +271,6 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
             .collect()
     };
 
-    // Try connecting with an unknown playable
     let reveal_connectable = || -> Option<(usize, Identity)> {
         if next_player_index == target {
             return None;
@@ -364,12 +363,12 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
 
                     match focus {
                         Some(focus)
-                            if !state.deck[focus]
+                            if state.deck[focus]
                                 .id()
-                                .is_some_and(|id| !state.is_playable(id)) =>
+                                .is_none_or(|id| state.is_playable(id)) =>
                         {
                             g.common.update_thought(focus, |t| {
-                                t.inferred = t.inferred.intersect(state.playable_set)
+                                t.inferred = t.inferred.intersect(state.playable_set);
                             });
                             g.meta[focus].status = CardStatus::CalledToPlay;
                             g.meta[focus].by = Some(giver);
@@ -640,9 +639,7 @@ pub fn bad_stable(
     {
         log_warn!("bad turn 1 rank clue! {alt_clue:?} is possible");
         true
-    }
-    // Check for bad lock
-    else if interp == ClueInterp::Lock && alt_clue.is_some() {
+    } else if interp == ClueInterp::Lock && alt_clue.is_some() {
         log_warn!("alternative clue {alt_clue:?} was available!");
         true
     } else if !stall {
@@ -752,19 +749,18 @@ pub fn delayed_plays(
             }
 
             // The Scala list is built by prepending, so later entries come first.
-            match common.thoughts[o].id_with(true, false) {
-                Some(id) => acc.insert(0, (o, Identity::new(id.suit_index, id.rank + 1))),
-                None => {
-                    // (`IdentitySet.map` yields the identities in descending order.)
-                    let group: Vec<_> = common.thoughts[o]
-                        .inferred
-                        .difference(state.trash_set)
-                        .iter()
-                        .rev()
-                        .map(|i| (o, Identity::new(i.suit_index, i.rank + 1)))
-                        .collect();
-                    acc.splice(0..0, group);
-                }
+            if let Some(id) = common.thoughts[o].id_with(true, false) {
+                acc.insert(0, (o, Identity::new(id.suit_index, id.rank + 1)));
+            } else {
+                // (`IdentitySet.map` yields the identities in descending order.)
+                let group: Vec<_> = common.thoughts[o]
+                    .inferred
+                    .difference(state.trash_set)
+                    .iter()
+                    .rev()
+                    .map(|i| (o, Identity::new(i.suit_index, i.rank + 1)))
+                    .collect();
+                acc.splice(0..0, group);
             }
         }
     }
@@ -871,7 +867,10 @@ pub fn target_play(
     {
         log_warn!("target {target} was reset!");
 
-        g.common.update_thought(target, |t| t.reset_inferences());
+        g.common.update_thought(
+            target,
+            super::super::basics::card::Thought::reset_inferences,
+        );
         if action.target == state.next_player_index(action.giver) {
             if g.common.order_kt(&g, target) {
                 StableResult::Stable(ClueInterp::Stall, g)
@@ -994,7 +993,7 @@ pub fn ref_discard(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -
                 let mut g = game.clone();
                 if state.variant.pinkish {
                     g.common.update_thought(lock_order, |t| {
-                        t.inferred = t.inferred.filter(|i| i.rank == clue.value)
+                        t.inferred = t.inferred.filter(|i| i.rank == clue.value);
                     });
                     g.meta[lock_order].focused = true;
                     // Breaks pink promise
@@ -1042,7 +1041,7 @@ pub fn ref_discard(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -
             let mut g = game.clone();
             if state.variant.pinkish {
                 g.common.update_thought(promised_order, |t| {
-                    t.inferred = t.inferred.filter(|i| i.rank == clue.value)
+                    t.inferred = t.inferred.filter(|i| i.rank == clue.value);
                 });
                 g.meta[promised_order].focused = true;
                 // Breaks pink promise

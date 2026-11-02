@@ -8,6 +8,7 @@ use crate::basics::connection::{Connection, FinesseKind, FocusPossibility, Waiti
 use crate::basics::identity_set::IdentitySetOpt;
 use crate::basics::interp::{ClueInterp, Interp};
 use crate::basics::{Game, Identifiable, Identity, IdentitySet};
+use crate::collections::FastBitSet;
 use crate::logger::{LevelGuard, LogLevel};
 use crate::util::players_until;
 use crate::{log_error, log_highlight, log_info, log_warn};
@@ -184,12 +185,12 @@ pub fn refresh_wcs(
                 kept.connections = conns[next_index.min(conns.len())..].to_vec();
                 st.wcs.push(kept);
                 // (As in the Scala bot, when not skipping this appends the existing list to itself.)
-                if !skipped {
-                    let dup = st.to_remove.clone();
-                    st.to_remove.extend(dup);
-                } else {
+                if skipped {
                     st.to_remove
                         .extend(conns[..next_index.min(conns.len())].iter().cloned());
+                } else {
+                    let dup = st.to_remove.clone();
+                    st.to_remove.extend(dup);
                 }
             }
 
@@ -220,16 +221,16 @@ pub fn refresh_wcs(
                     st.wcs.push(rest(i));
                 }
 
-                if !skipped {
-                    let dup = st.to_remove.clone();
-                    st.to_remove.extend(dup);
-                } else {
+                if skipped {
                     match next_index {
                         None => st.to_remove.extend(conns.iter().cloned()),
                         Some(i) => st
                             .to_remove
                             .extend(conns[..i.min(conns.len())].iter().cloned()),
                     }
+                } else {
+                    let dup = st.to_remove.clone();
+                    st.to_remove.extend(dup);
                 }
 
                 st.demos.push(match next_index {
@@ -341,53 +342,49 @@ pub fn refresh_wcs(
         .collect();
 
     for conn in all_remove {
-        match &conn {
-            Connection::Positional { ambiguous_own, .. } => {
-                if let Some((order, poss)) = ambiguous_own
-                    && g.meta[*order].status != CardStatus::CalledToPlay
-                    && !g.common.thoughts[*order]
-                        .possible
-                        .intersect(g.state.playable_set)
-                        .is_empty()
-                {
-                    log_highlight!(crate::logger::CYAN, "rewriting onto us! {order}");
-                    let poss: IdentitySet = poss.iter().copied().collect();
-                    g.common.update_thought(*order, |t| {
-                        t.old_inferred = t.inferred.into();
-                        t.inferred = t.inferred.intersect(poss);
-                    });
-                    g.meta[*order].status = CardStatus::CalledToPlay;
-                    g.meta[*order].focused = true;
-                }
+        if let Connection::Positional { ambiguous_own, .. } = &conn {
+            if let Some((order, poss)) = ambiguous_own
+                && g.meta[*order].status != CardStatus::CalledToPlay
+                && !g.common.thoughts[*order]
+                    .possible
+                    .intersect(g.state.playable_set)
+                    .is_empty()
+            {
+                log_highlight!(crate::logger::CYAN, "rewriting onto us! {order}");
+                let poss: IdentitySet = poss.iter().copied().collect();
+                g.common.update_thought(*order, |t| {
+                    t.old_inferred = t.inferred.into();
+                    t.inferred = t.inferred.intersect(poss);
+                });
+                g.meta[*order].status = CardStatus::CalledToPlay;
+                g.meta[*order].focused = true;
             }
-            _ => {
-                let shared = !conn.is_bluff()
-                    && retain_wcs.iter().any(|wc| {
-                        (wc.focus == conn.order() && conn.ids().iter().all(|&i| i == wc.inference))
-                            || wc.connections.iter().any(|c| {
-                                c.order() == conn.order()
-                                    && c.ids().len() == conn.ids().len()
-                                    && c.ids().iter().all(|i| conn.ids().contains(i))
-                            })
-                    });
+        } else {
+            let shared = !conn.is_bluff()
+                && retain_wcs.iter().any(|wc| {
+                    (wc.focus == conn.order() && conn.ids().iter().all(|&i| i == wc.inference))
+                        || wc.connections.iter().any(|c| {
+                            c.order() == conn.order()
+                                && c.ids().len() == conn.ids().len()
+                                && c.ids().iter().all(|i| conn.ids().contains(i))
+                        })
+                });
 
-                if shared || matches!(conn, Connection::Known { .. } | Connection::Playable { .. })
-                {
-                    continue;
-                }
-                g = revert(
-                    &g,
-                    conn.order(),
-                    conn.ids(),
-                    matches!(
-                        conn,
-                        Connection::Finesse {
-                            kind: FinesseKind::Bluff,
-                            ..
-                        }
-                    ),
-                );
+            if shared || matches!(conn, Connection::Known { .. } | Connection::Playable { .. }) {
+                continue;
             }
+            g = revert(
+                &g,
+                conn.order(),
+                conn.ids(),
+                matches!(
+                    conn,
+                    Connection::Finesse {
+                        kind: FinesseKind::Bluff,
+                        ..
+                    }
+                ),
+            );
         }
     }
 
@@ -915,7 +912,7 @@ fn resolve_retained(
             wc.giver,
         )
         .find(|&pi| {
-            game.find_finesse(pi, Default::default(), Default::default())
+            game.find_finesse(pi, FastBitSet::default(), FastBitSet::default())
                 .is_some_and(|finesse| {
                     linked_ids
                         .iter()
