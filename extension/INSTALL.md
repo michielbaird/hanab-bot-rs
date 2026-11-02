@@ -50,7 +50,7 @@ EXT_MATCHES="https://hanab.live/*,http://truenas.local:8088/*" npm run build
 3. Click it, pick a convention (the default is H-Group level 3) and click **Analyze**. A progress bar is shown in the middle
    of the screen; a long game takes about half a minute.
 4. Afterwards:
-   - markers under the replay bar: red for a clear mistake, amber for a suggestion, blue for the summary at the end of the
+   - markers above the replay bar: red for a clear mistake, amber for a suggestion, blue for the summary at the end of the
      game. Click one to go there;
    - `◀!` and `!▶` next to the robot jump to the previous and next comment, the last stop being the end of the game;
    - the bot's comment for the turn you are on is shown under the replay controls, and the summary at the end.

@@ -197,8 +197,8 @@ function update() {
     return;
   }
 
-  // The robot is above the right end of the replay bar, with the jump buttons to its left.
-  const top = geometry.bar.y - 34;
+  // The robot is above the right end of the replay bar and its markers, with the jump buttons to its left.
+  const top = getMarkerTop(geometry) - 32;
   const right = geometry.bar.x + geometry.bar.width;
   place(robot, right - 28, top);
   place(nextButton, right - 28 - 32, top);
@@ -218,6 +218,20 @@ function update() {
   drawComment(info, geometry);
 }
 
+/** The size of a marker, from the thickness of the replay bar. */
+function getMarkerSize(bar: { height: number }) {
+  return {
+    width: Math.max(4, Math.round(bar.height * 0.9)),
+    height: Math.max(7, Math.round(bar.height * 1.4)),
+  };
+}
+
+/** The top of the markers: just above the shuttle, so that the shuttle is never covered. */
+function getMarkerTop(geometry: NonNullable<PageState["geometry"]>): number {
+  const { bar, shuttle } = geometry;
+  return bar.y + bar.height / 2 - shuttle.height / 2 - getMarkerSize(bar).height - 2;
+}
+
 function drawTicks(info: GameInfo, geometry: NonNullable<PageState["geometry"]>) {
   ticks.replaceChildren();
   if (result === null) {
@@ -227,10 +241,8 @@ function drawTicks(info: GameInfo, geometry: NonNullable<PageState["geometry"]>)
   const { bar, shuttle } = geometry;
   const finalSegment = Math.max(info.finalSegment, 1);
   const sliderWidth = bar.width - shuttle.width;
-  const width = Math.max(4, Math.round(bar.height * 0.9));
-  const height = Math.max(7, Math.round(bar.height * 1.4));
-  // Below the shuttle, so that the shuttle is never covered.
-  const top = bar.y + bar.height / 2 + shuttle.height / 2 + 1;
+  const { width, height } = getMarkerSize(bar);
+  const top = getMarkerTop(geometry);
 
   const add = (segment: number, color: string, title: string) => {
     const tick = document.createElement("div");

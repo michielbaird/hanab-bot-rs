@@ -13,7 +13,7 @@ On the replay of a finished game (one in the database) of a variant the bot can 
 
 - a 🤖 button above the right end of the replay bar opens a small box to pick the convention (H-Group level 1 to 12,
   Reactor or Referential Sieve) and start the analysis, with a progress bar in the middle of the screen;
-- every move the bot would have played differently gets a marker under the replay bar (red for clear mistakes, amber for
+- every move the bot would have played differently gets a marker above the replay bar (red for clear mistakes, amber for
   suggestions), and the bot's comment is shown under the replay controls while you are on that turn;
 - `◀!` and `!▶` jump to the previous and next comment; the last stop is the end of the game, where a summary of the whole
   analysis is shown (its marker is blue). Clicking a marker also jumps there.
