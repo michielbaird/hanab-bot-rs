@@ -8,10 +8,10 @@ use super::interpret_clue::ClueContext;
 use super::interpret_cm::{Result5cm, interpret_5cm, interpret_tcm};
 use super::occams::{filter_fps, fp_simplicity, occams_razor};
 use super::special_clues::SymmetricInterp;
-use super::{DcStatus, FStatus, HGroupGame, Positional, SavedCtx, level};
+use super::{DcStatus, FStatus, FocusResult, HGroupGame, Positional, SavedCtx, level};
 use crate::basics::action::ClueAction;
 use crate::basics::card::CardStatus;
-use crate::basics::clue::ClueKind;
+use crate::basics::clue::{BaseClue, ClueKind};
 use crate::basics::connection::{Connection, FinesseKind, FocusPossibility, WaitingConnection};
 use crate::basics::interp::ClueInterp;
 use crate::basics::{Game, Identifiable, Identity, IdentitySet, Link, PlayLink, PromptOpts, State};
@@ -485,6 +485,45 @@ pub fn urgent_save(ctx: &ClueContext) -> bool {
     }
 }
 
+/// What most steps of resolving a clue need to know about it.
+struct ClueFacts<'a> {
+    prev: &'a Game,
+    game: &'a Game,
+    action: &'a ClueAction,
+    state: &'a State,
+    our: usize,
+    giver: usize,
+    target: usize,
+    clue: BaseClue,
+    focus_result: FocusResult,
+    focus: usize,
+    chop: bool,
+    positional: Option<Positional>,
+}
+
+impl<'a> ClueFacts<'a> {
+    fn new(ctx: &ClueContext<'a>) -> Self {
+        let ClueContext {
+            prev, game, action, ..
+        } = *ctx;
+        let focus_result = ctx.focus_result();
+        Self {
+            prev,
+            game,
+            action,
+            state: &game.state,
+            our: game.state.our_player_index,
+            giver: action.giver,
+            target: action.target,
+            clue: action.clue,
+            focus_result,
+            focus: focus_result.focus,
+            chop: focus_result.chop,
+            positional: focus_result.positional,
+        }
+    }
+}
+
 pub fn resolve_clue(
     ctx: &ClueContext,
     fps: &[FocusPossibility],
@@ -492,25 +531,94 @@ pub fn resolve_clue(
     thinks_stall: FastBitSet,
     ambiguous_own: &[FocusPossibility],
 ) -> Game {
-    let ClueContext {
-        prev, game, action, ..
-    } = *ctx;
-    let state = &game.state;
-    let our = state.our_player_index;
-    let ClueAction {
+    let ClueFacts {
+        game,
+        action,
+        state,
         giver,
         target,
-        clue,
+        focus,
         ..
-    } = *action;
-    let focus_result = ctx.focus_result();
-    let (focus, chop, positional) = (
-        focus_result.focus,
-        focus_result.chop,
-        focus_result.positional,
+    } = ClueFacts::new(ctx);
+
+    let looks_direct = looks_direct(ctx, fps);
+    let symmetric_fps = find_symmetric_fps(ctx, fps, looks_direct);
+    let ambiguous_fps = find_ambiguous_fps(ctx, fps, ambiguous_own, looks_direct);
+
+    let all_fps = {
+        let combined: Vec<FocusPossibility> = fps
+            .iter()
+            .chain(&symmetric_fps)
+            .chain(&ambiguous_fps)
+            .cloned()
+            .collect();
+        filter_fps(ctx, &combined)
+    };
+    let simplest_fps = find_simplest_fps(ctx, fps, &all_fps);
+    let fps_to_write = fps_to_write(&simplest_fps);
+
+    let true_fp = simplest_fps
+        .iter()
+        .find(|fp| state.deck[focus].matches(&fp.id));
+    let interp = interpret_clue(
+        ctx,
+        fps,
+        &symmetric_fps,
+        &simplest_fps,
+        true_fp,
+        symmetric_interp,
+        thinks_stall,
     );
 
-    let looks_direct = game.common.thoughts[focus].id_with(false, true).is_none()
+    let undo_scream = interp == ClueInterp::Save
+        && target == state.next_player_index(giver)
+        && game.hg().dc_status == DcStatus::Scream
+        && state.num_players > 2;
+
+    let mut g = game.clone();
+    narrow_inferences(&mut g, ctx, fps, &simplest_fps);
+
+    let mut amb = ambiguous_own.to_vec();
+    amb.extend(ambiguous_fps.iter().cloned());
+    let mut g = assign_conns(&g, action, &fps_to_write, focus, &amb, false);
+
+    write_play_links(&mut g, ctx, &simplest_fps);
+    add_waiting_connections(&mut g, ctx, &all_fps, &simplest_fps, ambiguous_own, interp);
+    if undo_scream {
+        log_highlight!(
+            crate::logger::CYAN,
+            "undoing sdcm due to immediate save clue!"
+        );
+
+        // Must be leftmost chop moved
+        if let Some(old_chop) = state.hands[giver]
+            .iter()
+            .copied()
+            .find(|&o| game.meta[o].cm())
+        {
+            g.meta[old_chop].status = CardStatus::None;
+        }
+    }
+
+    remember_clue(&mut g, ctx, fps);
+    refine_stale_1(&mut g, ctx);
+    remove_critical_focus_id(&mut g, ctx);
+
+    g.meta[focus].focused = true;
+    g
+}
+
+fn looks_direct(ctx: &ClueContext, fps: &[FocusPossibility]) -> bool {
+    let ClueFacts {
+        game,
+        our,
+        target,
+        focus,
+        positional,
+        ..
+    } = ClueFacts::new(ctx);
+
+    game.common.thoughts[focus].id_with(false, true).is_none()
         && (positional.is_some()
             || fps.iter().any(|fp| {
                 game.players[target].thoughts[focus]
@@ -521,9 +629,26 @@ pub fn resolve_clue(
                             || (matches!(c, Connection::Playable { .. }) && c.reacting() != our))
                             && !game.is_blind_playing(c.order()) // A blind-playing card is still unknown
                     })
-            }));
+            }))
+}
 
-    let symmetric_fps: Vec<FocusPossibility> = if target == our || fps.iter().any(|fp| fp.save) {
+fn find_symmetric_fps(
+    ctx: &ClueContext,
+    fps: &[FocusPossibility],
+    looks_direct: bool,
+) -> Vec<FocusPossibility> {
+    let ClueFacts {
+        game,
+        our,
+        giver,
+        target,
+        clue,
+        focus_result,
+        focus,
+        ..
+    } = ClueFacts::new(ctx);
+
+    if target == our || fps.iter().any(|fp| fp.save) {
         Vec::new()
     } else {
         log_highlight!(crate::logger::YELLOW, "finding symmetric connections!");
@@ -547,69 +672,85 @@ pub fn resolve_clue(
             }
         }
         result
-    };
+    }
+}
 
-    let ambiguous_fps: Vec<FocusPossibility> =
-        if !game.hg().allow_find_own || giver == our || fps.iter().any(|fp| fp.save) {
-            Vec::new()
-        } else {
-            log_highlight!(crate::logger::YELLOW, "finding ambiguous connections!");
+fn find_ambiguous_fps(
+    ctx: &ClueContext,
+    fps: &[FocusPossibility],
+    ambiguous_own: &[FocusPossibility],
+    looks_direct: bool,
+) -> Vec<FocusPossibility> {
+    let ClueFacts {
+        game,
+        our,
+        giver,
+        clue,
+        focus_result,
+        focus,
+        ..
+    } = ClueFacts::new(ctx);
 
-            let poss: Vec<Identity> = match game.me().thoughts[focus].id() {
-                Some(id) => vec![id],
-                None => game.me().thoughts[focus].inferred.iter().collect(),
-            };
+    if !game.hg().allow_find_own || giver == our || fps.iter().any(|fp| fp.save) {
+        Vec::new()
+    } else {
+        log_highlight!(crate::logger::YELLOW, "finding ambiguous connections!");
 
-            let existing: Vec<&FocusPossibility> = fps.iter().chain(ambiguous_own).collect();
-            let mut result: Vec<FocusPossibility> = Vec::new();
-            for inf in poss {
-                if game.invalid_focus(giver, &clue, inf, &focus_result)
-                    || existing.iter().any(|fp| {
-                        fp.id == inf
-                            && (fp.connections.iter().all(|c| match c {
-                                Connection::Known { order, .. } => !game
-                                    .xmeta(*order)
-                                    .f_status
-                                    .contains(&FStatus::PossiblyOn(our)),
-                                Connection::Playable { .. } => true,
-                                _ => false,
-                            }) || fp.connections.iter().all(|c| c.reacting() == our))
-                    })
-                {
-                    continue;
-                }
-
-                // An ambiguous connection is always delayed (can't be a bluff)
-                for fp in connect(
-                    ctx,
-                    inf,
-                    FocusSearch {
-                        looks_direct,
-                        assume_truth: true,
-                        prefer_own: true,
-                        ..FocusSearch::default()
-                    },
-                ) {
-                    if !existing.iter().any(|e| e.connections == fp.connections) {
-                        result.push(fp);
-                    }
-                }
-            }
-            result
+        let poss: Vec<Identity> = match game.me().thoughts[focus].id() {
+            Some(id) => vec![id],
+            None => game.me().thoughts[focus].inferred.iter().collect(),
         };
 
-    let all_fps = {
-        let combined: Vec<FocusPossibility> = fps
-            .iter()
-            .chain(&symmetric_fps)
-            .chain(&ambiguous_fps)
-            .cloned()
-            .collect();
-        filter_fps(ctx, &combined)
-    };
+        let existing: Vec<&FocusPossibility> = fps.iter().chain(ambiguous_own).collect();
+        let mut result: Vec<FocusPossibility> = Vec::new();
+        for inf in poss {
+            if game.invalid_focus(giver, &clue, inf, &focus_result)
+                || existing.iter().any(|fp| {
+                    fp.id == inf
+                        && (fp.connections.iter().all(|c| match c {
+                            Connection::Known { order, .. } => !game
+                                .xmeta(*order)
+                                .f_status
+                                .contains(&FStatus::PossiblyOn(our)),
+                            Connection::Playable { .. } => true,
+                            _ => false,
+                        }) || fp.connections.iter().all(|c| c.reacting() == our))
+                })
+            {
+                continue;
+            }
 
-    let simplest_fps: Vec<FocusPossibility> = {
-        let simplest = occams_razor(ctx, &all_fps, target, None);
+            // An ambiguous connection is always delayed (can't be a bluff)
+            for fp in connect(
+                ctx,
+                inf,
+                FocusSearch {
+                    looks_direct,
+                    assume_truth: true,
+                    prefer_own: true,
+                    ..FocusSearch::default()
+                },
+            ) {
+                if !existing.iter().any(|e| e.connections == fp.connections) {
+                    result.push(fp);
+                }
+            }
+        }
+        result
+    }
+}
+
+fn find_simplest_fps(
+    ctx: &ClueContext,
+    fps: &[FocusPossibility],
+    all_fps: &[FocusPossibility],
+) -> Vec<FocusPossibility> {
+    let ClueFacts {
+        our, giver, target, ..
+    } = ClueFacts::new(ctx);
+
+    {
+        let simplest = occams_razor(ctx, all_fps, target, None);
 
         // Simplest connections are all symmetric, but we could play into something more complicated
         if giver != our && simplest.iter().all(|fp| fp.symmetric) && !fps.is_empty() {
@@ -617,31 +758,48 @@ pub fn resolve_clue(
         } else {
             simplest
         }
-    };
+    }
+}
 
-    let fps_to_write: Vec<FocusPossibility> =
-        if simplest_fps.iter().all(|fp| fp.symmetric || fp.ambiguous) {
-            simplest_fps
-                .iter()
-                .map(|fp| {
-                    let mut fp = fp.clone();
-                    if fp.ambiguous {
-                        fp.ambiguous = false;
-                    }
-                    fp
-                })
-                .collect()
-        } else {
-            simplest_fps
-                .iter()
-                .filter(|fp| !fp.ambiguous)
-                .cloned()
-                .collect()
-        };
+fn fps_to_write(simplest_fps: &[FocusPossibility]) -> Vec<FocusPossibility> {
+    if simplest_fps.iter().all(|fp| fp.symmetric || fp.ambiguous) {
+        simplest_fps
+            .iter()
+            .map(|fp| {
+                let mut fp = fp.clone();
+                if fp.ambiguous {
+                    fp.ambiguous = false;
+                }
+                fp
+            })
+            .collect()
+    } else {
+        simplest_fps
+            .iter()
+            .filter(|fp| !fp.ambiguous)
+            .cloned()
+            .collect()
+    }
+}
 
-    let true_fp = simplest_fps
-        .iter()
-        .find(|fp| state.deck[focus].matches(&fp.id));
+fn interpret_clue(
+    ctx: &ClueContext,
+    fps: &[FocusPossibility],
+    symmetric_fps: &[FocusPossibility],
+    simplest_fps: &[FocusPossibility],
+    true_fp: Option<&FocusPossibility>,
+    symmetric_interp: SymmetricInterp,
+    thinks_stall: FastBitSet,
+) -> ClueInterp {
+    let ClueFacts {
+        game,
+        state,
+        our,
+        giver,
+        target,
+        focus,
+        ..
+    } = ClueFacts::new(ctx);
 
     let stomped_wc = || {
         !game.in_endgame()
@@ -683,7 +841,7 @@ pub fn resolve_clue(
             let reacting = true_fp.connections[0].reacting();
 
             fps.iter()
-                .chain(&symmetric_fps)
+                .chain(symmetric_fps)
                 .filter(|fp| {
                     fp.connections.first().is_some_and(|conn| {
                         conn.reacting() != reacting
@@ -709,7 +867,7 @@ pub fn resolve_clue(
         }),
     };
 
-    let interp = if state.deck[focus].id().is_some() && true_fp.is_none() {
+    if state.deck[focus].id().is_some() && true_fp.is_none() {
         log_error!(
             "resolving clue but focus {} doesn't match simplest fps [{}]!",
             state.log_order(focus),
@@ -743,14 +901,16 @@ pub fn resolve_clue(
         ClueInterp::PlayLooksSave
     } else {
         ClueInterp::Play
-    };
+    }
+}
 
-    let undo_scream = interp == ClueInterp::Save
-        && target == state.next_player_index(giver)
-        && game.hg().dc_status == DcStatus::Scream
-        && state.num_players > 2;
-
-    let mut g = game.clone();
+fn narrow_inferences(
+    g: &mut Game,
+    ctx: &ClueContext,
+    fps: &[FocusPossibility],
+    simplest_fps: &[FocusPossibility],
+) {
+    let ClueFacts { state, focus, .. } = ClueFacts::new(ctx);
 
     g.common.update_thought(focus, |t| {
         let simplest_ids: IdentitySet = simplest_fps.iter().map(|fp| fp.id).collect();
@@ -777,10 +937,16 @@ pub fn resolve_clue(
         t.inferred = new_inferred;
         t.info_lock = new_inferred.into();
     });
+}
 
-    let mut amb = ambiguous_own.to_vec();
-    amb.extend(ambiguous_fps.iter().cloned());
-    let mut g = assign_conns(&g, action, &fps_to_write, focus, &amb, false);
+fn write_play_links(g: &mut Game, ctx: &ClueContext, simplest_fps: &[FocusPossibility]) {
+    let ClueFacts {
+        state,
+        target,
+        clue,
+        focus,
+        ..
+    } = ClueFacts::new(ctx);
 
     // with a colour clue, there shouldn't be ambiguity about ids (maybe in rainbow?)
     if clue.kind == ClueKind::Rank {
@@ -790,7 +956,7 @@ pub fn resolve_clue(
                 .map_or(target, Connection::reacting)
         };
 
-        for fp in &simplest_fps {
+        for fp in simplest_fps {
             if fp.symmetric || fp.complicated {
                 continue;
             }
@@ -824,7 +990,7 @@ pub fn resolve_clue(
                 }
 
                 let mut all_linked = linked.clone();
-                for fp2 in &simplest_fps {
+                for fp2 in simplest_fps {
                     if fp2.symmetric || fp2.ambiguous || fp2 == fp {
                         continue;
                     }
@@ -867,6 +1033,25 @@ pub fn resolve_clue(
             }
         }
     }
+}
+
+fn add_waiting_connections(
+    g: &mut Game,
+    ctx: &ClueContext,
+    all_fps: &[FocusPossibility],
+    simplest_fps: &[FocusPossibility],
+    ambiguous_own: &[FocusPossibility],
+    interp: ClueInterp,
+) {
+    let ClueFacts {
+        game,
+        state,
+        giver,
+        target,
+        focus,
+        chop,
+        ..
+    } = ClueFacts::new(ctx);
 
     {
         let requires_wc = |fp: &FocusPossibility| {
@@ -923,22 +1108,16 @@ pub fn resolve_clue(
         }
         g.with_move(interp.into(), false);
     }
+}
 
-    if undo_scream {
-        log_highlight!(
-            crate::logger::CYAN,
-            "undoing sdcm due to immediate save clue!"
-        );
-
-        // Must be leftmost chop moved
-        if let Some(old_chop) = state.hands[giver]
-            .iter()
-            .copied()
-            .find(|&o| game.meta[o].cm())
-        {
-            g.meta[old_chop].status = CardStatus::None;
-        }
-    }
+fn remember_clue(g: &mut Game, ctx: &ClueContext, fps: &[FocusPossibility]) {
+    let ClueFacts {
+        prev,
+        game,
+        action,
+        giver,
+        ..
+    } = ClueFacts::new(ctx);
 
     if g.level() >= level::INTERMEDIATE_FINESSES {
         let important = important_finesse(&g.state, action, fps);
@@ -964,6 +1143,12 @@ pub fn resolve_clue(
             focus: ctx.focus_override,
         }));
     }
+}
+
+fn refine_stale_1(g: &mut Game, ctx: &ClueContext) {
+    let ClueFacts {
+        state, positional, ..
+    } = ClueFacts::new(ctx);
 
     if g.level() >= level::CONTEXT
         && let Some(Positional::Stale1(original_focus)) = positional
@@ -979,6 +1164,10 @@ pub fn resolve_clue(
             .update_thought(original_focus, |t| t.inferred = new_inferred);
         g.meta[original_focus].trash = trash;
     }
+}
+
+fn remove_critical_focus_id(g: &mut Game, ctx: &ClueContext) {
+    let ClueFacts { state, focus, .. } = ClueFacts::new(ctx);
 
     if let Some(focus_id) = g.common.thoughts[focus]
         .id_with(true, false)
@@ -992,7 +1181,4 @@ pub fn resolve_clue(
             }
         }
     }
-
-    g.meta[focus].focused = true;
-    g
 }
