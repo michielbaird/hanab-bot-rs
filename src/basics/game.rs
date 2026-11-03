@@ -93,6 +93,11 @@ pub trait Convention: fmt::Debug + Send + Sync {
         game.state.pace() < game.state.num_players as isize
     }
 
+    /// Whether `take_action` searches the endgame with the solver in this position.
+    fn solves_endgame(&self, _game: &Game) -> bool {
+        false
+    }
+
     /// An extra filter before returning from [`Player::thinks_playables`]
     /// (e.g. 1's to be played in a conventionally-specific order).
     fn filter_playables(

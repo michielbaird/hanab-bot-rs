@@ -656,15 +656,19 @@ impl Convention for Reactor {
         game.elim(None, false);
     }
 
+    fn solves_endgame(&self, game: &Game) -> bool {
+        let state = &game.state;
+        state.rem_score() <= state.variant.suits.len() + 1
+            && state.pace() + state.cards_left as isize <= 8
+    }
+
     fn take_action(&self, game: &Game) -> PerformAction {
         let state = &game.state;
         let me = game.me();
         let our = state.our_player_index;
         let next_player_index = state.next_player_index(our);
 
-        if state.rem_score() <= state.variant.suits.len() + 1
-            && state.pace() + state.cards_left as isize <= 8
-        {
+        if self.solves_endgame(game) {
             log_highlight!(logger::MAGENTA, "trying to solve endgame...");
 
             match EndgameSolver::new(true).solve(game, None) {

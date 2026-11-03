@@ -8,6 +8,7 @@ use crate::basics::action::{Action, DrawAction, PerformAction};
 use crate::basics::card::Identity;
 use crate::basics::identity_set::IdentitySet;
 use crate::endgame::EndgameSolver;
+use crate::endgame::solver::error_means_unwinnable;
 use crate::frac::Frac;
 use crate::logger::{LevelGuard, LogLevel};
 
@@ -64,8 +65,7 @@ pub fn set_endgame_timeout_ms(ms: u64) {
 }
 
 /// How long each endgame winrate may take: [`set_endgame_timeout_ms`], else `ANALYZE_ENDGAME_TIMEOUT_MS`, else
-/// 500 ms. (A search that runs out of time counts as a winrate of 0, so a busy machine can produce spurious
-/// "mistake!" comments with the short default.)
+/// 500 ms. A search that runs out of time is not held against a move.
 fn endgame_timeout() -> Duration {
     let set = ENDGAME_TIMEOUT_MS.load(Ordering::Relaxed);
     let ms = if set > 0 {
@@ -77,6 +77,25 @@ fn endgame_timeout() -> Duration {
             .unwrap_or(500)
     };
     Duration::from_millis(ms)
+}
+
+enum EndgameVerdict {
+    Mistake,
+    Suggestion,
+}
+
+/// What to say about an endgame move that the solver would have played differently, from the winrates of the move it
+/// suggests and the move that was played (`None`: not known, because the search ran out of time or could not be done).
+/// The searches are budgeted, so the fractions are not exact: only a move that can't win against one that can is a mistake.
+fn endgame_verdict(suggested: Option<Frac>, actual: Option<Frac>) -> Option<EndgameVerdict> {
+    let (suggested, actual) = (suggested?, actual?);
+    if actual == Frac::ZERO && suggested > Frac::ZERO {
+        Some(EndgameVerdict::Mistake)
+    } else if suggested - actual > Frac::new(1, 10) {
+        Some(EndgameVerdict::Suggestion)
+    } else {
+        None
+    }
 }
 
 impl AnalysisComment {
@@ -213,7 +232,7 @@ impl Game {
                                 false,
                             );
 
-                            if g.in_endgame() {
+                            if g.in_endgame() || g.conv.solves_endgame(&g) {
                                 // The winrates are computed from the real position at this move, in which the mover knows
                                 // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
                                 let mut real = seen_all.clone();
@@ -231,27 +250,45 @@ impl Game {
                                     let mut solver =
                                         EndgameSolver::new(true).with_timeout(endgame_timeout());
                                     match solver.solve(&real, Some(perform)) {
-                                        Err(_) => Frac::ZERO,
                                         Ok((_, winrate)) if winrate < Frac::new(1, 100) => {
-                                            Frac::ZERO
+                                            Some(Frac::ZERO)
                                         }
-                                        Ok((_, winrate)) => winrate,
+                                        Ok((_, winrate)) => Some(winrate),
+                                        Err(error) if error_means_unwinnable(&error) => {
+                                            Some(Frac::ZERO)
+                                        }
+                                        Err(_) => None,
                                     }
                                 };
 
-                                let suggested_winrate = winrate(suggested_perform);
-                                let actual_winrate = winrate(PerformAction::from_action(action));
-
-                                if suggested_winrate - actual_winrate > Frac::new(1, 10) {
+                                let verdict = endgame_verdict(
+                                    winrate(suggested_perform),
+                                    winrate(PerformAction::from_action(action)),
+                                );
+                                if let Some(verdict) = verdict {
+                                    let (mistake, text) = match verdict {
+                                        EndgameVerdict::Mistake => (
+                                            true,
+                                            format!(
+                                                "mistake! ({}) can still win, ({}) can't",
+                                                suggested_action.fmt(&g.state),
+                                                action.fmt(&g.state)
+                                            ),
+                                        ),
+                                        EndgameVerdict::Suggestion => (
+                                            false,
+                                            format!(
+                                                "suggest ({}) over ({})",
+                                                suggested_action.fmt(&g.state),
+                                                action.fmt(&g.state)
+                                            ),
+                                        ),
+                                    };
                                     comments.push(AnalysisComment {
                                         turn: g.state.turn_count,
                                         player_index: index,
-                                        mistake: true,
-                                        text: format!(
-                                            "mistake! ({}) has winrate {suggested_winrate} vs. ({}) has winrate {actual_winrate}",
-                                            suggested_action.fmt(&g.state),
-                                            action.fmt(&g.state)
-                                        ),
+                                        mistake,
+                                        text,
                                     });
                                 }
                             } else {
@@ -362,5 +399,43 @@ impl Game {
 
         comments.sort_by_key(|c| c.turn);
         Ok(comments)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verdict(suggested: Option<Frac>, actual: Option<Frac>) -> Option<bool> {
+        endgame_verdict(suggested, actual).map(|v| matches!(v, EndgameVerdict::Mistake))
+    }
+
+    #[test]
+    fn only_a_move_that_cannot_win_is_a_mistake() {
+        assert_eq!(
+            verdict(Some(Frac::new(1, 20)), Some(Frac::ZERO)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_lower_winrate_is_a_suggestion_when_the_difference_is_clear() {
+        assert_eq!(
+            verdict(Some(Frac::new(1, 2)), Some(Frac::new(1, 3))),
+            Some(false)
+        );
+        assert_eq!(
+            verdict(Some(Frac::ONE), Some(Frac::new(1, 20))),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn nothing_is_said_about_close_or_unknown_winrates() {
+        assert_eq!(verdict(Some(Frac::new(1, 2)), Some(Frac::new(2, 5))), None);
+        assert_eq!(verdict(Some(Frac::ZERO), Some(Frac::ZERO)), None);
+        assert_eq!(verdict(Some(Frac::ZERO), Some(Frac::new(1, 2))), None);
+        assert_eq!(verdict(None, Some(Frac::ZERO)), None);
+        assert_eq!(verdict(Some(Frac::ONE), None), None);
     }
 }
