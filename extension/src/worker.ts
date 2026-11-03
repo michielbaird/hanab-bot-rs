@@ -8,7 +8,7 @@ import init, {
 } from "hanab-bot-wasm";
 import suitsJSON from "../build/data/suits.json";
 import variantsJSON from "../build/data/variants.json";
-import type { WorkerRequest, WorkerResponse } from "./protocol";
+import type { AnalysisResult, WorkerRequest, WorkerResponse } from "./protocol";
 
 interface WorkerScope {
   postMessage: (message: WorkerResponse) => void;
@@ -47,6 +47,7 @@ async function handle(request: WorkerRequest) {
 
     if (request.type === "supports") {
       scope.postMessage({
+        id: request.id,
         type: "supports",
         supported: is_game_supported(
           request.variant,
@@ -65,22 +66,19 @@ async function handle(request: WorkerRequest) {
       request.convention,
       request.endgameTimeoutMs,
       (done: number, total: number) => {
-        scope.postMessage({ type: "progress", done, total });
+        scope.postMessage({ id: request.id, type: "progress", done, total });
       },
     );
     scope.postMessage({
+      id: request.id,
       type: "result",
-      result: JSON.parse(text) as Extract<
-        WorkerResponse,
-        { type: "result" }
-      >["result"],
+      result: JSON.parse(text) as AnalysisResult,
     });
   } catch (error) {
-    // A question about support that fails means that the bot can't be used.
     scope.postMessage(
       request.type === "supports"
-        ? { type: "supports", supported: false }
-        : { type: "error", message: String(error) },
+        ? { id: request.id, type: "supports", supported: false }
+        : { id: request.id, type: "error", message: String(error) },
     );
   }
 }

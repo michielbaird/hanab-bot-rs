@@ -48,6 +48,12 @@ button {
   font-size: 13px;
   margin-top: 6px;
 }
+.panel .title {
+  font-weight: bold;
+}
+.panel .start {
+  margin-left: 6px;
+}
 .panel .small,
 .progress .small {
   font-size: 11px;
@@ -84,6 +90,7 @@ button {
     0 0 3px #000,
     0 0 3px #000;
   pointer-events: none;
+  white-space: pre-line;
 }
 .comment.mistake {
   color: #ff9a9a;

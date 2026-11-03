@@ -52,26 +52,30 @@ export interface AnalysisResult {
   comments: AnalysisComment[];
 }
 
+export interface SupportsQuery {
+  variant: string;
+  emptyClues: boolean;
+  detrimentalCharacters: boolean;
+  oneExtraCard: boolean;
+  oneLessCard: boolean;
+}
+
+export interface AnalyzeQuery {
+  exportJson: string;
+  variant: string;
+  convention: string;
+  endgameTimeoutMs: number;
+}
+
+/** Every request after `init` has an id, which its responses carry. */
 export type WorkerRequest =
   | { type: "init"; wasm: ArrayBuffer }
-  | {
-      type: "supports";
-      variant: string;
-      emptyClues: boolean;
-      detrimentalCharacters: boolean;
-      oneExtraCard: boolean;
-      oneLessCard: boolean;
-    }
-  | {
-      type: "analyze";
-      exportJson: string;
-      variant: string;
-      convention: string;
-      endgameTimeoutMs: number;
-    };
+  | ({ type: "supports"; id: number } & SupportsQuery)
+  | ({ type: "analyze"; id: number } & AnalyzeQuery);
 
-export type WorkerResponse =
+export type WorkerResponse = { id: number } & (
   | { type: "supports"; supported: boolean }
   | { type: "progress"; done: number; total: number }
   | { type: "result"; result: AnalysisResult }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+);

@@ -36,14 +36,22 @@ The site keeps its game in objects that an extension's normal content script can
 - `src/page.ts` runs in the page's own context (`"world": "MAIN"`). It reads the replay state and the position of the replay
   bar from the site's `window.globals`, and moves the replay the way the site's own code does. **This depends on the
   site's internals** (`globals.store`, the Konva elements of the replay controls) and will break when they change.
-- `src/content.ts` is the extension's part: the interface (in a shadow root, so the site's styles don't touch it), the
-  `/export/<id>` request and the bot. A page can't load a worker from an extension's URL, so the worker (`src/worker.ts`)
-  is started from a Blob and gets the WebAssembly file as its first message. If the site ever sets a content security
-  policy without `blob:` and `wasm-unsafe-eval`, that stops working.
+- `src/content/` is the extension's part, kept apart by what each piece does:
+  - `state.ts` and `store.ts`: one state object (page info, what the bot can play, the analysis, the box and progress
+    that are open) that tells its listeners what changed;
+  - `bridge.ts`: the messages to and from `page.ts`;
+  - `engine.ts`: the bot as a client with `supports()`, `analyze()` and `cancel()`, all promises. A page can't load a worker
+    from an extension's URL, so the worker (`src/worker.ts`) is started from a Blob and gets the WebAssembly file as its
+    first message. If the site ever sets a content security policy without `blob:` and `wasm-unsafe-eval`, that stops working;
+  - `controller.ts`: what the user can do (open the box, analyze, cancel, jump) and what follows from the state changing;
+  - `analysis.ts` and `layout.ts`: pure functions (which turns to stop at, the summary text, where the markers and buttons
+    go), unit-tested;
+  - `ui/`: one small module per widget (robot and jump buttons, markers, comment, box, progress) that renders from the
+    state, in a shadow root (so the site's styles don't touch it) styled by `src/content.css`.
 
 ## Tests
 
-`npm run typecheck` checks the types. `npm test` is an end-to-end test in a real Chromium: it loads the extension built
+`npm run typecheck` checks the types and `npm run test:unit` runs the unit tests of the logic (no browser needed). `npm test` is an end-to-end test in a real Chromium: it loads the extension built
 for a stand-in replay page (`test/fake-site.mjs`, which has the same `window.globals` shape as the site's) and goes through
 an analysis of a real game.
 

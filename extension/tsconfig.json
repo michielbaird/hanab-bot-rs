@@ -9,7 +9,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["chrome"]
+    "types": ["chrome", "node"]
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }
