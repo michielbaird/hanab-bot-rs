@@ -1,6 +1,7 @@
 // The extension's part on hanab.live: the interface, the `/export/<id>` request and the bot. What it knows about the
 // game and the canvas comes from the page bridge (`page.ts`).
 
+import styles from "./content.css";
 import {
   CONTENT_SOURCE,
   PAGE_SOURCE,
@@ -39,40 +40,11 @@ let resultGameID: number | null = null;
 let resultConvention = "";
 const supportCache = new Map<string, boolean>();
 
-const STYLE = `
-  :host { all: initial; }
-  * { box-sizing: border-box; font-family: sans-serif; }
-  button { cursor: pointer; }
-  .robot, .nav {
-    position: fixed; z-index: 2147483000; width: 28px; height: 28px; padding: 0;
-    border: 1px solid #000; border-radius: 6px; background: rgba(0,0,0,0.75); color: #fff; font-size: 15px;
-  }
-  .nav { font-size: 11px; font-weight: bold; }
-  .nav:disabled { opacity: 0.35; cursor: default; }
-  .panel, .progress {
-    position: fixed; z-index: 2147483001; padding: 10px 14px; border-radius: 6px;
-    background: rgba(0,0,0,0.92); color: #fff; font-size: 13px; line-height: 1.4;
-  }
-  .panel { width: 300px; }
-  .panel select, .panel button { font-size: 13px; margin-top: 6px; }
-  .panel .small, .progress .small { font-size: 11px; color: #bbb; margin-top: 8px; }
-  .progress { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
-  .progress progress { width: 260px; display: block; margin: 8px auto; }
-  .progress .error { color: #ff8080; }
-  .tick { position: fixed; z-index: 2147482999; border-radius: 2px; cursor: pointer; }
-  .comment {
-    position: fixed; z-index: 2147482999; text-align: center; color: #fff; font-size: 13px;
-    text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none;
-  }
-  .comment.mistake { color: #ff9a9a; }
-  [hidden] { display: none !important; }
-`;
-
 const host = document.createElement("div");
 host.id = "hanab-analysis";
 const shadow = host.attachShadow({ mode: "open" });
 const styleElement = document.createElement("style");
-styleElement.textContent = STYLE;
+styleElement.textContent = styles;
 shadow.append(styleElement);
 
 const robot = document.createElement("button");

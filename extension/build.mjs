@@ -64,7 +64,7 @@ for (const browser of ["chrome", "firefox"]) {
   await mkdir(out, { recursive: true });
 
   const common = { bundle: true, minify: true, target: "es2022", logLevel: "warning" };
-  await build({ ...common, entryPoints: [path.join(root, "src/content.ts")], outfile: path.join(out, "content.js"), format: "iife" });
+  await build({ ...common, entryPoints: [path.join(root, "src/content.ts")], outfile: path.join(out, "content.js"), format: "iife", loader: { ".css": "text" } });
   await build({ ...common, entryPoints: [path.join(root, "src/page.ts")], outfile: path.join(out, "page.js"), format: "iife" });
   await build({ ...common, entryPoints: [path.join(root, "src/worker.ts")], outfile: path.join(out, "worker.js"), format: "esm" });
   await copyFile(path.join(root, "node_modules/hanab-bot-wasm/hanab_bot_wasm_bg.wasm"), path.join(out, "hanab_bot_wasm_bg.wasm"));
