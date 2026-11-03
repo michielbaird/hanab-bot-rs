@@ -226,25 +226,50 @@ fn force_sdcm(
 }
 
 pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
-    let (state, common, meta) = (&game.state, &game.common, &game.meta);
-    let our = state.our_player_index;
-    let player_index = (our + offset) % state.num_players;
-    let player = &game.players[player_index];
+    Advance::new(orig, game, offset).value()
+}
 
-    let bob = state.next_player_index(player_index);
-    let bob_chop = if state.num_players > 2 {
-        game.chop(bob)
-    } else {
-        None
-    };
+/// The inputs of `advance`: the value of the game after the player at `offset` turns from us has acted.
+struct Advance<'a> {
+    orig: &'a Game,
+    game: &'a Game,
+    offset: usize,
+    player_index: usize,
+    bob: usize,
+    bob_chop: Option<usize>,
+    trash_cell: OnceCell<Vec<usize>>,
+    early_game_clue_cell: OnceCell<Option<Clue>>,
+}
 
-    let trash_cell: OnceCell<Vec<usize>> = OnceCell::new();
-    let trash = || {
-        trash_cell.get_or_init(|| {
-            let mut t = player.thinks_trash(game, player_index);
+impl<'a> Advance<'a> {
+    fn new(orig: &'a Game, game: &'a Game, offset: usize) -> Self {
+        let state = &game.state;
+        let player_index = (state.our_player_index + offset) % state.num_players;
+        let bob = state.next_player_index(player_index);
+        let bob_chop = if state.num_players > 2 {
+            game.chop(bob)
+        } else {
+            None
+        };
+        Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            bob,
+            bob_chop,
+            trash_cell: OnceCell::new(),
+            early_game_clue_cell: OnceCell::new(),
+        }
+    }
+
+    fn trash(&self) -> &[usize] {
+        self.trash_cell.get_or_init(|| {
+            let (game, player_index) = (self.game, self.player_index);
+            let mut t = game.players[player_index].thinks_trash(game, player_index);
             // Discard leftmost clued trash (largest order), then rightmost unclued trash (smallest order)
             t.sort_by_key(|&o| {
-                if state.deck[o].clued {
+                if game.state.deck[o].clued {
                     -(o as i64)
                 } else {
                     o as i64
@@ -252,37 +277,83 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             });
             t
         })
-    };
-    let all_playables: Vec<usize> = player
-        .thinks_playables(game, player_index, false, true)
-        .into_iter()
-        .filter(|&o| !player.order_kt(game, o))
-        .collect();
-
-    let egc_cell: OnceCell<Option<Clue>> = OnceCell::new();
-    let early_game_clue = || {
-        egc_cell
-            .get_or_init(|| game.early_game_clue(player_index))
-            .to_owned()
-    };
-
-    // Not in the Scala bot: with 5+ players the branching (every clue of every other player) makes
-    // the full lookahead effectively endless, so it is cut short.
-    let stop_lookahead = state.endgame_turns == Some(0)
-        || (state.num_players > 4 && offset > MAX_LOOKAHEAD_5P)
-        || (player_index == our
-            && (offset > 3 || (state.num_players > 2 && orig.state.clue_tokens > 2)))
-        || (orig.hg().in_early_game
-            && state.variant.rainbowish
-            && state.variant.pinkish
-            && offset == 2);
-
-    // Reduce lookahead in early game
-    if stop_lookahead {
-        return eval_game(orig, game, offset);
     }
 
-    if !all_playables.is_empty() {
+    fn early_game_clue(&self) -> Option<Clue> {
+        self.early_game_clue_cell
+            .get_or_init(|| self.game.early_game_clue(self.player_index))
+            .to_owned()
+    }
+
+    fn value(&self) -> f64 {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            ..
+        } = self;
+        let player = &game.players[player_index];
+
+        if self.stop_lookahead() {
+            return eval_game(orig, game, offset);
+        }
+
+        let all_playables: Vec<usize> = player
+            .thinks_playables(game, player_index, false, true)
+            .into_iter()
+            .filter(|&o| !player.order_kt(game, o))
+            .collect();
+        if !all_playables.is_empty() {
+            return self.playing_value(&all_playables);
+        }
+
+        if player.thinks_locked(game, player_index) {
+            return self.locked_value();
+        }
+
+        self.forced_clue_value()
+            .unwrap_or_else(|| self.discard_or_clue_value())
+    }
+
+    fn stop_lookahead(&self) -> bool {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            ..
+        } = self;
+        let state = &game.state;
+        let our = state.our_player_index;
+
+        // Not in the Scala bot: with 5+ players the branching (every clue of every other player) makes
+        // the full lookahead effectively endless, so it is cut short.
+        state.endgame_turns == Some(0)
+            || (state.num_players > 4 && offset > MAX_LOOKAHEAD_5P)
+            || (player_index == our
+                && (offset > 3 || (state.num_players > 2 && orig.state.clue_tokens > 2)))
+            || (orig.hg().in_early_game
+                && state.variant.rainbowish
+                && state.variant.pinkish
+                && offset == 2)
+    }
+
+    fn playing_value(&self, all_playables: &[usize]) -> f64 {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            bob,
+            ..
+        } = self;
+        let state = &game.state;
+        let common = &game.common;
+        let meta = &game.meta;
+        let our = state.our_player_index;
+        let player = &game.players[player_index];
+
         let unknown1s: Vec<usize> = all_playables
             .iter()
             .copied()
@@ -397,12 +468,12 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             let can_sdcm = state.clue_tokens < 8
                 && game.hg().dc_status == DcStatus::None
                 && !game.in_endgame()
-                && early_game_clue().is_none()
+                && self.early_game_clue().is_none()
                 && !game.must_clue(player_index)
                 && !game.common.thinks_loaded(game, bob);
 
             if can_sdcm {
-                match trash().first() {
+                match self.trash().first() {
                     Some(&kt) => Some(force_sdcm(orig, game, player_index, kt, offset, true)),
                     None if !state.can_clue() => game
                         .chop(player_index)
@@ -430,7 +501,7 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             }
         };
 
-        return if state.num_players == 2 && player_index != our {
+        if state.num_players == 2 && player_index != our {
             acc_value // assume they won't clue us
         } else {
             log_info!(
@@ -439,13 +510,23 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
                 state.names[player_index]
             );
             acc_value.max(force_clue_value(orig, game, offset, None).0)
-        };
+        }
     }
 
-    if player.thinks_locked(game, player_index) {
+    fn locked_value(&self) -> f64 {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            ..
+        } = self;
+        let state = &game.state;
+        let player = &game.players[player_index];
+
         log_info!("{}{} locked!", indent(offset), state.names[player_index]);
 
-        return if state.can_clue() {
+        if state.can_clue() {
             force_clue_value(orig, game, offset, None).0
         } else {
             let (order, is_anxiety) = match player.anxiety_play(state, player_index) {
@@ -474,174 +555,207 @@ pub fn advance(orig: &Game, game: &Game, offset: usize) -> f64 {
             );
 
             advance(orig, &game.simulate(&action, None), offset + 1)
-        };
+        }
     }
 
-    if state.clue_tokens == 8 {
-        log_info!(
-            "{}forced clue at 8 clues! ({})",
-            indent(offset),
-            state.names[player_index]
-        );
-        return force_clue_value(orig, game, offset, None).0;
-    }
+    fn forced_clue_value(&self) -> Option<f64> {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            bob,
+            ..
+        } = self;
+        let state = &game.state;
 
-    if game.hg().dc_status != DcStatus::None {
-        log_info!(
-            "{}forced clue due to scream/shout! ({})",
-            indent(offset),
-            state.names[player_index]
-        );
-        return force_clue_value(orig, game, offset, None).0;
-    }
+        if state.clue_tokens == 8 {
+            log_info!(
+                "{}forced clue at 8 clues! ({})",
+                indent(offset),
+                state.names[player_index]
+            );
+            return Some(force_clue_value(orig, game, offset, None).0);
+        }
 
-    if state.pace() == 0 && state.can_clue() {
-        log_info!(
-            "{}forced clue due to low pace! ({})",
-            indent(offset),
-            state.names[player_index]
-        );
-        return force_clue_value(orig, game, offset, None).0;
-    }
+        if game.hg().dc_status != DcStatus::None {
+            log_info!(
+                "{}forced clue due to scream/shout! ({})",
+                indent(offset),
+                state.names[player_index]
+            );
+            return Some(force_clue_value(orig, game, offset, None).0);
+        }
 
-    if trash().is_empty() && early_game_clue().is_some() {
-        log_info!(
-            "{}forced clue in early game! ({})",
-            indent(offset),
-            state.names[player_index]
-        );
-        return force_clue_value(orig, game, offset, None).0;
-    }
+        if state.pace() == 0 && state.can_clue() {
+            log_info!(
+                "{}forced clue due to low pace! ({})",
+                indent(offset),
+                state.names[player_index]
+            );
+            return Some(force_clue_value(orig, game, offset, None).0);
+        }
 
-    if game.must_clue(player_index) {
-        log_info!(
-            "{}forcing {} to clue {}!",
-            indent(offset),
-            state.names[player_index],
-            state.names[bob]
-        );
-        return force_clue_value(orig, game, offset, Some(bob)).0;
-    }
+        if self.trash().is_empty() && self.early_game_clue().is_some() {
+            log_info!(
+                "{}forced clue in early game! ({})",
+                indent(offset),
+                state.names[player_index]
+            );
+            return Some(force_clue_value(orig, game, offset, None).0);
+        }
 
-    let dc_order = trash()
-        .first()
-        .copied()
-        .or_else(|| game.chop(player_index))
-        .unwrap_or_else(|| {
-            panic!(
-                "Player {} not locked but no chop! {:?}",
+        if game.must_clue(player_index) {
+            log_info!(
+                "{}forcing {} to clue {}!",
+                indent(offset),
                 state.names[player_index],
-                state.hands[player_index]
-                    .iter()
-                    .map(|&o| (state.deck[o].clued, meta[o].status))
-                    .collect::<Vec<_>>()
-            )
-        });
-    let id = game.me().thoughts[dc_order].id_with(true, false);
-    let action = if trash().contains(&dc_order) {
-        game.players[player_index].try_discard(game, dc_order)
-    } else {
-        Action::drag_discard(state, player_index, dc_order, None)
-    };
-    let dc_game = game.simulate(&action, None);
+                state.names[bob]
+            );
+            return Some(force_clue_value(orig, game, offset, Some(bob)).0);
+        }
 
-    if state.can_clue() && (state.num_players > 2 || player_index == our) {
-        log_info!("{}{} might clue", indent(offset), state.names[player_index]);
-        let (clue_val, good_clue) = force_clue_value(orig, game, offset, None);
-        log_info!("clue val: {clue_val}, good clue? {good_clue}");
-        log_info!(
-            "{}{} {} {}:",
-            indent(offset),
-            state.names[player_index],
-            action.gerund(),
-            state.log_id_opt(id)
-        );
-        let dc_val = advance(orig, &dc_game, offset + 1);
+        None
+    }
 
-        if clue_val < dc_val {
-            let drew_new = state.hands.iter().enumerate().position(|(i, hand)| {
-                i != our && hand.iter().any(|&o| state.deck[o].id().is_none())
-            });
+    fn discard_or_clue_value(&self) -> f64 {
+        let &Self {
+            orig,
+            game,
+            offset,
+            player_index,
+            bob,
+            bob_chop,
+            ..
+        } = self;
+        let state = &game.state;
+        let common = &game.common;
+        let meta = &game.meta;
+        let our = state.our_player_index;
 
-            if let Some(drew) = drew_new {
-                let hypo_val = 0.2 * (clue_val + 1.0) + 0.8 * dc_val;
-                log_highlight!(
-                    logger::CYAN,
-                    "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {} but {} may have drawn something ({hypo_val:.2})",
-                    indent(offset),
+        let dc_order = self
+            .trash()
+            .first()
+            .copied()
+            .or_else(|| game.chop(player_index))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Player {} not locked but no chop! {:?}",
                     state.names[player_index],
-                    state.names[drew]
-                );
-                hypo_val
-            } else {
-                log_highlight!(
-                    logger::CYAN,
-                    "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {}, lowering clue prob to 0 ({dc_val:.2})",
-                    indent(offset),
-                    state.names[player_index]
-                );
-                dc_val
-            }
+                    state.hands[player_index]
+                        .iter()
+                        .map(|&o| (state.deck[o].clued, meta[o].status))
+                        .collect::<Vec<_>>()
+                )
+            });
+        let id = game.me().thoughts[dc_order].id_with(true, false);
+        let action = if self.trash().contains(&dc_order) {
+            game.players[player_index].try_discard(game, dc_order)
         } else {
-            let clue_prob = if player_index == our {
-                1.0
-            } else if good_clue {
-                // Good clue available
-                0.95
-            } else if offset == 1 {
-                if matches!(&game.last_actions[our], Some(Action::Discard(_))) {
-                    0.8
-                } else if common.thinks_loaded(game, bob) {
-                    0.2
-                } else if let Some(chop) = bob_chop {
-                    if state.is_basic_trash(state.deck[chop].id().expect("Bob's chop is visible")) {
-                        0.2
-                    } else {
-                        0.7
-                    }
+            Action::drag_discard(state, player_index, dc_order, None)
+        };
+        let dc_game = game.simulate(&action, None);
+
+        if state.can_clue() && (state.num_players > 2 || player_index == our) {
+            log_info!("{}{} might clue", indent(offset), state.names[player_index]);
+            let (clue_val, good_clue) = force_clue_value(orig, game, offset, None);
+            log_info!("clue val: {clue_val}, good clue? {good_clue}");
+            log_info!(
+                "{}{} {} {}:",
+                indent(offset),
+                state.names[player_index],
+                action.gerund(),
+                state.log_id_opt(id)
+            );
+            let dc_val = advance(orig, &dc_game, offset + 1);
+
+            if clue_val < dc_val {
+                let drew_new = state.hands.iter().enumerate().position(|(i, hand)| {
+                    i != our && hand.iter().any(|&o| state.deck[o].id().is_none())
+                });
+
+                if let Some(drew) = drew_new {
+                    let hypo_val = 0.2 * (clue_val + 1.0) + 0.8 * dc_val;
+                    log_highlight!(
+                        logger::CYAN,
+                        "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {} but {} may have drawn something ({hypo_val:.2})",
+                        indent(offset),
+                        state.names[player_index],
+                        state.names[drew]
+                    );
+                    hypo_val
                 } else {
-                    0.5
+                    log_highlight!(
+                        logger::CYAN,
+                        "{}clue is too low value ({clue_val:.2} < {dc_val:.2}) for {}, lowering clue prob to 0 ({dc_val:.2})",
+                        indent(offset),
+                        state.names[player_index]
+                    );
+                    dc_val
                 }
             } else {
-                0.8
-            };
-
-            let value = clue_prob * clue_val + (1.0 - clue_prob) * dc_val;
-
-            let sdcm_value =
-                if !trash().contains(&dc_order) || state.can_clue() || game.in_endgame() {
-                    -999.0
+                let clue_prob = if player_index == our {
+                    1.0
+                } else if good_clue {
+                    // Good clue available
+                    0.95
+                } else if offset == 1 {
+                    if matches!(&game.last_actions[our], Some(Action::Discard(_))) {
+                        0.8
+                    } else if common.thinks_loaded(game, bob) {
+                        0.2
+                    } else if let Some(chop) = bob_chop {
+                        if state
+                            .is_basic_trash(state.deck[chop].id().expect("Bob's chop is visible"))
+                        {
+                            0.2
+                        } else {
+                            0.7
+                        }
+                    } else {
+                        0.5
+                    }
                 } else {
-                    game.chop(player_index).map_or(-999.0, |chop| {
-                        force_sdcm(orig, game, player_index, chop, offset, false)
-                    })
+                    0.8
                 };
 
-            if sdcm_value > value {
-                log_highlight!(
-                    logger::CYAN,
-                    "{}prefer sdcm: {sdcm_value:.2}",
-                    indent(offset)
-                );
-                sdcm_value
-            } else {
-                log_highlight!(
-                    logger::CYAN,
-                    "{}overall: {value:.2} (clue%: {clue_prob})",
-                    indent(offset)
-                );
-                value
+                let value = clue_prob * clue_val + (1.0 - clue_prob) * dc_val;
+
+                let sdcm_value =
+                    if !self.trash().contains(&dc_order) || state.can_clue() || game.in_endgame() {
+                        -999.0
+                    } else {
+                        game.chop(player_index).map_or(-999.0, |chop| {
+                            force_sdcm(orig, game, player_index, chop, offset, false)
+                        })
+                    };
+
+                if sdcm_value > value {
+                    log_highlight!(
+                        logger::CYAN,
+                        "{}prefer sdcm: {sdcm_value:.2}",
+                        indent(offset)
+                    );
+                    sdcm_value
+                } else {
+                    log_highlight!(
+                        logger::CYAN,
+                        "{}overall: {value:.2} (clue%: {clue_prob})",
+                        indent(offset)
+                    );
+                    value
+                }
             }
+        } else {
+            log_info!(
+                "{}{} {} {}",
+                indent(offset),
+                state.names[player_index],
+                action.gerund(),
+                state.log_id_opt(id)
+            );
+            advance(orig, &dc_game, offset + 1)
         }
-    } else {
-        log_info!(
-            "{}{} {} {}",
-            indent(offset),
-            state.names[player_index],
-            action.gerund(),
-            state.log_id_opt(id)
-        );
-        advance(orig, &dc_game, offset + 1)
     }
 }
 
