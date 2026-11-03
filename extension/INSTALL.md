@@ -21,7 +21,7 @@ This makes `dist/chrome` (Chrome, Edge) and `dist/firefox`, both for https://han
 To use it on another copy of the site, such as a development instance, list every address (comma-separated match patterns):
 
 ```sh
-EXT_MATCHES="https://hanab.live/*,http://truenas.local:8088/*" npm run build
+EXT_MATCHES="https://hanab.live/*,http://localhost/*" npm run build
 ```
 
 ## 2. Load it
