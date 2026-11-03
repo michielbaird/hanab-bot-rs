@@ -224,6 +224,60 @@ impl Default for EndgameSolver {
     }
 }
 
+/// What `solve` works out about a position before it searches it.
+struct Position<'a> {
+    game: &'a Game,
+    /// The game with every card of ours whose identity is known set.
+    assumed_game: Game,
+    our: usize,
+    deadline: Instant,
+    remaining_ids: RemainingMap,
+    /// The orders of our cards whose identity is not known.
+    unknown_own: Vec<usize>,
+    linked_orders: FastBitSet,
+}
+
+fn winning_play(game: &Game) -> Option<PerformAction> {
+    let state = &game.state;
+    if state.score() + 1 != state.max_score() {
+        return None;
+    }
+
+    let our = state.our_player_index;
+    let playables = if game.good_touch() || state.endgame_turns.is_some() {
+        game.me().thinks_playables(game, our, true, true)
+    } else {
+        game.me().obvious_playables(game, our)
+    };
+
+    playables
+        .into_iter()
+        .find(|&o| {
+            game.me().thoughts[o]
+                .id_with(true, false)
+                .is_some_and(|id| state.is_playable(id))
+        })
+        .map(|order| PerformAction::try_play(game, order))
+}
+
+fn missing_ids_error(state: &State, remaining_ids: &RemainingMap) -> Option<String> {
+    let many_missing = remaining_ids
+        .iter()
+        .filter(|&(id, v)| state.is_useful(id) && v == state.card_count[id.to_ord()])
+        .count()
+        > 3;
+
+    many_missing.then(|| {
+        let missing_ids = remaining_ids
+            .iter()
+            .filter(|&(id, _)| state.is_useful(id))
+            .map(|(id, _)| state.log_id(id))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("couldn't find any {missing_ids}!")
+    })
+}
+
 impl EndgameSolver {
     pub fn new(monte_carlo: bool) -> Self {
         Self {
@@ -274,41 +328,16 @@ impl EndgameSolver {
         let state = &game.state;
         let our = state.our_player_index;
 
-        if state.score() + 1 == state.max_score() {
-            let playables = if game.good_touch() || state.endgame_turns.is_some() {
-                game.me().thinks_playables(game, our, true, true)
-            } else {
-                game.me().obvious_playables(game, our)
-            };
-
-            let winning_play = playables.into_iter().find(|&o| {
-                game.me().thoughts[o]
-                    .id_with(true, false)
-                    .is_some_and(|id| state.is_playable(id))
-            });
-
-            if let Some(order) = winning_play {
-                return Ok((PerformAction::try_play(game, order), Frac::ONE));
-            }
+        if let Some(perform) = winning_play(game) {
+            return Ok((perform, Frac::ONE));
         }
 
         let start = Instant::now();
         let deadline = start + self.timeout;
         let (remaining_ids, own_ids) = find_remaining_ids(game);
 
-        if remaining_ids
-            .iter()
-            .filter(|&(id, v)| state.is_useful(id) && v == state.card_count[id.to_ord()])
-            .count()
-            > 3
-        {
-            let missing_ids = remaining_ids
-                .iter()
-                .filter(|&(id, _)| state.is_useful(id))
-                .map(|(id, _)| state.log_id(id))
-                .collect::<Vec<_>>()
-                .join(",");
-            return Err(format!("couldn't find any {missing_ids}!"));
+        if let Some(error) = missing_ids_error(state, &remaining_ids) {
+            return Err(error);
         }
 
         let _quiet = LevelGuard::set(LogLevel::Off);
@@ -327,33 +356,74 @@ impl EndgameSolver {
             .map(|&(order, _)| order)
             .collect();
 
-        let total_unknown = state.cards_left + unknown_own.len();
+        let position = Position {
+            game,
+            assumed_game,
+            our,
+            deadline,
+            remaining_ids,
+            unknown_own,
+            linked_orders,
+        };
+        let total_unknown = state.cards_left + position.unknown_own.len();
         log_info!(
-            "unknown own {unknown_own:?}, cards left {}",
+            "unknown own {:?}, cards left {}",
+            position.unknown_own,
             state.cards_left
         );
 
         if total_unknown == 0 {
-            return match self.winnable(&assumed_game, our, &remaining_ids, deadline, 0) {
-                Ok((actions, winrate)) if !actions.is_empty() => {
-                    log_highlight!(
-                        logger::MAGENTA,
-                        "winnable! actions {}",
-                        actions
-                            .iter()
-                            .map(|a| a.fmt(&assumed_game, None))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    );
-                    log_info!("solved in {}ms", start.elapsed().as_millis());
-                    Ok((actions[0], winrate))
-                }
-                Ok(_) => Err("timeout".to_string()),
-                Err(_) => Err("couldn't find a winning strategy".to_string()),
-            };
+            return self.solve_without_unknowns(&position, start);
         }
 
         log_info!("remaining ids: {}", remaining_ids.fmt2(state));
+
+        let arrs = self.arrangements(&position)?;
+        let hypos = self.hypotheses(&position, arrs);
+
+        if let Some(only) = only_action {
+            return Ok((only, self.winrate_of(&position, &hypos, only)));
+        }
+
+        self.best_action(&position, &hypos, start)
+    }
+
+    fn solve_without_unknowns(
+        &mut self,
+        position: &Position,
+        start: Instant,
+    ) -> Result<(PerformAction, Frac), String> {
+        let our = position.our;
+        let deadline = position.deadline;
+        let remaining_ids = position.remaining_ids;
+        let assumed_game = &position.assumed_game;
+
+        match self.winnable(assumed_game, our, &remaining_ids, deadline, 0) {
+            Ok((actions, winrate)) if !actions.is_empty() => {
+                log_highlight!(
+                    logger::MAGENTA,
+                    "winnable! actions {}",
+                    actions
+                        .iter()
+                        .map(|a| a.fmt(assumed_game, None))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                log_info!("solved in {}ms", start.elapsed().as_millis());
+                Ok((actions[0], winrate))
+            }
+            Ok(_) => Err("timeout".to_string()),
+            Err(_) => Err("couldn't find a winning strategy".to_string()),
+        }
+    }
+
+    fn arrangements(&self, position: &Position) -> Result<Vec<Arrangement>, String> {
+        let game = position.game;
+        let state = &game.state;
+        let deadline = position.deadline;
+        let remaining_ids = position.remaining_ids;
+        let unknown_own = &position.unknown_own;
+        let linked_orders = position.linked_orders;
 
         let impossible_arr = |ids: &[Identity], id: Identity, order: usize, try_filter: bool| {
             let thought = &game.me().thoughts[order];
@@ -510,9 +580,16 @@ impl EndgameSolver {
                 .join(" | "),
             arrs.len()
         );
+        Ok(arrs)
+    }
 
-        let hypos: Vec<Hypo> = arrs
-            .into_iter()
+    fn hypotheses(&mut self, position: &Position, arrs: Vec<Arrangement>) -> Vec<Hypo> {
+        let our = position.our;
+        let deadline = position.deadline;
+        let unknown_own = &position.unknown_own;
+        let assumed_game = &position.assumed_game;
+
+        arrs.into_iter()
             .map(
                 |Arrangement {
                      ids,
@@ -546,39 +623,98 @@ impl EndgameSolver {
                     }
                 },
             )
-            .collect();
+            .collect()
+    }
 
-        if let Some(only) = only_action {
-            let mut winrate = Frac::ZERO;
-            for hypo in &hypos {
-                // `only` may not be a move the convention would consider (for example discarding another trash card than the
-                // expected one); a move that isn't a candidate still has a winrate, so evaluate it anyway.
-                let candidate = hypo
-                    .actions
-                    .iter()
-                    .find(|a| a.0 == only)
-                    .cloned()
-                    .or_else(|| {
-                        match winnable_if(&hypo.game.state, our, only, &hypo.remaining, deadline, 0)
-                        {
-                            SimpleResult::Unwinnable => None,
-                            SimpleResult::WinnableWithDraws(draws) => Some((only, draws)),
-                            SimpleResult::AlwaysWinnable => Some((only, Vec::new())),
-                        }
-                    });
+    fn winrate_of(&mut self, position: &Position, hypos: &[Hypo], only: PerformAction) -> Frac {
+        let our = position.our;
+        let deadline = position.deadline;
 
-                if let Some(perform) = candidate {
-                    let (undrawn, drawn) = &hypo.arrs;
-                    let arrs = if perform.0.is_clue() { undrawn } else { drawn };
-                    winrate +=
-                        hypo.prob * self.action_winrate(&hypo.game, arrs, &perform, our, deadline);
-                }
+        let mut winrate = Frac::ZERO;
+        for hypo in hypos {
+            // `only` may not be a move the convention would consider (for example discarding another trash card than the
+            // expected one); a move that isn't a candidate still has a winrate, so evaluate it anyway.
+            let candidate = hypo
+                .actions
+                .iter()
+                .find(|a| a.0 == only)
+                .cloned()
+                .or_else(|| {
+                    match winnable_if(&hypo.game.state, our, only, &hypo.remaining, deadline, 0) {
+                        SimpleResult::Unwinnable => None,
+                        SimpleResult::WinnableWithDraws(draws) => Some((only, draws)),
+                        SimpleResult::AlwaysWinnable => Some((only, Vec::new())),
+                    }
+                });
+
+            if let Some(perform) = candidate {
+                let (undrawn, drawn) = &hypo.arrs;
+                let arrs = if perform.0.is_clue() { undrawn } else { drawn };
+                winrate +=
+                    hypo.prob * self.action_winrate(&hypo.game, arrs, &perform, our, deadline);
             }
-            return Ok((only, winrate));
         }
+        winrate
+    }
+
+    /// The winrate of one action over the other arrangements. An action is given up on once it can't reach `bar`
+    /// (the best winrate known so far).
+    fn test_action(
+        &mut self,
+        position: &Position,
+        hypos: &[Hypo],
+        action: PerformAction,
+        first_winrate: Frac,
+        bar: Frac,
+    ) -> Frac {
+        let game = position.game;
+        let our = position.our;
+        let deadline = position.deadline;
+
+        let first = &hypos[0];
+
+        log_highlight!(
+            logger::GREEN,
+            "\ntesting action: {}",
+            action.fmt(game, None)
+        );
+
+        let mut winrate = first_winrate;
+        // The probability still to be tested is everything but the first arrangement.
+        let mut rem_prob = Frac::ONE - first.prob;
+
+        for hypo in &hypos[1..] {
+            if winrate + rem_prob < bar {
+                log_info!(
+                    "action {} has winrate {winrate} {rem_prob}, can't add up to {bar}",
+                    action.fmt(game, None)
+                );
+                break;
+            }
+
+            if let Some(perform) = hypo.actions.iter().find(|a| a.0 == action) {
+                let (undrawn, drawn) = &hypo.arrs;
+                let arrs = if perform.0.is_clue() { undrawn } else { drawn };
+                winrate +=
+                    hypo.prob * self.action_winrate(&hypo.game, arrs, perform, our, deadline);
+            }
+            rem_prob -= hypo.prob;
+        }
+        winrate
+    }
+
+    fn best_action(
+        &mut self,
+        position: &Position,
+        hypos: &[Hypo],
+        start: Instant,
+    ) -> Result<(PerformAction, Frac), String> {
+        let game = position.game;
+        let our = position.our;
+        let deadline = position.deadline;
 
         let mut all_actions: Vec<PerformAction> = Vec::new();
-        for hypo in &hypos {
+        for hypo in hypos {
             for (perform, _) in &hypo.actions {
                 if !all_actions.contains(perform) {
                     all_actions.push(*perform);
@@ -626,43 +762,6 @@ impl EndgameSolver {
         let (best_perform, best_winrate) = if hypos.len() > 1 {
             let mut best = initial_actions[0];
 
-            // The winrate of one action over the other arrangements, or `None` if it was not worked out (out of time).
-            // An action is given up on once it can't reach `bar` (the best winrate known so far).
-            let test_action = |solver: &mut Self,
-                               action: PerformAction,
-                               first_winrate: Frac,
-                               bar: Frac|
-             -> Frac {
-                log_highlight!(
-                    logger::GREEN,
-                    "\ntesting action: {}",
-                    action.fmt(game, None)
-                );
-
-                let mut winrate = first_winrate;
-                // The probability still to be tested is everything but the first arrangement.
-                let mut rem_prob = Frac::ONE - first.prob;
-
-                for hypo in &hypos[1..] {
-                    if winrate + rem_prob < bar {
-                        log_info!(
-                            "action {} has winrate {winrate} {rem_prob}, can't add up to {bar}",
-                            action.fmt(game, None)
-                        );
-                        break;
-                    }
-
-                    if let Some(perform) = hypo.actions.iter().find(|a| a.0 == action) {
-                        let (undrawn, drawn) = &hypo.arrs;
-                        let arrs = if perform.0.is_clue() { undrawn } else { drawn };
-                        winrate += hypo.prob
-                            * solver.action_winrate(&hypo.game, arrs, perform, our, deadline);
-                    }
-                    rem_prob -= hypo.prob;
-                }
-                winrate
-            };
-
             // Several threads test different actions. The best action is then picked in order, exactly as if they
             // had been tested one after the other: an action is only given up on when it can't beat an action that
             // really achieves a winrate, so the answer does not depend on the number of threads.
@@ -680,7 +779,8 @@ impl EndgameSolver {
                         }
                         let (action, first_winrate) = initial_actions[index];
                         let bar = *shared_best.lock().unwrap();
-                        let winrate = test_action(worker, action, first_winrate, bar);
+                        let winrate =
+                            worker.test_action(position, hypos, action, first_winrate, bar);
                         {
                             let mut shared = shared_best.lock().unwrap();
                             if winrate > *shared {
@@ -705,7 +805,7 @@ impl EndgameSolver {
                     if Instant::now() > deadline {
                         break;
                     }
-                    test_action(self, action, first_winrate, best.1)
+                    self.test_action(position, hypos, action, first_winrate, best.1)
                 };
 
                 if winrate == Frac::ONE {
