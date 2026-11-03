@@ -143,6 +143,7 @@ impl Game {
             .flatten()
             .filter(|a| a.is_player_action())
             .count();
+        let game_won = self.state.score() == self.state.variant.suits.len() * 5;
         let moves_done = AtomicUsize::new(0);
         let stopped_early = AtomicBool::new(false);
 
@@ -232,64 +233,68 @@ impl Game {
                                 false,
                             );
 
-                            if g.in_endgame() || g.conv.solves_endgame(&g) {
-                                // The winrates are computed from the real position at this move, in which the mover knows
-                                // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
-                                let mut real = seen_all.clone();
-                                for order in real.state.hands[index].clone() {
-                                    if let Some(id) = self.deck_ids[order] {
-                                        real.players[index].update_thought(order, |t| {
-                                            t.seen = Some(id);
-                                            t.possible = IdentitySet::from(id);
-                                            t.inferred = IdentitySet::from(id);
+                            let endgame = g.in_endgame() || g.conv.solves_endgame(&g);
+                            if endgame {
+                                // A game that was won needs no advice about its endgame.
+                                if !game_won {
+                                    // The winrates are computed from the real position at this move, in which the mover knows
+                                    // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
+                                    let mut real = seen_all.clone();
+                                    for order in real.state.hands[index].clone() {
+                                        if let Some(id) = self.deck_ids[order] {
+                                            real.players[index].update_thought(order, |t| {
+                                                t.seen = Some(id);
+                                                t.possible = IdentitySet::from(id);
+                                                t.inferred = IdentitySet::from(id);
+                                            });
+                                        }
+                                    }
+
+                                    let winrate = |perform: PerformAction| {
+                                        let mut solver = EndgameSolver::new(true)
+                                            .with_timeout(endgame_timeout());
+                                        match solver.solve(&real, Some(perform)) {
+                                            Ok((_, winrate)) if winrate < Frac::new(1, 100) => {
+                                                Some(Frac::ZERO)
+                                            }
+                                            Ok((_, winrate)) => Some(winrate),
+                                            Err(error) if error_means_unwinnable(&error) => {
+                                                Some(Frac::ZERO)
+                                            }
+                                            Err(_) => None,
+                                        }
+                                    };
+
+                                    let verdict = endgame_verdict(
+                                        winrate(suggested_perform),
+                                        winrate(PerformAction::from_action(action)),
+                                    );
+                                    if let Some(verdict) = verdict {
+                                        let (mistake, text) = match verdict {
+                                            EndgameVerdict::Mistake => (
+                                                true,
+                                                format!(
+                                                    "mistake! ({}) can still win, ({}) can't",
+                                                    suggested_action.fmt(&g.state),
+                                                    action.fmt(&g.state)
+                                                ),
+                                            ),
+                                            EndgameVerdict::Suggestion => (
+                                                false,
+                                                format!(
+                                                    "suggest ({}) over ({})",
+                                                    suggested_action.fmt(&g.state),
+                                                    action.fmt(&g.state)
+                                                ),
+                                            ),
+                                        };
+                                        comments.push(AnalysisComment {
+                                            turn: g.state.turn_count,
+                                            player_index: index,
+                                            mistake,
+                                            text,
                                         });
                                     }
-                                }
-
-                                let winrate = |perform: PerformAction| {
-                                    let mut solver =
-                                        EndgameSolver::new(true).with_timeout(endgame_timeout());
-                                    match solver.solve(&real, Some(perform)) {
-                                        Ok((_, winrate)) if winrate < Frac::new(1, 100) => {
-                                            Some(Frac::ZERO)
-                                        }
-                                        Ok((_, winrate)) => Some(winrate),
-                                        Err(error) if error_means_unwinnable(&error) => {
-                                            Some(Frac::ZERO)
-                                        }
-                                        Err(_) => None,
-                                    }
-                                };
-
-                                let verdict = endgame_verdict(
-                                    winrate(suggested_perform),
-                                    winrate(PerformAction::from_action(action)),
-                                );
-                                if let Some(verdict) = verdict {
-                                    let (mistake, text) = match verdict {
-                                        EndgameVerdict::Mistake => (
-                                            true,
-                                            format!(
-                                                "mistake! ({}) can still win, ({}) can't",
-                                                suggested_action.fmt(&g.state),
-                                                action.fmt(&g.state)
-                                            ),
-                                        ),
-                                        EndgameVerdict::Suggestion => (
-                                            false,
-                                            format!(
-                                                "suggest ({}) over ({})",
-                                                suggested_action.fmt(&g.state),
-                                                action.fmt(&g.state)
-                                            ),
-                                        ),
-                                    };
-                                    comments.push(AnalysisComment {
-                                        turn: g.state.turn_count,
-                                        player_index: index,
-                                        mistake,
-                                        text,
-                                    });
                                 }
                             } else {
                                 let suggested_value = g.conv.eval_action(&g, &suggested_action);
