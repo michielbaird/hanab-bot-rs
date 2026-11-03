@@ -143,13 +143,10 @@ fn endgame_comments_use_the_true_position() {
     assert_eq!(game.state.score(), 25);
 
     let comments = game.analyze_comments();
-    let winrate_complaints: Vec<_> = comments
-        .iter()
-        .filter(|c| c.text.contains("winrate"))
-        .collect();
+    let last_round: Vec<_> = comments.iter().filter(|c| c.turn >= 54).collect();
     assert!(
-        winrate_complaints.is_empty(),
-        "a winning game drew endgame complaints: {winrate_complaints:#?}"
+        last_round.is_empty(),
+        "a winning game drew endgame complaints: {last_round:#?}"
     );
 }
 
@@ -171,12 +168,12 @@ fn real_endgame_mistakes_are_still_reported() {
     let comments = game.analyze_comments();
     let last_round = comments
         .iter()
-        .find(|c| c.turn == 57 && c.text.contains("winrate"))
+        .find(|c| c.turn == 57)
         .unwrap_or_else(|| panic!("no endgame complaint in {comments:#?}"));
     assert!(last_round.mistake);
     assert_eq!(last_round.player_index, 2);
     assert!(
-        last_round.text.contains("plays y4") && last_round.text.contains("has winrate 1"),
+        last_round.text.contains("plays y4") && last_round.text.contains("can still win"),
         "{}",
         last_round.text
     );

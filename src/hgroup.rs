@@ -1721,16 +1721,20 @@ impl Convention for HGroup {
         *game = g;
     }
 
+    fn solves_endgame(&self, game: &Game) -> bool {
+        let state = &game.state;
+        state.cards_left <= 2
+            || (state.rem_score() <= state.variant.suits.len() + 1
+                && state.pace() + state.cards_left as isize <= 7)
+    }
+
     fn take_action(&self, game: &Game) -> PerformAction {
         let (state, me) = (&game.state, game.me());
         let our = state.our_player_index;
 
         log_info!("ptd? {:?}", game.chop(our).map(|c| game.meta[c].status));
 
-        if state.cards_left <= 2
-            || (state.rem_score() <= state.variant.suits.len() + 1
-                && state.pace() + state.cards_left as isize <= 7)
-        {
+        if self.solves_endgame(game) {
             log_highlight!(logger::MAGENTA, "trying to solve endgame...");
 
             match EndgameSolver::new(true).solve(game, None) {

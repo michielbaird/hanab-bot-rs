@@ -23,7 +23,7 @@ time, re-running the tests (`cargo test -j2`) and a self-play sweep after each. 
 | 17, 18, 30, 32, 33 | #15 Game::elim / update_hypo_stacks are still most of the run time |
 | 29 | #16 5+ players: lookahead is capped; quality unmeasured |
 | 28 | #17 H-Group: giver and receiver read a re-clue differently (blind-play strikeout) |
-| 37 | #18 analyze: endgame 'mistake!' comments about people can be spurious |
+| 37 | #18 analyze: endgame comments about people could be spurious (now a mistake only when the move played can't win, otherwise a suggestion) |
 | 38 | #19 Library: hook for fetching exports; CI for the tokio-free build |
 | (no item) | #20 RefSieve at 5 players averages only about 18.7, #21 Port the benchmark tool, #22 Clear the remaining clippy warnings
 

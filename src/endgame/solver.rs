@@ -89,6 +89,14 @@ pub type WinnableResult = Result<(Vec<PerformAction>, Frac), &'static str>;
 
 const UNWINNABLE: &str = "";
 const TIMEOUT: &str = "timeout";
+const NO_STRATEGY: &str = "couldn't find a winning strategy";
+const NO_WINNING_ACTIONS: &str = "couldn't find any winning actions";
+
+/// Whether a failed search found that the position can't be won, as opposed to not having searched it (out of time,
+/// the solver disabled, cards missing).
+pub(crate) fn error_means_unwinnable(error: &str) -> bool {
+    error == NO_STRATEGY || error == NO_WINNING_ACTIONS
+}
 
 /// How many copies of each identity are still unseen, indexed by identity ordinal.
 ///
@@ -413,7 +421,7 @@ impl EndgameSolver {
                 Ok((actions[0], winrate))
             }
             Ok(_) => Err("timeout".to_string()),
-            Err(_) => Err("couldn't find a winning strategy".to_string()),
+            Err(_) => Err(NO_STRATEGY.to_string()),
         }
     }
 
@@ -756,7 +764,7 @@ impl EndgameSolver {
         };
 
         if initial_actions.is_empty() {
-            return Err("couldn't find any winning actions".to_string());
+            return Err(NO_WINNING_ACTIONS.to_string());
         }
 
         let (best_perform, best_winrate) = if hypos.len() > 1 {
@@ -821,7 +829,7 @@ impl EndgameSolver {
         };
 
         if best_winrate == Frac::ZERO {
-            Err("couldn't find any winning actions".to_string())
+            Err(NO_WINNING_ACTIONS.to_string())
         } else {
             log_info!(
                 "endgame winnable! {} (winrate {best_winrate})",
