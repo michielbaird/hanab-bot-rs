@@ -84,12 +84,24 @@ enum EndgameVerdict {
     Suggestion,
 }
 
+/// How much better the suggested move must be, in a game that was won anyway, to be worth mentioning.
+fn won_game_margin() -> Frac {
+    Frac::new(1, 2)
+}
+
 /// What to say about an endgame move that the solver would have played differently, from the winrates of the move it
 /// suggests and the move that was played (`None`: not known, because the search ran out of time or could not be done).
 /// The searches are budgeted, so the fractions are not exact: only a move that can't win against one that can is a mistake.
-fn endgame_verdict(suggested: Option<Frac>, actual: Option<Frac>) -> Option<EndgameVerdict> {
+/// A game that was won anyway only hears about a much better move, and never calls anything a mistake.
+fn endgame_verdict(
+    suggested: Option<Frac>,
+    actual: Option<Frac>,
+    game_won: bool,
+) -> Option<EndgameVerdict> {
     let (suggested, actual) = (suggested?, actual?);
-    if actual == Frac::ZERO && suggested > Frac::ZERO {
+    if game_won {
+        (suggested - actual >= won_game_margin()).then_some(EndgameVerdict::Suggestion)
+    } else if actual == Frac::ZERO && suggested > Frac::ZERO {
         Some(EndgameVerdict::Mistake)
     } else if suggested - actual > Frac::new(1, 10) {
         Some(EndgameVerdict::Suggestion)
@@ -235,8 +247,7 @@ impl Game {
 
                             let endgame = g.in_endgame() || g.conv.solves_endgame(&g);
                             if endgame {
-                                // A game that was won needs no advice about its endgame.
-                                if !game_won {
+                                {
                                     // The winrates are computed from the real position at this move, in which the mover knows
                                     // their own hand (nobody sees their own cards, so reveal them in the mover's thoughts too).
                                     let mut real = seen_all.clone();
@@ -268,6 +279,7 @@ impl Game {
                                     let verdict = endgame_verdict(
                                         winrate(suggested_perform),
                                         winrate(PerformAction::from_action(action)),
+                                        game_won,
                                     );
                                     if let Some(verdict) = verdict {
                                         let (mistake, text) = match verdict {
@@ -412,7 +424,12 @@ mod tests {
     use super::*;
 
     fn verdict(suggested: Option<Frac>, actual: Option<Frac>) -> Option<bool> {
-        endgame_verdict(suggested, actual).map(|v| matches!(v, EndgameVerdict::Mistake))
+        endgame_verdict(suggested, actual, false).map(|v| matches!(v, EndgameVerdict::Mistake))
+    }
+
+    fn won_verdict(suggested: Frac, actual: Frac) -> Option<bool> {
+        endgame_verdict(Some(suggested), Some(actual), true)
+            .map(|v| matches!(v, EndgameVerdict::Mistake))
     }
 
     #[test]
@@ -442,5 +459,15 @@ mod tests {
         assert_eq!(verdict(Some(Frac::ZERO), Some(Frac::new(1, 2))), None);
         assert_eq!(verdict(None, Some(Frac::ZERO)), None);
         assert_eq!(verdict(Some(Frac::ONE), None), None);
+    }
+
+    #[test]
+    fn a_won_game_only_hears_about_a_much_better_move_and_never_a_mistake() {
+        // The differences seen in won games were a quarter to a third.
+        assert_eq!(won_verdict(Frac::new(1, 3), Frac::new(1, 12)), None);
+        assert_eq!(won_verdict(Frac::new(1, 2), Frac::new(1, 6)), None);
+        assert_eq!(won_verdict(Frac::new(27, 100), Frac::ZERO), None);
+        assert_eq!(won_verdict(Frac::ONE, Frac::new(1, 2)), Some(false));
+        assert_eq!(won_verdict(Frac::ONE, Frac::ZERO), Some(false));
     }
 }
