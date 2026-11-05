@@ -74,7 +74,6 @@ try {
     "the robot is on by default",
   );
   assert.equal(await popup.locator("#convention option").count(), 14);
-  assert.match(await popup.locator("#disclaimer").innerText(), /Unofficial/);
   ok("the toolbar popup shows the settings, with the robot on by default");
 
   // An unsupported variant: the robot is shown, and the box says that the bot can't play it.
@@ -107,23 +106,12 @@ try {
   await robot.waitFor({ state: "visible", timeout: 30_000 });
   await click(robot);
   await panel.waitFor({ state: "visible" });
-  assert.match(
-    await panel.innerText(),
-    /Unofficial/,
-    "the box carries the disclaimer",
-  );
   assert.equal(
     await panel.locator("option").count(),
     14,
     "12 H-Group levels, Reactor and RefSieve",
   );
   await panel.locator(".status").waitFor({ state: "hidden", timeout: 30_000 });
-  assert.equal(
-    await panel.locator(".start").isDisabled(),
-    true,
-    "not before the disclaimer is acknowledged",
-  );
-  await panel.locator(".acknowledge").check();
   assert.equal(await panel.locator(".start").isDisabled(), false);
   assert.ok(
     (
@@ -134,9 +122,7 @@ try {
   );
   await panel.locator("select").selectOption("HGroup3");
   await shot("1-panel");
-  ok(
-    "the box checks support, asks for the acknowledgement, and links to a pre-filled report",
-  );
+  ok("the box checks support and links to a pre-filled report");
 
   await click(panel.locator(".start"));
   const progress = page.locator(".progress");
@@ -179,7 +165,6 @@ try {
   const summary = await comment.innerText();
   assert.match(summary, /12 moves differ/);
   assert.match(summary, /8 clear mistakes/);
-  assert.match(summary, /Unofficial/);
   await shot("4-summary");
   ok("the summary at the end of the game");
 

@@ -2,7 +2,7 @@
   "name": "hanab-analysis-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Browser extension: the game analysis of hanab-bot-rs on hanab.live replays (unofficial)",
+  "description": "Browser extension: the game analysis of hanab-bot-rs on hanab.live replays",
   "license": "GPL-3.0-or-later",
   "scripts": {
     "build": "node build.mjs",

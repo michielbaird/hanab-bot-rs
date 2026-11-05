@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { getSegment } from "./analysis";
 import { analysis, geometry, info } from "./fixtures";
 import {
   getButtonPositions,
@@ -44,6 +45,23 @@ test("the markers run along the bar without covering the shuttle", () => {
   );
 });
 
+test("a long comment in a small window gets a smaller font, within limits", () => {
+  const long = {
+    ...analysis,
+    comments: [{ ...analysis.comments[0]!, text: "x".repeat(120) }],
+  };
+  const at = (width: number) =>
+    getCommentBox(
+      { ...geometry, replayArea: { ...geometry.replayArea, width } },
+      { ...info, segment: getSegment(long.comments[0]!) },
+      long,
+      "X",
+    )!.fontSize;
+  assert.ok(at(500) < 13);
+  assert.equal(at(100), 9);
+  assert.equal(at(5000), 13);
+});
+
 test("the comment box shows the comments of the turn, or the summary at the end", () => {
   const turn = getCommentBox(
     geometry,
@@ -53,6 +71,7 @@ test("the comment box shows the comments of the turn, or the summary at the end"
   );
   assert.equal(turn?.text, "Bob: mistake! prefer (a) over (b)");
   assert.equal(turn?.mistake, true);
+  assert.equal(turn?.fontSize, 13, "a short comment is at full size");
 
   const end = getCommentBox(
     geometry,
@@ -60,7 +79,7 @@ test("the comment box shows the comments of the turn, or the summary at the end"
     analysis,
     "H-Group (level 3)",
   );
-  assert.match(end?.text ?? "", /3 moves differ[\s\S]*Unofficial/);
+  assert.match(end?.text ?? "", /3 moves differ/);
   assert.equal(end?.mistake, false);
 
   assert.equal(

@@ -1,6 +1,6 @@
 # Privacy
 
-Hanab Analysis (unofficial) collects no data about you, and sends none anywhere.
+Hanab Analysis collects no data about you, and sends none anywhere.
 
 - **What it reads:** on hanab.live, the replay of a finished game that you open: which game it is, its variant and
   options, which turn is shown and where the replay controls are drawn on the page.
@@ -14,7 +14,5 @@ Hanab Analysis (unofficial) collects no data about you, and sends none anywhere.
 
 If you report a problem, the link opens a new issue on GitHub with the extension version, the game's address, its
 variant and the convention filled in; nothing is sent unless you submit that issue.
-
-The extension is unofficial: it is not made or endorsed by hanab.live or the H-Group, and the bot is often wrong.
 
 Questions: [open an issue](https://github.com/michielbaird/hanab-bot-rs/issues).

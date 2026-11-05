@@ -7,8 +7,6 @@ export interface Settings {
   slowDevice: boolean;
   /** Hides the suggestions and keeps the clear mistakes. */
   mistakesOnly: boolean;
-  /** Whether the user has read that the extension is unofficial and the bot often wrong. */
-  acknowledged: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -16,7 +14,6 @@ export const DEFAULT_SETTINGS: Settings = {
   convention: "HGroup3",
   slowDevice: false,
   mistakesOnly: false,
-  acknowledged: false,
 };
 
 const KEY = "settings";

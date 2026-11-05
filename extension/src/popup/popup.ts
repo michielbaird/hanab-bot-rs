@@ -3,7 +3,6 @@
 import { CONVENTIONS } from "../conventions";
 import { PRIVACY_PAGE, getReportUrl } from "../links";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../settings";
-import { DISCLAIMER } from "../text";
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -21,7 +20,6 @@ const convention = byId<HTMLSelectElement>("convention");
 for (const [value, label] of CONVENTIONS) {
   convention.append(new Option(label, value));
 }
-byId("disclaimer").textContent = DISCLAIMER;
 byId<HTMLAnchorElement>("privacy").href = PRIVACY_PAGE;
 byId<HTMLAnchorElement>("report").href = getReportUrl({
   gameID: null,

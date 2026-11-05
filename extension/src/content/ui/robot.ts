@@ -7,8 +7,7 @@ import type { Store } from "../store";
 import { el, place } from "./dom";
 
 const TITLE =
-  "Bot analysis: the bot goes through this game in your browser and marks every move it would have played differently. " +
-  "Unofficial, and often wrong.";
+  "Bot analysis: the bot goes through this game in your browser and marks every move it would have played differently.";
 
 function drawRobot(): Node {
   const markup = new DOMParser().parseFromString(robotSvg, "image/svg+xml");

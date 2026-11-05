@@ -102,7 +102,7 @@ export function createController(
       return;
     }
 
-    saveSettings({ convention, acknowledged: true }).catch(() => undefined);
+    saveSettings({ convention }).catch(() => undefined);
     store.update({ panelOpen: false });
 
     const cached = await loadAnalysis(info.databaseID, convention).catch(

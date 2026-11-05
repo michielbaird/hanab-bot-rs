@@ -1,7 +1,6 @@
 # Installing the extension
 
-The extension is not in any store. You build it and load it from a folder. It is unofficial, and the bot is often wrong,
-especially at higher H-Group levels (see [README.md](README.md)).
+The extension is not in any store. You build it and load it from a folder. The bot can be wrong (see [README.md](README.md)).
 
 ## 1. Build it
 
@@ -32,7 +31,7 @@ EXT_MATCHES="https://hanab.live/*,http://localhost/*" npm run build
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and pick the `dist/chrome` folder (the one with `manifest.json`). Keep the folder: the browser
    reads the extension from it.
-4. "Hanab Analysis (unofficial)" should be listed without errors. After a rebuild, click the reload arrow on its card.
+4. "Hanab Analysis" should be listed without errors. After a rebuild, click the reload arrow on its card.
 
 **Firefox (128 or newer)**
 
@@ -45,7 +44,7 @@ EXT_MATCHES="https://hanab.live/*,http://localhost/*" npm run build
 1. Open the replay of a **finished game** on hanab.live, for example from your history. Reload the page once after
    installing the extension: content scripts only attach to pages loaded after it.
 2. The robot button appears above the right end of the replay bar after a moment (it only shows for finished games that are in the database; for a variant or table option that the bot can't play, the box says so).
-3. Click it. The box checks that the bot can play the game (the first time, this loads the bot). Pick a convention (the default is H-Group level 3), tick that you understand that this is unofficial and the bot often wrong (once), and click **Analyze**. A progress bar is shown in the middle
+3. Click it. The box checks that the bot can play the game (the first time, this loads the bot). Pick a convention (the default is H-Group level 3), and click **Analyze**. A progress bar is shown in the middle
    of the screen; a long game takes about half a minute.
 4. Afterwards:
    - markers above the replay bar: dark orange and tall for a clear mistake, yellow and short for a suggestion, blue for the summary at the end of the

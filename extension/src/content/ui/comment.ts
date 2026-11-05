@@ -29,6 +29,7 @@ export function mountComment(root: ShadowRoot, store: Store<ContentState>) {
     comment.textContent = box.text;
     comment.classList.toggle("mistake", box.mistake);
     comment.style.width = `${box.width}px`;
+    comment.style.fontSize = `${box.fontSize}px`;
     place(comment, box);
   });
 }

@@ -4,18 +4,17 @@ Text for the Chrome Web Store and Firefox Add-ons listings, and the answers the 
 
 ## Name
 
-Hanab Analysis (unofficial)
+Hanab Analysis
 
 ## Summary (132 characters at most)
 
-Unofficial. A bot marks the moves it would have played differently in a finished hanab.live game. Often wrong.
+A bot marks the moves it would have played differently in a finished hanab.live game. It can be wrong.
 
 ## Description
 
 Hanab Analysis has a bot go through a finished game on hanab.live and mark the moves it would have played differently.
 
-**Unofficial. Not made or endorsed by hanab.live or the H-Group. The bot is often wrong, especially at higher H-Group
-levels: treat what it says as a second opinion, not as advice.**
+The bot can be wrong, especially at higher H-Group levels.
 
 - Open the replay of a finished game and click the robot above the replay bar.
 - Pick a convention (H-Group level 1 to 12, Reactor or Referential Sieve) and start the analysis.

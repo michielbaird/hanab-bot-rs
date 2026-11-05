@@ -24,6 +24,7 @@ export interface Marker extends Point {
 
 export interface CommentBox extends Point {
   width: number;
+  fontSize: number;
   text: string;
   mistake: boolean;
 }
@@ -105,6 +106,17 @@ export function getMarkers(
   ];
 }
 
+const COMMENT_FONT = { max: 13, min: 9, charWidth: 0.55 };
+
+/** The site draws smaller when the window is small, so the text shrinks to stay on one line instead of running into what is below. */
+function getCommentFontSize(text: string, width: number): number {
+  const longest = Math.max(...text.split("\n").map((line) => line.length));
+  const fitting = width / (longest * COMMENT_FONT.charWidth);
+  return Math.round(
+    Math.min(COMMENT_FONT.max, Math.max(COMMENT_FONT.min, fitting)),
+  );
+}
+
 /** What to say under the replay controls: the comments on this turn, or the summary at the end. */
 export function getCommentBox(
   geometry: Geometry,
@@ -119,7 +131,7 @@ export function getCommentBox(
       .map((c) => `${analysis.players[c.player] ?? "?"}: ${c.text}`)
       .join("\n");
   } else if (info.segment === info.finalSegment) {
-    text = `${getSummary(analysis, convention)}\n(Unofficial; the bot is often wrong.)`;
+    text = getSummary(analysis, convention);
   } else {
     return null;
   }
@@ -129,6 +141,7 @@ export function getCommentBox(
     left: replayArea.x,
     top: replayArea.y + replayArea.height * 0.9,
     width: replayArea.width,
+    fontSize: getCommentFontSize(text, replayArea.width),
     text,
     mistake: here.some((c) => c.mistake),
   };

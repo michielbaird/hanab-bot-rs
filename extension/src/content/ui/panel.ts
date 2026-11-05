@@ -1,6 +1,5 @@
 import { CONVENTIONS } from "../../conventions";
 import { getReportUrl, PRIVACY_PAGE } from "../../links";
-import { DISCLAIMER } from "../../text";
 import type { Controller } from "../controller";
 import { getButtonPositions } from "../layout";
 import { getSupport, type ContentState } from "../state";
@@ -27,14 +26,6 @@ function createPanel(
   picker.value = store.get().settings.convention;
   picker.setAttribute("aria-label", "Convention");
 
-  const acknowledge = el("input", "acknowledge");
-  acknowledge.type = "checkbox";
-  const acknowledgement = el("label", "acknowledgement");
-  acknowledgement.append(
-    acknowledge,
-    " I understand that this is unofficial and that the bot is often wrong.",
-  );
-
   const start = el("button", "start", "Analyze");
   start.addEventListener("click", () => {
     const label = picker.selectedOptions[0]?.textContent ?? picker.value;
@@ -58,9 +49,7 @@ function createPanel(
     el("div", "title", "Bot analysis"),
     status,
     picker,
-    acknowledgement,
     start,
-    el("div", "small", DISCLAIMER),
     links,
   );
 
@@ -72,10 +61,7 @@ function createPanel(
         ? "Checking whether the bot can play this game..."
         : "The bot can't play this variant or these table options.";
 
-    acknowledgement.hidden = current.settings.acknowledged;
-    start.disabled =
-      supported !== true ||
-      !(current.settings.acknowledged || acknowledge.checked);
+    start.disabled = supported !== true;
 
     const { info } = current.page;
     report.href = getReportUrl({
@@ -84,9 +70,6 @@ function createPanel(
       convention: picker.value,
     });
   };
-  acknowledge.addEventListener("change", () => {
-    render(store.get());
-  });
   picker.addEventListener("change", () => {
     render(store.get());
   });

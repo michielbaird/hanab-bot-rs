@@ -108,11 +108,6 @@ button {
   margin: 6px 0;
   color: #ffd479;
 }
-.panel .acknowledgement {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
-}
 .panel .link {
   color: #9ecbff;
 }

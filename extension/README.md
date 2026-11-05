@@ -1,11 +1,8 @@
-# Hanab Analysis (unofficial browser extension)
+# Hanab Analysis (browser extension)
 
 Has the bot of this repository look through a **finished game on hanab.live** and mark the moves it would have played
 differently. It runs entirely in your browser (the bot is WebAssembly, see `../wasm`); the only request it makes to the
 site is the usual `/export/<id>` of the game you are looking at.
-
-> **Unofficial.** Not made or endorsed by hanab.live or the H-Group. The bot is often wrong, especially at higher H-Group
-> levels, and so are its suggestions: treat them as a second opinion. The extension says so wherever it shows them.
 
 ## What it does
 
@@ -13,8 +10,7 @@ On the replay of a finished game (one in the database):
 
 - a robot button above the right end of the replay bar opens a small box to pick the convention (H-Group level 1 to 12,
   Reactor or Referential Sieve) and start the analysis, with a progress bar in the middle of the screen. The bot is only
-  loaded when you open the box, which also says if it can't play the game's variant or table options. The first time, you
-  tick that you understand that this is unofficial and the bot often wrong;
+  loaded when you open the box, which also says if it can't play the game's variant or table options.;
 - every move the bot would have played differently gets a marker above the replay bar (dark orange and tall for a clear
   mistake, yellow and short for a suggestion, blue for the end of the game; the colours are chosen to stay apart with
   colour blindness), and the bot's comment is shown under the replay controls while you are on that turn;
