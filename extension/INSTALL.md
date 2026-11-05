@@ -44,16 +44,16 @@ EXT_MATCHES="https://hanab.live/*,http://localhost/*" npm run build
 
 1. Open the replay of a **finished game** on hanab.live, for example from your history. Reload the page once after
    installing the extension: content scripts only attach to pages loaded after it.
-2. The 🤖 button appears above the right end of the replay bar after a moment (the bot first has to confirm that it can
-   play the game's variant; there is no button for variants and options it can't, for games in progress, or for replays
-   that aren't in the database).
-3. Click it, pick a convention (the default is H-Group level 3) and click **Analyze**. A progress bar is shown in the middle
+2. The robot button appears above the right end of the replay bar after a moment (it only shows for finished games that are in the database; for a variant or table option that the bot can't play, the box says so).
+3. Click it. The box checks that the bot can play the game (the first time, this loads the bot). Pick a convention (the default is H-Group level 3), tick that you understand that this is unofficial and the bot often wrong (once), and click **Analyze**. A progress bar is shown in the middle
    of the screen; a long game takes about half a minute.
 4. Afterwards:
-   - markers above the replay bar: red for a clear mistake, amber for a suggestion, blue for the summary at the end of the
+   - markers above the replay bar: dark orange and tall for a clear mistake, yellow and short for a suggestion, blue for the summary at the end of the
      game. Click one to go there;
    - `◀!` and `!▶` next to the robot jump to the previous and next comment, the last stop being the end of the game;
    - the bot's comment for the turn you are on is shown under the replay controls, and the summary at the end.
+5. The toolbar button has the settings (off, starting convention, slow device, only clear mistakes). Analyses are kept in your
+   browser, so opening the game again shows the result again.
 
 ## If it doesn't work
 

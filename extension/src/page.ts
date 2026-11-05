@@ -169,9 +169,9 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   }
   const message = event.data as Partial<GoToMessage> | null;
   if (
-    message?.source === CONTENT_SOURCE
-    && message.type === "goto"
-    && typeof message.segment === "number"
+    message?.source === CONTENT_SOURCE &&
+    message.type === "goto" &&
+    typeof message.segment === "number"
   ) {
     goTo(message.segment);
   }

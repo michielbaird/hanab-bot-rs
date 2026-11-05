@@ -1,0 +1,52 @@
+name: extension release
+
+# Publishes the browser extension (extension/) as a release: push a tag like `extension-v0.1.0` (the version in
+# extension/manifest.base.json). The release holds the Chrome and Firefox packages and a source package for the stores.
+on:
+  push:
+    tags: ["extension-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - name: The tag names the version
+        run: |
+          version=$(node -p "require('./manifest.base.json').version")
+          if [[ $GITHUB_REF_NAME != "extension-v$version" ]]; then
+            echo "::error::the tag is $GITHUB_REF_NAME, but the extension's version is $version"
+            exit 1
+          fi
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - name: Lint the Firefox package
+        run: npx --yes web-ext@8 lint --source-dir dist/firefox
+      - name: Pack
+        run: |
+          version=$(node -p "require('./manifest.base.json').version")
+          mkdir release
+          (cd dist/chrome && zip -q -X -r "../../release/hanab-analysis-chrome-$version.zip" .)
+          (cd dist/firefox && zip -q -X -r "../../release/hanab-analysis-firefox-$version.zip" .)
+          git archive --format=zip --prefix="hanab-bot-rs-$version/" -o "release/hanab-analysis-source-$version.zip" HEAD
+          (cd release && sha256sum ./*.zip > SHA256SUMS)
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Unofficial browser extension for hanab.live (Chrome and Firefox), built from $GITHUB_SHA. The source package is for store review; SOURCE.md says how it is built."

@@ -1,9 +1,10 @@
 import type { AnalysisResult, GameInfo, Geometry } from "../protocol";
 import { commentsAt, getSegment, getSummary } from "./analysis";
 
-export const MISTAKE_COLOR = "#ff4040";
-export const SUGGESTION_COLOR = "#ffb000";
-export const SUMMARY_COLOR = "#58a6ff";
+// Colours that stay apart with the common kinds of colour blindness (the Okabe-Ito palette); the heights differ too.
+export const MISTAKE_COLOR = "#d55e00";
+export const SUGGESTION_COLOR = "#f0e442";
+export const SUMMARY_COLOR = "#56b4e9";
 
 const BUTTON_SIZE = 28;
 const BUTTON_GAP = 4;
@@ -65,19 +66,27 @@ export function getMarkers(
   const { width, height } = getMarkerSize(bar);
   const top = getMarkerTop(geometry);
 
-  const at = (segment: number, color: string, title: string): Marker => ({
-    left:
-      bar.x +
-      (sliderWidth / finalSegment) * segment +
-      shuttle.width / 2 -
-      width / 2,
-    top,
-    width,
-    height,
-    segment,
-    color,
-    title,
-  });
+  const at = (
+    segment: number,
+    color: string,
+    title: string,
+    shorter = false,
+  ): Marker => {
+    const markerHeight = shorter ? Math.round(height * 0.7) : height;
+    return {
+      left:
+        bar.x +
+        (sliderWidth / finalSegment) * segment +
+        shuttle.width / 2 -
+        width / 2,
+      top: top + height - markerHeight,
+      width,
+      height: markerHeight,
+      segment,
+      color,
+      title,
+    };
+  };
 
   // Mistakes last, so that they are on top if a suggestion is on the same turn.
   const ordered = analysis.comments.toSorted(
@@ -89,6 +98,7 @@ export function getMarkers(
         getSegment(c),
         c.mistake ? MISTAKE_COLOR : SUGGESTION_COLOR,
         `Turn ${c.turn}: ${c.text}`,
+        !c.mistake,
       ),
     ),
     at(info.finalSegment, SUMMARY_COLOR, "The bot's summary of the game"),

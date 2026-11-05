@@ -14,6 +14,7 @@ export function mountProgress(
 
   const text = el("div", "text");
   const bar = el("progress", "bar");
+  bar.setAttribute("aria-label", "Progress of the bot analysis");
   const cancel = el("button", "cancel", "Cancel");
   cancel.addEventListener("click", controller.cancelAnalysis);
 
@@ -28,6 +29,7 @@ export function mountProgress(
     if (box === null || shown?.kind !== progress.kind) {
       box?.remove();
       box = el("div", "progress");
+      box.setAttribute("role", "status");
       if (progress.kind === "running") {
         box.append(text, bar, cancel);
       } else {

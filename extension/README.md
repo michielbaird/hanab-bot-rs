@@ -9,20 +9,28 @@ site is the usual `/export/<id>` of the game you are looking at.
 
 ## What it does
 
-On the replay of a finished game (one in the database) of a variant the bot can play:
+On the replay of a finished game (one in the database):
 
-- a 🤖 button above the right end of the replay bar opens a small box to pick the convention (H-Group level 1 to 12,
-  Reactor or Referential Sieve) and start the analysis, with a progress bar in the middle of the screen;
-- every move the bot would have played differently gets a marker above the replay bar (red for clear mistakes, amber for
-  suggestions), and the bot's comment is shown under the replay controls while you are on that turn;
+- a robot button above the right end of the replay bar opens a small box to pick the convention (H-Group level 1 to 12,
+  Reactor or Referential Sieve) and start the analysis, with a progress bar in the middle of the screen. The bot is only
+  loaded when you open the box, which also says if it can't play the game's variant or table options. The first time, you
+  tick that you understand that this is unofficial and the bot often wrong;
+- every move the bot would have played differently gets a marker above the replay bar (dark orange and tall for a clear
+  mistake, yellow and short for a suggestion, blue for the end of the game; the colours are chosen to stay apart with
+  colour blindness), and the bot's comment is shown under the replay controls while you are on that turn;
 - `◀!` and `!▶` jump to the previous and next comment; the last stop is the end of the game, where a summary of the whole
-  analysis is shown (its marker is blue). Clicking a marker also jumps there.
+  analysis is shown. Clicking (or tabbing to and pressing Enter on) a marker also jumps there;
+- the analyses are kept in your browser, so opening the game again shows the result again;
+- the toolbar button has the settings: switch the extension off, the convention the box starts on, a slow-device mode that
+  gives each endgame search more time, and "only show clear mistakes".
 
-Games with a variant or table option that the bot knows it can't play get no button.
+The box also has a link to a new GitHub issue with the game, variant and convention filled in.
 
 ## Building and installing
 
-See [INSTALL.md](INSTALL.md). In short: `npm ci && npm run build` makes `dist/chrome` and `dist/firefox`, which you load as
+See [INSTALL.md](INSTALL.md). For the stores: [STORE.md](STORE.md) (listing and permission justifications), [PRIVACY.md](PRIVACY.md),
+[SOURCE.md](SOURCE.md) and [THIRD_PARTY.md](THIRD_PARTY.md). A tag `extension-v<version>` publishes the packages (see
+`.github/workflows/extension-release.yml`). In short: `npm ci && npm run build` makes `dist/chrome` and `dist/firefox`, which you load as
 an unpacked extension (Chrome, Edge) or a temporary add-on (Firefox 128 or newer).
 
 The build needs the network once: it downloads the site's `variants.json` and `suits.json` (a pinned commit of the

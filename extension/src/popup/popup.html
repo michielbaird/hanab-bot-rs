@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hanab Analysis</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Hanab Analysis <small>(unofficial)</small></h1>
+    <label class="row">
+      <input type="checkbox" id="enabled" />
+      Show the robot on hanab.live replays
+    </label>
+    <label class="row">
+      Starts on
+      <select id="convention"></select>
+    </label>
+    <label class="row">
+      <input type="checkbox" id="slowDevice" />
+      Slow device: give each endgame search more time
+    </label>
+    <label class="row">
+      <input type="checkbox" id="mistakesOnly" />
+      Only show clear mistakes, not suggestions
+    </label>
+    <p class="small" id="disclaimer"></p>
+    <p class="small"><a id="privacy" target="_blank" rel="noopener noreferrer">Privacy</a> · <a id="report" target="_blank" rel="noopener noreferrer">Report a problem</a></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

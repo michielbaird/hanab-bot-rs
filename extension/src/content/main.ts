@@ -1,6 +1,7 @@
 // The extension's part on hanab.live: the interface, the `/export/<id>` request and the bot. What it knows about the
 // game and the canvas comes from the page bridge (`page.ts`).
 
+import { loadSettings, onSettingsChanged } from "../settings";
 import { startBridge } from "./bridge";
 import { createController } from "./controller";
 import { createEngine } from "./engine";
@@ -25,3 +26,12 @@ mountComment(root, store);
 mountButtons(root, store, controller);
 mountPanel(root, store, controller);
 mountProgress(root, store, controller);
+
+loadSettings()
+  .then((settings) => {
+    store.update({ settings });
+  })
+  .catch(() => undefined);
+onSettingsChanged((settings) => {
+  store.update({ settings });
+});

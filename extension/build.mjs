@@ -7,7 +7,7 @@
 // hanabi-live repository (the ref is HANABI_LIVE_REF, a pinned commit by default) into build/data and bundled into the worker.
 
 import { build } from "esbuild";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,20 +37,33 @@ async function downloadData() {
 
 const base = JSON.parse(await readFile(path.join(root, "manifest.base.json"), "utf8"));
 
+const icons = Object.fromEntries([16, 32, 48, 128].map((size) => [size, `icons/icon-${size}.png`]));
+
 function manifest(browser) {
   const result = {
     ...base,
+    icons,
+    homepage_url: "https://github.com/michielbaird/hanab-bot-rs/tree/main/extension",
+    // Settings and the analyses that are kept, in the browser only.
+    permissions: ["storage"],
+    action: { default_title: "Hanab Analysis", default_popup: "popup.html", default_icon: icons },
     content_scripts: [
       { matches, js: ["content.js"], run_at: "document_idle" },
+      // The page's own context, to read the replay (see src/page.ts).
       { matches, js: ["page.js"], run_at: "document_start", world: "MAIN" },
     ],
-    web_accessible_resources: [
-      { resources: ["worker.js", "hanab_bot_wasm_bg.wasm"], matches },
-    ],
+    web_accessible_resources: [{ resources: ["worker.js", "hanab_bot_wasm_bg.wasm"], matches }],
   };
-  if (browser === "firefox") {
+  if (browser === "chrome") {
+    result.minimum_chrome_version = "111";
+  } else {
+    result.author = "Michiel Baird";
     result.browser_specific_settings = {
-      gecko: { id: "hanab-analysis@michielbaird.github.io", strict_min_version: "128.0" },
+      gecko: {
+        id: "hanab-analysis@michielbaird.github.io",
+        strict_min_version: "128.0",
+        data_collection_permissions: { required: ["none"] },
+      },
     };
   }
   return result;
@@ -64,9 +77,14 @@ for (const browser of ["chrome", "firefox"]) {
   await mkdir(out, { recursive: true });
 
   const common = { bundle: true, minify: true, target: "es2022", logLevel: "warning" };
-  await build({ ...common, entryPoints: [path.join(root, "src/content/main.ts")], outfile: path.join(out, "content.js"), format: "iife", loader: { ".css": "text" } });
+  await build({ ...common, entryPoints: [path.join(root, "src/content/main.ts")], outfile: path.join(out, "content.js"), format: "iife", loader: { ".css": "text", ".svg": "text" } });
   await build({ ...common, entryPoints: [path.join(root, "src/page.ts")], outfile: path.join(out, "page.js"), format: "iife" });
   await build({ ...common, entryPoints: [path.join(root, "src/worker.ts")], outfile: path.join(out, "worker.js"), format: "esm" });
+  await build({ ...common, entryPoints: [path.join(root, "src/popup/popup.ts")], outfile: path.join(out, "popup.js"), format: "iife" });
+  await copyFile(path.join(root, "src/popup/popup.html"), path.join(out, "popup.html"));
+  await copyFile(path.join(root, "src/popup/popup.css"), path.join(out, "popup.css"));
+  await cp(path.join(root, "icons"), path.join(out, "icons"), { recursive: true });
+  await copyFile(path.join(root, "../LICENSE"), path.join(out, "LICENSE"));
   await copyFile(path.join(root, "node_modules/hanab-bot-wasm/hanab_bot_wasm_bg.wasm"), path.join(out, "hanab_bot_wasm_bg.wasm"));
   await writeFile(path.join(out, "manifest.json"), `${JSON.stringify(manifest(browser), null, 2)}\n`);
   console.log(`Built dist/${browser}`);

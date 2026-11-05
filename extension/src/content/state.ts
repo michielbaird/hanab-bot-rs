@@ -1,5 +1,6 @@
 import type { AnalysisResult, PageState } from "../protocol";
-import { getAnalyzable, getSupportKey } from "./analysis";
+import { DEFAULT_SETTINGS, type Settings } from "../settings";
+import { getAnalyzable, getSupportKey, onlyMistakes } from "./analysis";
 
 export interface Analysis {
   gameID: number;
@@ -12,6 +13,7 @@ export type Progress =
   | { kind: "error"; message: string };
 
 export interface ContentState {
+  settings: Settings;
   page: PageState;
   /** Whether the bot can play a game, by its variant and options (see `getSupportKey`). */
   support: Readonly<Record<string, boolean>>;
@@ -21,6 +23,7 @@ export interface ContentState {
 }
 
 export const initialState: ContentState = {
+  settings: DEFAULT_SETTINGS,
   page: { info: null, geometry: null },
   support: {},
   analysis: null,
@@ -28,13 +31,26 @@ export const initialState: ContentState = {
   progress: null,
 };
 
-/** Whether the robot button is shown: a game the bot can analyze, on a page whose canvas is drawn. */
+/** Whether the robot button is shown: a finished game in the database, on a page whose canvas is drawn. */
 export function isVisible(state: ContentState): boolean {
   const { info, geometry } = state.page;
-  const analyzable = getAnalyzable(info);
   return (
-    analyzable !== null &&
-    geometry !== null &&
-    state.support[getSupportKey(analyzable)] === true
+    state.settings.enabled && getAnalyzable(info) !== null && geometry !== null
   );
+}
+
+/** What the bot said, as far as the settings show it. */
+export function getShownAnalysis(state: ContentState): AnalysisResult | null {
+  if (state.analysis === null || !state.settings.enabled) {
+    return null;
+  }
+  return state.settings.mistakesOnly
+    ? onlyMistakes(state.analysis.result)
+    : state.analysis.result;
+}
+
+/** Whether the bot can play the game on the page: `undefined` until the bot has been asked. */
+export function getSupport(state: ContentState): boolean | undefined {
+  const info = getAnalyzable(state.page.info);
+  return info === null ? undefined : state.support[getSupportKey(info)];
 }

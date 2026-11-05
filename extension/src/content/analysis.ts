@@ -19,6 +19,13 @@ export function getStops(
   return [...new Set([...segments, finalSegment])].toSorted((a, b) => a - b);
 }
 
+export function onlyMistakes(analysis: AnalysisResult): AnalysisResult {
+  return {
+    ...analysis,
+    comments: analysis.comments.filter((c) => c.mistake),
+  };
+}
+
 export function commentsAt(
   analysis: AnalysisResult,
   segment: number,

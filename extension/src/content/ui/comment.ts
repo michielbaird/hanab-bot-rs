@@ -1,5 +1,5 @@
 import { getCommentBox } from "../layout";
-import type { ContentState } from "../state";
+import { getShownAnalysis, type ContentState } from "../state";
 import type { Store } from "../store";
 import { el, place } from "./dom";
 
@@ -7,18 +7,18 @@ import { el, place } from "./dom";
 export function mountComment(root: ShadowRoot, store: Store<ContentState>) {
   const comment = el("div", "comment");
   comment.hidden = true;
+  comment.setAttribute("role", "status");
   root.append(comment);
 
   store.subscribe((state) => {
     const { info, geometry } = state.page;
+    const analysis = getShownAnalysis(state);
     const box =
-      info !== null && geometry !== null && state.analysis !== null
-        ? getCommentBox(
-            geometry,
-            info,
-            state.analysis.result,
-            state.analysis.convention,
-          )
+      info !== null &&
+      geometry !== null &&
+      analysis !== null &&
+      state.analysis !== null
+        ? getCommentBox(geometry, info, analysis, state.analysis.convention)
         : null;
 
     comment.hidden = box === null;

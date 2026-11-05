@@ -1,5 +1,5 @@
 import { getMarkers } from "../layout";
-import type { ContentState } from "../state";
+import { getShownAnalysis, type ContentState } from "../state";
 import type { Store } from "../store";
 import type { Controller } from "../controller";
 import { el, place } from "./dom";
@@ -16,7 +16,7 @@ export function mountMarkers(
   let drawn = "";
   store.subscribe((state) => {
     const { info, geometry } = state.page;
-    const analysis = state.analysis?.result;
+    const analysis = getShownAnalysis(state) ?? undefined;
     if (info === null || geometry === null || analysis === undefined) {
       container.replaceChildren();
       drawn = "";
@@ -37,9 +37,19 @@ export function mountMarkers(
         tick.style.width = `${marker.width}px`;
         tick.style.height = `${marker.height}px`;
         tick.title = marker.title;
+        tick.setAttribute("role", "button");
+        tick.setAttribute("aria-label", marker.title);
+        tick.tabIndex = 0;
         place(tick, marker);
-        tick.addEventListener("click", () => {
+        const go = () => {
           controller.goTo(marker.segment);
+        };
+        tick.addEventListener("click", go);
+        tick.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            go();
+          }
         });
         return tick;
       }),

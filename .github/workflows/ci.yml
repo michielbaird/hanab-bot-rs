@@ -129,3 +129,4 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test:unit
+      - run: npx --yes web-ext@8 lint --source-dir dist/firefox

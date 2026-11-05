@@ -2,5 +2,6 @@
   "manifest_version": 3,
   "name": "Hanab Analysis (unofficial)",
   "version": "0.1.0",
-  "description": "Unofficial. Has a bot look through a finished game on hanab.live and mark the moves it would have played differently. Not endorsed by hanab.live or the H-Group, and the bot is often wrong."
+  "description": "Unofficial. A bot marks the moves it would have played differently in a finished hanab.live game. Often wrong.",
+  "short_name": "Hanab Analysis"
 }
