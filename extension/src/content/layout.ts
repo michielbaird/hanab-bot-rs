@@ -1,4 +1,4 @@
-import type { AnalysisResult, GameInfo, Geometry } from "../protocol";
+import type { AnalysisResult, GameInfo, Geometry, Rect } from "../protocol";
 import { commentsAt, getSegment, getSummary } from "./analysis";
 
 // Colours that stay apart with the common kinds of colour blindness (the Okabe-Ito palette); the heights differ too.
@@ -44,19 +44,59 @@ function getMarkerTop(geometry: Geometry): number {
   );
 }
 
-/** Beside the "Enter Hypothetical" button, to its left (or to its right if that is at the left edge): previous, next, robot. */
+/**
+ * Where the robot can go in the row under the controls: the widest gap between two buttons (a shared replay has the
+ * site's own robot spot between them), or with one button, the wider side of it.
+ */
+function getFreeSpot(geometry: Geometry): Rect | null {
+  const { replayArea } = geometry;
+  const buttons = geometry.bottomRow.toSorted((a, b) => a.x - b.x);
+  const [first] = buttons;
+  const last = buttons.at(-1);
+  if (first === undefined || last === undefined) {
+    return null;
+  }
+  const spot = (from: number, to: number): Rect => ({
+    x: from,
+    y: first.y,
+    width: to - from,
+    height: first.height,
+  });
+  const gaps = buttons
+    .slice(1)
+    .map((button, i) => spot(buttons[i]!.x + buttons[i]!.width, button.x));
+  if (gaps.length === 0) {
+    gaps.push(
+      spot(replayArea.x, first.x),
+      spot(first.x + first.width, replayArea.x + replayArea.width),
+    );
+  }
+  return gaps.reduce((best, gap) => (gap.width > best.width ? gap : best));
+}
+
+/**
+ * The robot goes in the widest free space in the row under the controls (beside "Enter Hypothetical", or between the
+ * buttons of a shared replay), the previous and next buttons to the left of the controls.
+ */
 export function getButtonPositions(geometry: Geometry) {
-  const { hypoButton, replayArea } = geometry;
+  const { controls } = geometry;
+  const free = getFreeSpot(geometry);
+  const robot =
+    free !== null && free.width >= BUTTON_SIZE
+      ? {
+          left: free.x + (free.width - BUTTON_SIZE) / 2,
+          top: free.y + (free.height - BUTTON_SIZE) / 2,
+        }
+      : {
+          left: controls.x - 3 * BUTTON_SIZE - 3 * BUTTON_GAP,
+          top: controls.y + (controls.height - BUTTON_SIZE) / 2,
+        };
+  const top = controls.y + (controls.height - BUTTON_SIZE) / 2;
   const step = BUTTON_SIZE + BUTTON_GAP;
-  const top = hypoButton.y + (hypoButton.height - BUTTON_SIZE) / 2;
-  const roomOnLeft = hypoButton.x - replayArea.x >= 3 * step + BUTTON_GAP;
-  const first = roomOnLeft
-    ? hypoButton.x - 3 * step
-    : hypoButton.x + hypoButton.width + BUTTON_GAP * 3;
   return {
-    previous: { left: first, top },
-    next: { left: first + step, top },
-    robot: { left: first + 2 * step, top },
+    robot,
+    next: { left: controls.x - step, top },
+    previous: { left: controls.x - 2 * step, top },
   };
 }
 

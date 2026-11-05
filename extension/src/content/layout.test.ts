@@ -10,19 +10,21 @@ import {
   SUMMARY_COLOR,
 } from "./layout";
 
-test('the buttons are left of the "Enter Hypothetical" button, or right of it when there is no room', () => {
+test("the robot goes in free space in the bottom row, the jump buttons beside the controls", () => {
   const { robot, next, previous } = getButtonPositions(geometry);
-  assert.ok(previous.left < next.left && next.left < robot.left);
-  assert.equal(robot.top, next.top);
-  assert.ok(robot.left + 28 <= geometry.hypoButton.x);
+  assert.ok(previous.left < next.left);
+  assert.ok(next.left + 28 <= geometry.controls.x);
+  assert.ok(robot.left + 28 <= geometry.bottomRow[0]!.x);
 
-  const cramped = getButtonPositions({
+  // A shared replay: buttons on both sides of a small gap.
+  const shared = getButtonPositions({
     ...geometry,
-    hypoButton: { ...geometry.hypoButton, x: geometry.replayArea.x },
+    bottomRow: [
+      { x: 70, y: 420, width: 250, height: 40 },
+      { x: 360, y: 420, width: 250, height: 40 },
+    ],
   });
-  assert.ok(
-    cramped.previous.left >= geometry.replayArea.x + geometry.hypoButton.width,
-  );
+  assert.ok(shared.robot.left >= 320 && shared.robot.left + 28 <= 360);
 });
 
 test("there is a marker for every comment and one for the end of the game", () => {

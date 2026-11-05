@@ -10,6 +10,7 @@ import {
 } from "./protocol";
 
 interface KonvaNode {
+  isVisible: () => boolean;
   getAbsolutePosition: () => { x: number; y: number };
   width: () => number;
   height: () => number;
@@ -48,7 +49,11 @@ interface PageGlobals {
     replayBar: KonvaNode | null;
     replayShuttle: KonvaNode | null;
     replayArea: KonvaNode | null;
+    replayBackFullButton: KonvaNode | null;
     enterHypoButton: KonvaNode | null;
+    pauseSharedTurnsButton: KonvaNode | null;
+    useSharedTurnsButton: KonvaNode | null;
+    replayExitButton: KonvaNode | null;
   };
 }
 
@@ -81,9 +86,9 @@ function read(): PageState {
       replayActive: state.replay.active,
     };
 
-    const { replayBar, replayShuttle, replayArea, enterHypoButton } =
+    const { replayBar, replayShuttle, replayArea, replayBackFullButton } =
       pageGlobals.elements;
-    if (!replayBar || !replayShuttle || !replayArea || !enterHypoButton) {
+    if (!replayBar || !replayShuttle || !replayArea || !replayBackFullButton) {
       return { info, geometry: null };
     }
 
@@ -107,7 +112,15 @@ function read(): PageState {
           height: Math.round(replayShuttle.height()),
         },
         replayArea: place(replayArea),
-        hypoButton: place(enterHypoButton),
+        controls: place(replayBackFullButton),
+        bottomRow: [
+          pageGlobals.elements.enterHypoButton,
+          pageGlobals.elements.pauseSharedTurnsButton,
+          pageGlobals.elements.useSharedTurnsButton,
+          pageGlobals.elements.replayExitButton,
+        ]
+          .filter((node) => node?.isVisible() === true)
+          .map((node) => place(node!)),
       },
     };
   } catch {

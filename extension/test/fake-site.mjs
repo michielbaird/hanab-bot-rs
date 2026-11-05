@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const GAME_ID = 1_970_135;
-const EXPORT = readFileSync(path.join(here, "../../investigations/replay_1970135.json"), "utf8");
+const EXPORT = readFileSync(
+  path.join(here, "../../investigations/replay_1970135.json"),
+  "utf8",
+);
 
 const PAGE = (variant) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>fake replay</title>
@@ -16,7 +19,7 @@ const PAGE = (variant) => `<!doctype html>
 <body><div id="game"></div>
 <script>
   const node = (x, y, width, height) => ({
-    getAbsolutePosition: () => ({ x, y }), width: () => width, height: () => height,
+    getAbsolutePosition: () => ({ x, y }), width: () => width, isVisible: () => true, height: () => height,
   });
   const state = {
     finished: true,
@@ -38,7 +41,11 @@ const PAGE = (variant) => `<!doctype html>
       replayBar: node(100, 300, 500, 8),
       replayShuttle: node(0, 0, 24, 24),
       replayArea: node(60, 260, 600, 220),
+      replayBackFullButton: node(110, 340, 60, 40),
       enterHypoButton: node(250, 420, 220, 40),
+      pauseSharedTurnsButton: null,
+      useSharedTurnsButton: null,
+      replayExitButton: null,
     },
   };
 </script></body></html>`;

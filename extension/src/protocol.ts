@@ -15,12 +15,21 @@ export interface GameInfo {
 }
 
 /** Where things are drawn on the page, in pixels from the top left of the page's viewport. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface Geometry {
   bar: { x: number; y: number; width: number; height: number };
   shuttle: { width: number; height: number };
   replayArea: { x: number; y: number; width: number; height: number };
-  /** The "Enter Hypothetical" button, beside which the extension's buttons go. */
-  hypoButton: { x: number; y: number; width: number; height: number };
+  /** The first of the replay controls (back to the start), which the previous/next buttons go beside. */
+  controls: Rect;
+  /** The buttons that are shown in the row under the controls ("Enter Hypothetical", the shared turns buttons...). */
+  bottomRow: Rect[];
 }
 
 export interface PageState {
