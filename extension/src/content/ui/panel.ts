@@ -116,8 +116,9 @@ export function mountPanel(
       const robot = getButtonPositions(geometry).robot;
       place(panel.element, {
         left: Math.max(robot.left + ROBOT_SIZE - PANEL_WIDTH, 4),
-        top: robot.top + ROBOT_SIZE + 6,
+        top: robot.top - 6,
       });
+      panel.element.style.transform = "translateY(-100%)";
     }
     panel.element.querySelector<HTMLElement>(".picker")?.focus();
   });

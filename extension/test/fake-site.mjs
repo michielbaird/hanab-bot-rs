@@ -38,6 +38,7 @@ const PAGE = (variant) => `<!doctype html>
       replayBar: node(100, 300, 500, 8),
       replayShuttle: node(0, 0, 24, 24),
       replayArea: node(60, 260, 600, 220),
+      enterHypoButton: node(250, 420, 220, 40),
     },
   };
 </script></body></html>`;

@@ -44,15 +44,19 @@ function getMarkerTop(geometry: Geometry): number {
   );
 }
 
-/** The robot is above the right end of the markers, with the jump buttons to its left. */
+/** Beside the "Enter Hypothetical" button, to its left (or to its right if that is at the left edge): previous, next, robot. */
 export function getButtonPositions(geometry: Geometry) {
-  const top = getMarkerTop(geometry) - (BUTTON_SIZE + BUTTON_GAP);
-  const right = geometry.bar.x + geometry.bar.width - BUTTON_SIZE;
+  const { hypoButton, replayArea } = geometry;
   const step = BUTTON_SIZE + BUTTON_GAP;
+  const top = hypoButton.y + (hypoButton.height - BUTTON_SIZE) / 2;
+  const roomOnLeft = hypoButton.x - replayArea.x >= 3 * step + BUTTON_GAP;
+  const first = roomOnLeft
+    ? hypoButton.x - 3 * step
+    : hypoButton.x + hypoButton.width + BUTTON_GAP * 3;
   return {
-    robot: { left: right, top },
-    next: { left: right - step, top },
-    previous: { left: right - 2 * step, top },
+    previous: { left: first, top },
+    next: { left: first + step, top },
+    robot: { left: first + 2 * step, top },
   };
 }
 

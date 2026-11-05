@@ -19,6 +19,8 @@ export interface Geometry {
   bar: { x: number; y: number; width: number; height: number };
   shuttle: { width: number; height: number };
   replayArea: { x: number; y: number; width: number; height: number };
+  /** The "Enter Hypothetical" button, beside which the extension's buttons go. */
+  hypoButton: { x: number; y: number; width: number; height: number };
 }
 
 export interface PageState {

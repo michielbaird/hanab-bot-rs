@@ -48,6 +48,7 @@ interface PageGlobals {
     replayBar: KonvaNode | null;
     replayShuttle: KonvaNode | null;
     replayArea: KonvaNode | null;
+    enterHypoButton: KonvaNode | null;
   };
 }
 
@@ -80,8 +81,9 @@ function read(): PageState {
       replayActive: state.replay.active,
     };
 
-    const { replayBar, replayShuttle, replayArea } = pageGlobals.elements;
-    if (!replayBar || !replayShuttle || !replayArea) {
+    const { replayBar, replayShuttle, replayArea, enterHypoButton } =
+      pageGlobals.elements;
+    if (!replayBar || !replayShuttle || !replayArea || !enterHypoButton) {
       return { info, geometry: null };
     }
 
@@ -105,6 +107,7 @@ function read(): PageState {
           height: Math.round(replayShuttle.height()),
         },
         replayArea: place(replayArea),
+        hypoButton: place(enterHypoButton),
       },
     };
   } catch {

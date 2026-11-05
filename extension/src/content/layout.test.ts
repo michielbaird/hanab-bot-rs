@@ -10,12 +10,19 @@ import {
   SUMMARY_COLOR,
 } from "./layout";
 
-test("the jump buttons are to the left of the robot, all above the markers", () => {
+test('the buttons are left of the "Enter Hypothetical" button, or right of it when there is no room', () => {
   const { robot, next, previous } = getButtonPositions(geometry);
   assert.ok(previous.left < next.left && next.left < robot.left);
   assert.equal(robot.top, next.top);
-  const [marker] = getMarkers(geometry, info, analysis);
-  assert.ok(robot.top + 28 <= marker!.top);
+  assert.ok(robot.left + 28 <= geometry.hypoButton.x);
+
+  const cramped = getButtonPositions({
+    ...geometry,
+    hypoButton: { ...geometry.hypoButton, x: geometry.replayArea.x },
+  });
+  assert.ok(
+    cramped.previous.left >= geometry.replayArea.x + geometry.hypoButton.width,
+  );
 });
 
 test("there is a marker for every comment and one for the end of the game", () => {
