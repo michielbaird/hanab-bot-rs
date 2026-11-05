@@ -49,12 +49,39 @@ for (const [width, height] of SIZES) {
         height: size,
       }));
 
+      const comment = getCommentBox(
+        siteGeometry,
+        { ...info, segment: info.finalSegment },
+        analysis,
+        "H-Group (level 3)",
+      )!;
+      const lines = comment.text.split("\n").length;
+      const commentBox = {
+        x: comment.left,
+        y: comment.top,
+        width: comment.width,
+        height: lines * comment.fontSize * 1.4,
+      };
+      for (const other of [
+        ...siteGeometry.bottomRow,
+        ...Object.values(site.others),
+      ]) {
+        assert.ok(
+          !overlap(commentBox, other),
+          "the comment is clear of the site's buttons",
+        );
+      }
+
       for (const [i, button] of ours.entries()) {
         assert.ok(
           button.x >= 0 && button.x + size <= width,
           `button ${i} is on the canvas`,
         );
-        for (const other of [...site.controls, ...siteGeometry.bottomRow]) {
+        for (const other of [
+          ...site.controls,
+          ...siteGeometry.bottomRow,
+          ...Object.values(site.others),
+        ]) {
           assert.ok(
             !overlap(button, other),
             `button ${i} covers ${JSON.stringify(other)}`,

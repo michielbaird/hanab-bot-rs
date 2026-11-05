@@ -63,6 +63,7 @@ export function startFakeSite(port) {
       const boxes = Object.entries({
         ...layout.elements,
         ...layout.bottomRow,
+        ...layout.others,
       })
         .filter(([name]) => name !== "replayShuttle" && name !== "replayArea")
         .map(

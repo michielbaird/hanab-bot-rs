@@ -13,6 +13,8 @@ export function getSiteLayout(
   kind: ReplayKind,
 ): {
   canvas: SiteRect;
+  /** The rest of the game screen's buttons and areas that are shown. */
+  others: Record<string, SiteRect>;
   elements: Record<string, SiteRect>;
   bottomRow: Record<string, SiteRect>;
   controls: SiteRect[];

@@ -99,6 +99,8 @@ function read(): PageState {
       !replayBar ||
       !replayShuttle ||
       !replayArea ||
+      // Hidden in a hypothetical, where the hypothetical's buttons take its place.
+      !replayArea.isVisible() ||
       !replayBackFullButton ||
       !replayForwardFullButton
     ) {

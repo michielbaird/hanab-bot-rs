@@ -6,6 +6,11 @@ const BAR = { y: 0.0425, h: 0.01 };
 const SHUTTLE = 0.03;
 const CONTROLS = { x: 0.05, y: 0.07, w: 0.06, h: 0.08, spacing: 0.02 };
 const BOTTOM = { y: 0.17, h: 0.06, extra: 0.04 };
+// drawUI.ts: the buttons at the bottom left, the deck, the score area and the icon of the shared replay's leader.
+const SIDE = { x: 0.01, y: 0.8, w: 0.07, h: 0.0563 };
+const DECK = { x: 0.09, y: 0.8, w: 0.075, h: 0.189 };
+const SCORE = { x: 0.175, y: 0.81, w: 0.13, h: 0.18 };
+const LEADER = { x: 0.315, y: 0.84, w: 0.03, h: 0.03 };
 
 /**
  * The kinds of replay: "finished" (a finished game on its own), "game" (the replay inside a game that is still going on),
@@ -41,7 +46,23 @@ export function getSiteLayout(winW, winH, kind) {
     follower: { pauseSharedTurnsButton: center },
   }[kind];
 
+  const whole = (v) => rect(v.x * winW, v.y * winH, v.w * winW, v.h * winH);
+  const shared = kind === "leader" || kind === "follower";
+  const inGame = kind === "game";
+  const others = {
+    deck: whole(DECK),
+    scoreArea: whole(SCORE),
+    lobbyButton: whole({ ...SIDE, y: SIDE.y + 2 * SIDE.h + 0.02 }),
+    ...(inGame && { replayButton: whole(SIDE) }),
+    ...(kind === "leader" && { restartButton: whole(SIDE) }),
+    ...((inGame || shared) && {
+      chatButton: whole({ ...SIDE, y: SIDE.y + SIDE.h + 0.01 }),
+    }),
+    ...(shared && { sharedReplayLeaderLabel: whole(LEADER) }),
+  };
+
   return {
+    others,
     canvas: rect(0, 0, winW, winH),
     elements: {
       replayArea: area,
