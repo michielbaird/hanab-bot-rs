@@ -7,7 +7,7 @@ export const SUGGESTION_COLOR = "#f0e442";
 export const SUMMARY_COLOR = "#56b4e9";
 
 const BUTTON_SIZE = 28;
-const BUTTON_GAP = 4;
+const BUTTON_GAP = 2;
 
 export interface Point {
   left: number;
@@ -32,7 +32,7 @@ export interface CommentBox extends Point {
 function getMarkerSize(bar: Geometry["bar"]) {
   return {
     width: Math.max(4, Math.round(bar.height * 0.9)),
-    height: Math.max(7, Math.round(bar.height * 1.4)),
+    height: Math.max(6, Math.round(bar.height * 1.1)),
   };
 }
 
@@ -40,7 +40,7 @@ function getMarkerSize(bar: Geometry["bar"]) {
 function getMarkerTop(geometry: Geometry): number {
   const { bar, shuttle } = geometry;
   return (
-    bar.y + bar.height / 2 - shuttle.height / 2 - getMarkerSize(bar).height - 2
+    bar.y + bar.height / 2 - shuttle.height / 2 - getMarkerSize(bar).height
   );
 }
 
