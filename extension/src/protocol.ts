@@ -26,7 +26,7 @@ export interface Geometry {
   bar: { x: number; y: number; width: number; height: number };
   shuttle: { width: number; height: number };
   replayArea: { x: number; y: number; width: number; height: number };
-  /** The first of the replay controls (back to the start), which the previous/next buttons go beside. */
+  /** The row of replay controls (back to the start ... forward to the end), which the previous/next buttons go beside. */
   controls: Rect;
   /** The buttons that are shown in the row under the controls ("Enter Hypothetical", the shared turns buttons...). */
   bottomRow: Rect[];

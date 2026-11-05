@@ -60,6 +60,32 @@ try {
     if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) });
   };
 
+  // The layout of the site's replay controls in every kind of replay: the robot and the jump buttons must not cover any
+  // of them (the fake page draws them as boxes of the real sizes).
+  for (const kind of ["finished", "game", "leader", "follower"]) {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(replayURL(`?kind=${kind}&w=1280&h=720`));
+    await page.locator(".robot").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator(".nav").first().waitFor({ state: "attached" });
+    const ours = await page.locator(".robot").boundingBox();
+    const boxes = await page
+      .locator(".site")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getBoundingClientRect().toJSON()),
+      );
+    const covers = (a, b) =>
+      a.x < b.x + b.width &&
+      b.x < a.x + a.width &&
+      a.y < b.y + b.height &&
+      b.y < a.y + a.height;
+    assert.ok(
+      !boxes.some((box) => covers(ours, box)),
+      `the robot covers part of the site in a ${kind} replay`,
+    );
+    await shot(`layout-${kind}`);
+  }
+  ok("the robot covers none of the site's own buttons in any kind of replay");
+
   // The popup holds the settings.
   const popup = await context.newPage();
   const setSetting = async (id, checked) => {

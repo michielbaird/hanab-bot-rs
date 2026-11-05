@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getSegment } from "./analysis";
+import type { Geometry } from "../protocol";
+import { getSiteLayout } from "../../test/site-layout.mjs";
 import { analysis, geometry, info } from "./fixtures";
 import {
   getButtonPositions,
@@ -10,22 +12,61 @@ import {
   SUMMARY_COLOR,
 } from "./layout";
 
-test("the robot goes in free space in the bottom row, the jump buttons beside the controls", () => {
-  const { robot, next, previous } = getButtonPositions(geometry);
-  assert.ok(previous.left < next.left);
-  assert.ok(next.left + 28 <= geometry.controls.x);
-  assert.ok(robot.left + 28 <= geometry.bottomRow[0]!.x);
+const SIZES = [
+  [1920, 1080],
+  [1280, 720],
+  [1000, 562],
+] as const;
+const KINDS = ["finished", "game", "leader", "follower"] as const;
 
-  // A shared replay: buttons on both sides of a small gap.
-  const shared = getButtonPositions({
-    ...geometry,
-    bottomRow: [
-      { x: 70, y: 420, width: 250, height: 40 },
-      { x: 360, y: 420, width: 250, height: 40 },
-    ],
-  });
-  assert.ok(shared.robot.left >= 320 && shared.robot.left + 28 <= 360);
-});
+type Box = { x: number; y: number; width: number; height: number };
+const overlap = (a: Box, b: Box) =>
+  a.x < b.x + b.width &&
+  b.x < a.x + a.width &&
+  a.y < b.y + b.height &&
+  b.y < a.y + a.height;
+
+for (const [width, height] of SIZES) {
+  for (const kind of KINDS) {
+    test(`the buttons overlap nothing of the site in a ${kind} replay at ${width}x${height}`, () => {
+      const site = getSiteLayout(width, height, kind);
+      const siteGeometry: Geometry = {
+        bar: site.elements.replayBar!,
+        shuttle: site.elements.replayShuttle!,
+        replayArea: site.elements.replayArea!,
+        controls: {
+          ...site.controls[0]!,
+          width:
+            site.controls[3]!.x + site.controls[3]!.width - site.controls[0]!.x,
+        },
+        bottomRow: Object.values(site.bottomRow),
+      };
+      const { size, robot, next, previous } = getButtonPositions(siteGeometry);
+      const ours = [robot, next, previous].map((p) => ({
+        x: p.left,
+        y: p.top,
+        width: size,
+        height: size,
+      }));
+
+      for (const [i, button] of ours.entries()) {
+        assert.ok(
+          button.x >= 0 && button.x + size <= width,
+          `button ${i} is on the canvas`,
+        );
+        for (const other of [...site.controls, ...siteGeometry.bottomRow]) {
+          assert.ok(
+            !overlap(button, other),
+            `button ${i} covers ${JSON.stringify(other)}`,
+          );
+        }
+        for (const other of ours.slice(i + 1)) {
+          assert.ok(!overlap(button, other), `buttons ${i} touch each other`);
+        }
+      }
+    });
+  }
+}
 
 test("there is a marker for every comment and one for the end of the game", () => {
   const markers = getMarkers(geometry, info, analysis);

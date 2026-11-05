@@ -64,9 +64,14 @@ export function mountButtons(
     }
 
     const positions = getButtonPositions(geometry);
-    place(robot, positions.robot);
-    place(next, positions.next);
-    place(previous, positions.previous);
+    for (const [button, position] of [
+      [robot, positions.robot],
+      [next, positions.next],
+      [previous, positions.previous],
+    ] as const) {
+      place(button, position);
+      button.style.width = button.style.height = `${positions.size}px`;
+    }
   };
   store.subscribe(render);
   render(store.get());

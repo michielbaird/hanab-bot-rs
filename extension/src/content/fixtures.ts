@@ -17,7 +17,7 @@ export const geometry: Geometry = {
   bar: { x: 100, y: 300, width: 500, height: 8 },
   shuttle: { width: 24, height: 24 },
   replayArea: { x: 60, y: 260, width: 600, height: 220 },
-  controls: { x: 110, y: 340, width: 60, height: 40 },
+  controls: { x: 110, y: 340, width: 240, height: 40 },
   bottomRow: [{ x: 250, y: 420, width: 220, height: 40 }],
 };
 

@@ -6,7 +6,6 @@ export const MISTAKE_COLOR = "#d55e00";
 export const SUGGESTION_COLOR = "#f0e442";
 export const SUMMARY_COLOR = "#56b4e9";
 
-const BUTTON_SIZE = 28;
 const BUTTON_GAP = 2;
 
 export interface Point {
@@ -74,26 +73,33 @@ function getFreeSpot(geometry: Geometry): Rect | null {
   return gaps.reduce((best, gap) => (gap.width > best.width ? gap : best));
 }
 
+/** The site scales its drawing with the window, so the buttons do too (with limits, to stay readable and clickable). */
+export function getButtonSize(geometry: Geometry): number {
+  return Math.min(
+    30,
+    Math.max(20, Math.round(geometry.replayArea.width * 0.045)),
+  );
+}
+
 /**
- * The robot goes in the widest free space in the row under the controls (beside "Enter Hypothetical", or between the
- * buttons of a shared replay), the previous and next buttons to the left of the controls.
+ * The previous and next buttons go to the left of the replay controls, the robot in the widest free space in the row under
+ * them (the site leaves a gap between the buttons of a shared replay), or else to the right of the controls.
  */
 export function getButtonPositions(geometry: Geometry) {
   const { controls } = geometry;
+  const size = getButtonSize(geometry);
+  const step = size + BUTTON_GAP;
+  const top = controls.y + (controls.height - size) / 2;
   const free = getFreeSpot(geometry);
   const robot =
-    free !== null && free.width >= BUTTON_SIZE
+    free !== null && free.width >= size + 2 * BUTTON_GAP
       ? {
-          left: free.x + (free.width - BUTTON_SIZE) / 2,
-          top: free.y + (free.height - BUTTON_SIZE) / 2,
+          left: free.x + (free.width - size) / 2,
+          top: free.y + (free.height - size) / 2,
         }
-      : {
-          left: controls.x - 3 * BUTTON_SIZE - 3 * BUTTON_GAP,
-          top: controls.y + (controls.height - BUTTON_SIZE) / 2,
-        };
-  const top = controls.y + (controls.height - BUTTON_SIZE) / 2;
-  const step = BUTTON_SIZE + BUTTON_GAP;
+      : { left: controls.x + controls.width + step, top };
   return {
+    size,
     robot,
     next: { left: controls.x - step, top },
     previous: { left: controls.x - 2 * step, top },

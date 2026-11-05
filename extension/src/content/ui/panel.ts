@@ -7,7 +7,6 @@ import type { Store } from "../store";
 import { el, place } from "./dom";
 
 const PANEL_WIDTH = 300;
-const ROBOT_SIZE = 28;
 
 interface Panel {
   element: HTMLElement;
@@ -113,9 +112,10 @@ export function mountPanel(
 
     const { geometry } = state.page;
     if (geometry !== null) {
-      const robot = getButtonPositions(geometry).robot;
+      const positions = getButtonPositions(geometry);
+      const robot = positions.robot;
       place(panel.element, {
-        left: Math.max(robot.left + ROBOT_SIZE - PANEL_WIDTH, 4),
+        left: Math.max(robot.left + positions.size - PANEL_WIDTH, 4),
         top: robot.top - 6,
       });
       panel.element.style.transform = "translateY(-100%)";

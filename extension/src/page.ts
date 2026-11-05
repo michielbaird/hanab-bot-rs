@@ -7,6 +7,7 @@ import {
   type GoToMessage,
   type PageMessage,
   type PageState,
+  type Rect,
 } from "./protocol";
 
 interface KonvaNode {
@@ -50,6 +51,7 @@ interface PageGlobals {
     replayShuttle: KonvaNode | null;
     replayArea: KonvaNode | null;
     replayBackFullButton: KonvaNode | null;
+    replayForwardFullButton: KonvaNode | null;
     enterHypoButton: KonvaNode | null;
     pauseSharedTurnsButton: KonvaNode | null;
     useSharedTurnsButton: KonvaNode | null;
@@ -86,9 +88,20 @@ function read(): PageState {
       replayActive: state.replay.active,
     };
 
-    const { replayBar, replayShuttle, replayArea, replayBackFullButton } =
-      pageGlobals.elements;
-    if (!replayBar || !replayShuttle || !replayArea || !replayBackFullButton) {
+    const {
+      replayBar,
+      replayShuttle,
+      replayArea,
+      replayBackFullButton,
+      replayForwardFullButton,
+    } = pageGlobals.elements;
+    if (
+      !replayBar ||
+      !replayShuttle ||
+      !replayArea ||
+      !replayBackFullButton ||
+      !replayForwardFullButton
+    ) {
       return { info, geometry: null };
     }
 
@@ -103,6 +116,10 @@ function read(): PageState {
         height: Math.round(node.height()),
       };
     };
+    const spanning = (first: Rect, last: Rect): Rect => ({
+      ...first,
+      width: last.x + last.width - first.x,
+    });
     return {
       info,
       geometry: {
@@ -112,7 +129,10 @@ function read(): PageState {
           height: Math.round(replayShuttle.height()),
         },
         replayArea: place(replayArea),
-        controls: place(replayBackFullButton),
+        controls: spanning(
+          place(replayBackFullButton),
+          place(replayForwardFullButton),
+        ),
         bottomRow: [
           pageGlobals.elements.enterHypoButton,
           pageGlobals.elements.pauseSharedTurnsButton,
