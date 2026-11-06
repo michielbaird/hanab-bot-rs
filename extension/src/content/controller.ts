@@ -227,6 +227,12 @@ export function createController(
       return;
     }
 
+    if (state.progress !== null && !isVisible(state)) {
+      // Left the game: a running analysis is of no use any more.
+      engine.cancel();
+      store.update({ progress: null });
+    }
+
     if (state.panelOpen) {
       askSupport(state);
       if (!isVisible(state)) {

@@ -12,6 +12,8 @@ import {
 
 interface KonvaNode {
   isVisible: () => boolean;
+  /** Null once the node is no longer on a stage, which is what the site's destroy() leaves. */
+  getStage: () => unknown;
   getAbsolutePosition: () => { x: number; y: number };
   width: () => number;
   height: () => number;
@@ -101,6 +103,9 @@ function read(): PageState {
       !replayArea ||
       // Hidden in a hypothetical, where the hypothetical's buttons take its place.
       !replayArea.isVisible() ||
+      // Leaving the game (back, or to the lobby) destroys the canvas but leaves the site's state as it was.
+      !replayArea.getStage() ||
+      !pageGlobals.stage.container().isConnected ||
       !replayBackFullButton ||
       !replayForwardFullButton
     ) {

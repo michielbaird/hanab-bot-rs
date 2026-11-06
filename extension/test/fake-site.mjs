@@ -20,7 +20,7 @@ const PAGE = (variant, nodes, boxes) => `<!doctype html>
 <body><div id="game">${boxes}</div>
 <script>
   const node = ({ x, y, width, height }, visible = true) => ({
-    getAbsolutePosition: () => ({ x, y }), width: () => width, height: () => height, isVisible: () => visible,
+    getAbsolutePosition: () => ({ x, y }), width: () => width, height: () => height, isVisible: () => visible, getStage: () => ({}),
   });
   const nodes = ${JSON.stringify(nodes)};
   const state = {

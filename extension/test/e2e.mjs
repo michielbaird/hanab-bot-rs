@@ -227,6 +227,20 @@ try {
   );
   ok("a saved analysis comes back when the game is opened again");
 
+  // Leaving the game (the site destroys its canvas but keeps its state) takes everything off the page.
+  await page.evaluate(() => document.getElementById("game").remove());
+  await robot.waitFor({ state: "hidden", timeout: 5000 });
+  assert.equal(await ticks.count(), 0, "no markers after leaving the game");
+  await page.goto(replayURL());
+  await robot.waitFor({ state: "visible", timeout: 30_000 });
+  await click(robot);
+  await panel.waitFor({ state: "visible" });
+  await page.evaluate(() => document.getElementById("game").remove());
+  await panel.waitFor({ state: "hidden", timeout: 5000 });
+  ok("leaving the game removes the robot, the markers and the open box");
+
+  await page.goto(replayURL());
+  await robot.waitFor({ state: "visible", timeout: 30_000 });
   await setSetting("enabled", false);
   await robot.waitFor({ state: "hidden", timeout: 5000 });
   assert.equal(await ticks.count(), 0, "nothing is left on the page");
