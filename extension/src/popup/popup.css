@@ -1,0 +1,40 @@
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px 14px;
+  font: 13px/1.4 sans-serif;
+  color: #222;
+}
+h1 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+h1 small {
+  font-weight: normal;
+  color: #666;
+}
+.row {
+  display: block;
+  margin: 8px 0;
+}
+select {
+  margin-left: 6px;
+}
+.small {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #555;
+}
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1e1e1e;
+    color: #e6e6e6;
+  }
+  h1 small,
+  .small {
+    color: #aaa;
+  }
+  a {
+    color: #9ecbff;
+  }
+}
