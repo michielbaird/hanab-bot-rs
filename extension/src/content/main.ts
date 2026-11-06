@@ -35,3 +35,12 @@ loadSettings()
 onSettingsChanged((settings) => {
   store.update({ settings });
 });
+
+// When the extension is reloaded or updated, Chrome leaves this script running in the tabs that were already open, without
+// access to the extension ("chrome.runtime" is gone). Take the interface off the page; reloading the page brings the new one.
+const orphanCheck = setInterval(() => {
+  if (chrome.runtime?.id === undefined) {
+    clearInterval(orphanCheck);
+    root.host.remove();
+  }
+}, 1000);

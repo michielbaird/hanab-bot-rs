@@ -246,6 +246,18 @@ try {
   assert.equal(await ticks.count(), 0, "nothing is left on the page");
   ok("turning the extension off removes the robot and the markers");
   await setSetting("enabled", true);
+
+  // Reloading the extension orphans the script in the open tab: it takes its interface off the page.
+  await page.goto(replayURL());
+  await robot.waitFor({ state: "visible", timeout: 30_000 });
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await popup.evaluate(() => chrome.runtime.reload()).catch(() => undefined);
+  await page.waitForFunction(
+    () => !document.getElementById("hanab-analysis"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  ok("a script left behind by an extension reload removes its interface");
 } catch (error) {
   failed = true;
   console.error("FAILED:", error);
