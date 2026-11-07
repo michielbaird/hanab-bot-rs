@@ -42,6 +42,9 @@ fn fetch(url: &str) -> Result<String, String> {
         .map_err(|e| format!("{url}: {e}"))
 }
 
+/// The version that the server accepts from bots, on both `/login` and `/ws`.
+const CLIENT_VERSION: &str = "bot";
+
 /// Logs in and returns the session cookie.
 fn login(base: &str, username: &str, password: &str) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
@@ -50,7 +53,7 @@ fn login(base: &str, username: &str, password: &str) -> Result<String, String> {
         .form(&[
             ("username", username),
             ("password", password),
-            ("version", "bot"),
+            ("version", CLIENT_VERSION),
         ])
         .send()
         .map_err(|e| e.to_string())?;
@@ -290,7 +293,7 @@ fn main() -> Result<(), String> {
             if use_ssl { "https" } else { "http" }
         ),
         ws_url: format!(
-            "{}://{hostname}{}/ws",
+            "{}://{hostname}{}/ws?version={CLIENT_VERSION}",
             if use_ssl { "wss" } else { "ws" },
             if custom_port {
                 format!(":{port}")
