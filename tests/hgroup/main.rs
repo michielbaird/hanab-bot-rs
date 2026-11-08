@@ -11,6 +11,7 @@ mod level11_bad_bluffs;
 mod level11_complex_bluffs;
 mod level11_true_clues;
 mod level12;
+mod level13;
 mod level1_good_touch;
 mod level2;
 mod level2_self_finesses;

@@ -10,7 +10,7 @@ use crate::ref_sieve::RefSieve;
 /// The version the bot reports (in its first-card note, to `/version` and in the log). It comes from `Cargo.toml`, so
 /// there is one place to change it; the number is the scala-bot release it was ported from, until the two drift apart.
 pub const BOT_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), " (hanab-bot-rs)");
-pub const MAX_H_LEVEL: usize = 12;
+pub const MAX_H_LEVEL: usize = 13;
 
 /// Which set of conventions to play.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,8 +127,8 @@ mod tests {
             ConventionKind::parse("HGroup5"),
             Ok(ConventionKind::HGroup(5))
         );
-        assert_eq!(ConventionKind::parse("12"), Ok(ConventionKind::HGroup(12)));
-        assert!(ConventionKind::parse("HGroup13").is_err());
+        assert_eq!(ConventionKind::parse("13"), Ok(ConventionKind::HGroup(13)));
+        assert!(ConventionKind::parse("HGroup14").is_err());
         assert!(ConventionKind::parse("nonsense").is_err());
     }
 

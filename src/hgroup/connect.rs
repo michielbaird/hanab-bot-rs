@@ -1,7 +1,7 @@
 //! Finding the chain of plays that a clue implies.
 
 use super::interpret_clue::ClueContext;
-use super::special_clues::valid_bluff;
+use super::special_clues::{is_intermediate_bluff_target, valid_bluff};
 use super::update_wcs::play_in_hypo;
 use super::{FStatus, HGroupGame, Positional, level};
 use crate::basics::action::ClueAction;
@@ -733,16 +733,16 @@ impl UnknownConnecting<'_> {
         if future_ids.is_empty() {
             None
         } else {
-            let f_kind = if future_ids.is_exactly(id) {
-                FinesseKind::True
-            } else if opts.assume_truth
-                || !future_ids
+            let f_kind = if !opts.assume_truth
+                && future_ids
                     .iter()
                     .any(|i| valid_bluff(game, action, i, reacting, connected, false))
             {
-                FinesseKind::Hidden
-            } else {
                 FinesseKind::Bluff
+            } else if future_ids.is_exactly(id) {
+                FinesseKind::True
+            } else {
+                FinesseKind::Hidden
             };
 
             Some(Connection::Finesse {
@@ -1147,6 +1147,7 @@ struct ConnectSearch<'a, 'b> {
     id: Identity,
     find_own: Option<usize>,
     prefer_own: bool,
+    ignore_known: FastBitSet,
 }
 
 impl ConnectSearch<'_, '_> {
@@ -1312,6 +1313,15 @@ impl ConnectSearch<'_, '_> {
                     });
                 }
 
+                if connections.is_empty()
+                    && self.ignore_known.is_empty()
+                    && conns.iter().any(Connection::is_possibly_bluff)
+                    && is_intermediate_bluff_target(self.ctx.prev, game, action, id, focus)
+                {
+                    // An intermediate bluff is understood as soon as it is possible, without looking further
+                    return vec![(Ok(conns), true)];
+                }
+
                 let mut all_conns = connections.clone();
                 all_conns.extend(conns);
                 self.search(&new_game, next_rank + 1, all_conns, new_conn_ctx, new_opts)
@@ -1375,6 +1385,7 @@ pub fn connect(
         id,
         find_own,
         prefer_own,
+        ignore_known,
     };
     let attempts = search.search(
         game,

@@ -1,4 +1,4 @@
-//! The H-Group conventions (levels 1-12).
+//! The H-Group conventions (levels 1-13).
 
 pub mod conn_helper;
 pub mod connect;
