@@ -10,7 +10,7 @@ use crate::basics::clue::{ClueKind, ClueLike};
 use crate::basics::connection::{Connection, FinesseKind, FocusPossibility, WaitingConnection};
 use crate::basics::fix::{FixResult, check_fix, distribution_clue};
 use crate::basics::interp::ClueInterp;
-use crate::basics::{Game, Identity, IdentitySet};
+use crate::basics::{Game, Identity, IdentitySet, State};
 use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, first_max_by_key, visible_find};
 use crate::{log_highlight, log_info, log_warn};
@@ -345,6 +345,18 @@ pub fn resolve_play(
     g
 }
 
+/// The ids that would play next on each suit, once everything that is already going to play has played.
+pub fn delayed_plays(state: &State, hypo_stacks: &[usize]) -> IdentitySet {
+    hypo_stacks
+        .iter()
+        .enumerate()
+        // A finished suit has no next card (and rank 6 would be the next suit's 1)
+        .filter(|&(_, &stack)| stack < 5)
+        .map(|(suit_index, &stack)| Identity::new(suit_index, stack + 1))
+        .filter(|&id| state.is_useful(id))
+        .collect()
+}
+
 fn interpret_2p_locked_clue(ctx: &ClueContext) -> Game {
     let ClueContext { prev, game, action } = *ctx;
     let state = &game.state;
@@ -403,14 +415,7 @@ fn interpret_2p_locked_clue(ctx: &ClueContext) -> Game {
     g = game.clone();
 
     if list.contains(&slot1) {
-        let delayed_plays: IdentitySet = game
-            .common
-            .hypo_stacks
-            .iter()
-            .enumerate()
-            .map(|(suit_index, &stack)| Identity::new(suit_index, stack + 1))
-            .filter(|&id| state.is_useful(id))
-            .collect();
+        let delayed_plays = delayed_plays(state, &game.common.hypo_stacks);
         g.common
             .update_thought(slot1, |t| t.inferred = t.inferred.intersect(delayed_plays));
         let m = &mut g.meta[slot1];
@@ -427,7 +432,8 @@ fn interpret_2p_locked_clue(ctx: &ClueContext) -> Game {
         g.with_move(ClueInterp::Stall.into(), false);
     }
 
-    if g.common.thinks_trash(game, target).is_empty() {
+    // (Whether the target had trash before this clue: what the clue just wrote doesn't count.)
+    if prev_trash.is_empty() {
         write_lh_ptd(&mut g);
     } else {
         log_info!("target had previous trash {prev_trash:?}, colour stall");
