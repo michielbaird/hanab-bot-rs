@@ -1,6 +1,6 @@
 name: bot release
 
-# Builds the `bot` for Linux and Windows and attaches the packages to the release of a tag like `v1.3.1` (the version in
+# Builds the `bot` for Linux, Windows and macOS (Intel and Apple Silicon) and attaches the packages to the release of a tag like `v1.3.1` (the version in
 # Cargo.toml). Pushing the tag runs it, and creates the release if there is none. To add binaries to a release that exists
 # already, run it by hand and give the tag.
 on:
@@ -21,7 +21,7 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.name }})
+    name: build (${{ matrix.arch }} ${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -29,11 +29,22 @@ jobs:
         include:
           # The oldest runner image, so that the binary runs on older glibc systems too.
           - name: linux
+            arch: x86_64
             os: ubuntu-22.04
             package: tar.gz
           - name: windows
+            arch: x86_64
             os: windows-latest
             package: zip
+          # Built on macOS itself (no cross-compiling, no Apple SDK to fetch). Not signed: see the release notes.
+          - name: macos
+            arch: aarch64
+            os: macos-latest
+            package: tar.gz
+          - name: macos
+            arch: x86_64
+            os: macos-15-intel
+            package: tar.gz
     defaults:
       run:
         shell: bash
@@ -62,7 +73,7 @@ jobs:
           grep -q "Starting v$VERSION " <<< "$output"
       - name: Package
         run: |
-          name="hanab-bot-rs-v$VERSION-x86_64-${{ matrix.name }}"
+          name="hanab-bot-rs-v$VERSION-${{ matrix.arch }}-${{ matrix.name }}"
           mkdir -p "release/$name"
           if [[ ${{ matrix.name }} == windows ]]; then
             cp target/release/bot.exe "release/$name/"
@@ -79,7 +90,7 @@ jobs:
           rm -r "$name"
       - uses: actions/upload-artifact@v4
         with:
-          name: bot-${{ matrix.name }}
+          name: bot-${{ matrix.arch }}-${{ matrix.name }}
           path: release/*
 
   publish:
@@ -98,6 +109,6 @@ jobs:
         run: |
           (cd release && sha256sum ./* > SHA256SUMS)
           if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --generate-notes
+            gh release create "$TAG" --title "$TAG" --generate-notes --notes "On macOS, a binary downloaded with a browser is blocked by Gatekeeper because it is not notarized. Download it with \`curl\` or \`gh release download\`, or run \`xattr -d com.apple.quarantine ./bot\` once."
           fi
           gh release upload "$TAG" release/* --clobber
