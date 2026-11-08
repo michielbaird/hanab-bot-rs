@@ -70,9 +70,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 19. **fixed (partly)** `interpret_discard` (2p): the same `isTouched(0)` bug as item 10, fixed the same way. Still open: the log line does
     `prev.chop(..).get` (throws in Scala when there is no chop; the Rust prints the `Option`).
 20. **resolved** RefSieve's Gentleman's Discard branch: `g` is still an untouched copy of `game` there, so it was never a problem.
-21. **open** `eval_action` on a clue multiplies the result by `mult` regardless of its sign (Reactor only scales positive results).
-22. **open** `eval_action` on an unknown-id play divides the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and is `NaN`
-    when there are no unique inferences (`NaN` compares false, so such an action is never chosen over a real one).
+21. **fixed** `eval_action` on a clue multiplied the result by `mult` regardless of its sign; like Reactor, only a positive result is scaled.
+22. **fixed** `eval_action` on an unknown-id play divided the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and was `NaN`
+    when there were no unique inferences. A mistake is now -100, and so is a card with nothing it could be.
 23. **fixed** `interpret_2p_locked_clue` (colour branch) checked `thinksTrash(game, target)` on the *new* game's common, so it saw
     inferences the clue had just written (it now uses the trash found before writing them); and `delayed_plays` there built
     `Identity(suit, 6)` for a finished suit, whose ordinal aliases the next suit's 1 (finished suits are left out now).
@@ -81,7 +81,7 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 25. **open (low)** `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala
     `Vector.updated` would throw.
-26. **open** `eval_action` for unknown-id plays/discards divides by the number of candidates even after a mistake (like item 22).
+26. **fixed** `eval_action` for unknown-id plays/discards: a mistake was already -100; with no candidates it was `NaN` (like item 22), now -100.
 28. **open, design question** *Giver and receiver read a clue differently* (`investigations/hgroup5_seed9_3p.json`, `self_play seed=9
     convention=HGroup5`, 3p): at turn 24 Cathy re-clues Alice's already-clued 5s (no new cards touched, early game over). Alice's game
     marks her slot 1 `finessed` with inferred [g4,p4]; Cathy's own game leaves the card plain (she sees it is y1). Every later blind play

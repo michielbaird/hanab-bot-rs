@@ -407,3 +407,34 @@ fn allows_a_prompt_to_resolve_before_assuming_direct() {
 
     has_infs(&game, None, Alice, 5, &["r4", "y4"]);
 }
+
+#[test]
+fn an_unknown_play_that_can_only_be_a_clued_dupe_is_not_valued_as_nan() {
+    // Every 1 that Alice's clued card could be is clued in Bob's hand, so there is nothing it could be that is worth playing.
+    let game = setup(
+        hgroup(1),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y1", "g1", "b1", "p1"],
+        ],
+        Setup {
+            init: Box::new(|g| {
+                pre_clue(g, Alice, 1, &["1"]);
+                for slot in 1..=5 {
+                    pre_clue(g, Bob, slot, &["1"]);
+                }
+            }),
+            ..Setup::default()
+        },
+    );
+    let order = game.state.hands[Alice.ordinal()][0];
+    let value = hanab_bot::hgroup::state_eval::eval_action_impl(
+        &game,
+        &hanab_bot::basics::action::Action::Play(hanab_bot::basics::action::PlayAction {
+            player_index: Alice.ordinal(),
+            order,
+            id: None,
+        }),
+    );
+    assert_eq!(value, -100.0);
+}
