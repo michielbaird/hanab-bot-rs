@@ -737,6 +737,11 @@ fn check_pos_dc(ctx: &DiscardContext) -> PosDcResult {
         .position(|&o| o == order)
         .map_or(0, |i| i + 1);
 
+    // (A card that is in no hand, such as a failed play of the last card with Deck Plays, is not a positional discard.)
+    if slot == 0 {
+        return PosDcResult::NotPosDc;
+    }
+
     let expected_dc = prev
         .common
         .thinks_trash(prev, player_index)

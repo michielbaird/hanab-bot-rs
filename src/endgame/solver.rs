@@ -336,6 +336,16 @@ impl EndgameSolver {
         let state = &game.state;
         let our = state.our_player_index;
 
+        // With Deck Plays, the last card of the deck can be played before it is drawn. The solver only plays cards in hands.
+        if let Some(PerformAction::Play { target } | PerformAction::Discard { target }) =
+            only_action
+            && target >= state.deck.len()
+        {
+            return Err(format!(
+                "order {target} is not in the deck yet (a Deck Play)"
+            ));
+        }
+
         if let Some(perform) = winning_play(game) {
             return Ok((perform, Frac::ONE));
         }

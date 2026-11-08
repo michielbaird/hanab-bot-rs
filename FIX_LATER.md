@@ -142,6 +142,12 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     `net` and fails if the dependency tree gains tokio, reqwest, hyper, tungstenite or futures. Still open: `/analyze` in chat and
     `GameData::fetch_id` just fail without `net`; an embedder might prefer a hook (a trait the app implements to fetch an export).
 
+39. **fixed** Deck Plays: the last card of the deck, played (or bombed) before anyone drew it, was only added to the game by `on_play`, so a
+    bomb panicked in `on_discard`, and the code that looks at the game from before the play (H-Group's play and positional-discard
+    handling, Reactor's, the endgame solver in `analyze`) indexed past the end. The card now joins the game, in nobody's hand, before the
+    play is handled. Scala has the same gap for a failed deck play. **Kept:** the bot never plays the last card from the deck itself (it
+    only chooses cards in hands, and the solver does not consider it).
+
 ## D. Other resolved items
 
 7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.
