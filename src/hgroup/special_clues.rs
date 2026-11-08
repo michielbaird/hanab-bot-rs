@@ -21,6 +21,23 @@ const DARK_RAINBOW_OR_PRISM: NamePattern = NamePattern(&["Dark Rainbow", "Dark P
 const BLACK_OR_DARK_PINK: NamePattern = NamePattern(&["Black", "Dark Pink"]);
 const MUDDY_SAVE_COLOUR_VARIANTS: NamePattern = NamePattern(&["Black", "Dark Brown", "Dark Pink"]);
 
+/// Whether a bluff that connects to this identity is one of the intermediate bluffs: a bluff on a 3, or a colour clue that
+/// newly touches a critical card.
+pub fn is_intermediate_bluff_target(
+    prev: &Game,
+    game: &Game,
+    action: &ClueAction,
+    id: Identity,
+    focus: usize,
+) -> bool {
+    game.level() >= level::INTERMEDIATE_BLUFFS
+        && (id.rank == 3
+            || (action.clue.kind == ClueKind::Colour
+                && !prev.state.deck[focus].clued
+                && id.rank != 5
+                && game.state.is_critical(id)))
+}
+
 pub fn valid_bluff(
     game: &Game,
     action: &ClueAction,
@@ -40,10 +57,17 @@ pub fn valid_bluff(
     let disconnect = || {
         let focus = connected.first().expect("connected is empty");
         symmetric
-            || (clue.kind == ClueKind::Rank && clue.value != blind.rank + 1)
-            || blind
-                .next()
-                .is_none_or(|n| !game.common.thoughts[focus].possible.contains(n))
+            || if clue.kind == ClueKind::Rank {
+                clue.value != blind.rank + 1
+                    || blind
+                        .next()
+                        .is_none_or(|n| !game.common.thoughts[focus].possible.contains(n))
+            } else {
+                !game.common.thoughts[focus]
+                    .possible
+                    .iter()
+                    .any(|i| i.suit_index == blind.suit_index && i.rank > blind.rank)
+            }
     };
 
     let interferes = state.hands[reacting]

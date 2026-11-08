@@ -21,9 +21,7 @@ use crate::basics::{Game, PerformAction, State, Variant};
 use crate::feedback::{
     Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
 };
-use crate::settings::{
-    BOT_VERSION, ConventionKind, MAX_H_LEVEL, info_note, parse_convention_from_note,
-};
+use crate::settings::{BOT_VERSION, ConventionKind, info_note, parse_convention_from_note};
 use crate::tools::console::{ConsoleCmd, run_command};
 use crate::tools::game_data::{GameData, build_game};
 use crate::{log_error, log_highlight, log_info};
@@ -716,7 +714,7 @@ impl BotClient {
         self.convention = c;
         reply(self, &self.settings_reply());
 
-        if matches!(c, ConventionKind::HGroup(level) if level >= MAX_H_LEVEL) {
+        if matches!(c, ConventionKind::HGroup(level) if level >= crate::hgroup::level::CONTEXT) {
             reply(
                 self,
                 "Above level 11, the bot plays with minimal context: only stale 1s after early game and explicit focus inversion.",
