@@ -73,9 +73,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 21. **fixed** `eval_action` on a clue multiplied the result by `mult` regardless of its sign; like Reactor, only a positive result is scaled.
 22. **fixed** `eval_action` on an unknown-id play divided the sum by `uniqueInfs.length` even after a mistake (`-100 / n`), and was `NaN`
     when there were no unique inferences. A mistake is now -100, and so is a card with nothing it could be.
-23. **open** `interpret_2p_locked_clue` (colour branch) checks `thinksTrash(game, target)` on the *new* game's common, so it sees
-    inferences the clue just wrote; and `delayed_plays` there can build `Identity(suit, 6)` for a finished suit, whose ordinal aliases the
-    next suit's 1.
+23. **fixed** `interpret_2p_locked_clue` (colour branch) checked `thinksTrash(game, target)` on the *new* game's common, so it saw
+    inferences the clue had just written (it now uses the trash found before writing them); and `delayed_plays` there built
+    `Identity(suit, 6)` for a finished suit, whose ordinal aliases the next suit's 1 (finished suits are left out now).
 
 ### H-Group
 

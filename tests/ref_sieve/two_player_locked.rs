@@ -241,3 +241,34 @@ fn prefers_unlocking_over_discarding_trash() {
     take_turn(&mut game, "Bob clues red to Alice (slots 3,4)");
     assert!(matches!(game.take_action(), PerformAction::Play { .. }));
 }
+
+#[test]
+fn a_finished_suit_has_no_delayed_play_and_does_not_alias_the_next_suit() {
+    use hanab_bot::basics::Identity;
+    use hanab_bot::ref_sieve::interpret_clue::delayed_plays;
+
+    let game = setup(
+        ref_sieve(),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["b1", "p4", "y5", "y4", "b2"],
+        ],
+        Setup {
+            play_stacks: Some(vec![5, 0, 0, 0, 0]),
+            ..Setup::default()
+        },
+    );
+
+    // Red is finished. Yellow is going to be at 1 (someone holds a known y1), so its next card is the y2: the y1 that a
+    // "red 6" would be mistaken for must not be among them.
+    let plays = delayed_plays(&game.state, &[5, 1, 0, 0, 0]);
+    let expected: Vec<Identity> = vec![
+        Identity::new(1, 2),
+        Identity::new(2, 1),
+        Identity::new(3, 1),
+        Identity::new(4, 1),
+    ];
+    let mut found: Vec<Identity> = plays.iter().collect();
+    found.sort_by_key(|i| (i.suit_index, i.rank));
+    assert_eq!(found, expected);
+}
