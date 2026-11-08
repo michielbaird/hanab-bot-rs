@@ -1,0 +1,103 @@
+name: bot release
+
+# Builds the `bot` for Linux and Windows and attaches the packages to the release of a tag like `v1.3.1` (the version in
+# Cargo.toml). Pushing the tag runs it, and creates the release if there is none. To add binaries to a release that exists
+# already, run it by hand and give the tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to build and attach the binaries to (for example v1.3.1)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest runner image, so that the binary runs on older glibc systems too.
+          - name: linux
+            os: ubuntu-22.04
+            package: tar.gz
+          - name: windows
+            os: windows-latest
+            package: zip
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The tag names the version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [[ $TAG != "v$version" ]]; then
+            echo "::error::the tag is $TAG, but the version in Cargo.toml is $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - run: cargo build --release --locked --bin bot
+      - name: It starts, and says which version it is
+        run: |
+          exe=target/release/bot
+          [[ ${{ matrix.name }} == windows ]] && exe=$exe.exe
+          # Without a username it stops at once, after saying which version it is.
+          output=$("$exe" index=0 2>&1 || true)
+          echo "$output"
+          grep -q "Starting v$VERSION " <<< "$output"
+      - name: Package
+        run: |
+          name="hanab-bot-rs-v$VERSION-x86_64-${{ matrix.name }}"
+          mkdir -p "release/$name"
+          if [[ ${{ matrix.name }} == windows ]]; then
+            cp target/release/bot.exe "release/$name/"
+          else
+            cp target/release/bot "release/$name/"
+          fi
+          cp LICENSE README.md "release/$name/"
+          cd release
+          if [[ ${{ matrix.package }} == zip ]]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          rm -r "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bot-${{ matrix.name }}
+          path: release/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: bot-*
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd release && sha256sum ./* > SHA256SUMS)
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" release/* --clobber
