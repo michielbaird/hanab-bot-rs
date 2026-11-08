@@ -55,10 +55,30 @@ struct ChatList {
     list: Vec<ChatMessage>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Clone, Debug, Default)]
 pub struct Spectator {
     pub name: String,
+}
+
+/// Servers differ: a spectator is an object with a name (and more), or just the name.
+impl<'de> Deserialize<'de> for Spectator {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Name(String),
+            Full {
+                #[serde(default)]
+                name: String,
+            },
+        }
+
+        Ok(Spectator {
+            name: match Raw::deserialize(deserializer)? {
+                Raw::Name(name) | Raw::Full { name } => name,
+            },
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -70,12 +90,19 @@ pub struct Table {
     pub joined: bool,
     pub running: bool,
     pub variant: String,
+    /// Missing on some servers (the defaults then ask nothing unsupported of the bot).
     pub options: TableOptions,
     pub shared_replay: bool,
     pub progress: i64,
     pub players: Vec<String>,
     pub spectators: Vec<Spectator>,
+    /// Missing on some servers, which only have games of up to 6.
+    #[serde(default = "default_max_players")]
     pub max_players: i64,
+}
+
+fn default_max_players() -> i64 {
+    6
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -281,7 +308,7 @@ impl BotClient {
 
     fn send_chat(&self, msg: &str) {
         let Some(id) = self.table_id else { return };
-        let args = json!({"msg": msg, "recipient": "", "room": format!("table{id}")});
+        let args = json!({"msg": msg, "room": format!("table{id}")});
         self.emit(Out::Send(format!("chat {args}")));
     }
 
@@ -434,7 +461,7 @@ impl BotClient {
                     let table: Table =
                         serde_json::from_value(parse("table")?).map_err(|e| e.to_string())?;
 
-                    if self.table_id == Some(table.id as usize) {
+                    if self.table_id == Some(table.id as usize) && !self.game_started {
                         if self.config.leave_replay_if_only_bots
                             && table.shared_replay
                             && table
@@ -1221,5 +1248,47 @@ mod variant_support_tests {
             unsupported_table_options(true, false, false, true),
             ["emptyClues", "oneLessCard"]
         );
+    }
+}
+
+#[cfg(test)]
+mod table_format_tests {
+    use super::Table;
+    use serde_json::json;
+
+    #[test]
+    fn reads_the_table_format_of_a_new_server() {
+        let table: Table = serde_json::from_value(json!({
+            "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
+            "variant": "No Variant", "sharedReplay": true, "progress": 0, "players": ["bot"],
+            "options": {"numPlayers": 2, "variantName": "No Variant", "emptyClues": true},
+            "spectators": [{"name": "alice", "shadowingPlayerIndex": -1, "shadowingPlayerUsername": ""}],
+            "maxPlayers": 5
+        }))
+        .unwrap();
+        assert!(table.options.empty_clues);
+        assert_eq!(table.spectators[0].name, "alice");
+        assert_eq!(table.max_players, 5);
+    }
+
+    #[test]
+    fn reads_the_table_format_of_an_old_server() {
+        // No options and no maxPlayers, and the spectators are just names.
+        let table: Table = serde_json::from_value(json!({
+            "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
+            "variant": "No Variant", "sharedReplay": true, "progress": 0, "players": ["bot"],
+            "spectators": ["alice", "bob"]
+        }))
+        .unwrap();
+        assert!(!table.options.empty_clues);
+        assert_eq!(
+            table
+                .spectators
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["alice", "bob"]
+        );
+        assert_eq!(table.max_players, 6);
     }
 }
