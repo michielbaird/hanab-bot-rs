@@ -355,3 +355,55 @@ fn doesn_t_give_an_invalid_ambiguous_prompt() {
     // Bob will prompt r3 -> r4.
     assert_eq!(game.last_move(), Some(Interp::Clue(ClueInterp::Mistake)));
 }
+
+#[test]
+fn counts_playables_through_a_prompt_correctly() {
+    let mut game = setup(
+        hgroup(11),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["b1", "y2", "y1", "y1", "r4"],
+            &["p3", "g1", "b3", "b4", "b5"],
+        ],
+        Setup {
+            starting: Cathy,
+            play_stacks: Some(vec![4, 5, 5, 1, 5]),
+            discarded: &["r1", "r2", "y3", "y4", "g1", "g2", "g3", "g4", "b4", "p1"],
+            init: Box::new(|g| {
+                pre_clue(g, Cathy, 3, &["blue"]);
+                pre_clue(g, Cathy, 4, &["blue"]);
+                pre_clue(g, Cathy, 5, &["blue"]);
+            }),
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Cathy clues 2 to Alice (slots 1,3,4)");
+    take_turn(&mut game, "Alice clues 4 to Cathy");
+
+    // Somehow, having enough 2s visible causes playables to be counted incorrectly in some weird cases.
+    assert_eq!(game.common.hypo_plays, FastBitSet::from([4, 10, 11, 12]));
+}
+
+#[test]
+fn allows_a_prompt_to_resolve_before_assuming_direct() {
+    let mut game = setup(
+        hgroup(1),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["g4", "g4", "b4", "b4", "p4"],
+            &["y4", "r1", "b3", "y3", "r2"],
+        ],
+        Setup {
+            play_stacks: Some(vec![0, 3, 0, 0, 0]),
+            starting: Bob,
+            init: Box::new(|g| {
+                fully_known(g, Cathy, 2, "r1");
+                pre_clue(g, Cathy, 5, &["red"]);
+            }),
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Bob clues 4 to Alice (slot 5)");
+
+    has_infs(&game, None, Alice, 5, &["r4", "y4"]);
+}

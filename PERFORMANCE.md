@@ -19,6 +19,8 @@ Two numbers do not depend on the machine:
 
 * **fingerprint**: a hash of every move of every game. A change that is meant to leave the bot's behaviour alone must leave it unchanged;
   a change that alters play changes it (then compare scores, not just times).
+  The baseline fingerprint below is from before the port of scala-bot v1.3.1, which changed play on purpose: since then the benchmark
+  prints `ce841dcd9198b831` (total score 67, 172 moves). Compare a refactor against that.
 * **work counters** (`--features stats`): how many times the expensive functions ran per repetition. They compile to nothing without the
   feature and do not change behaviour (the fingerprint is the same with and without).
 

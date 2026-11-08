@@ -920,7 +920,7 @@ impl Player {
                 for o in playables {
                     if !played.contains(o)
                         && !attempted.contains(o)
-                        && hypo.state.has_consistent_infs(&self.thoughts[o])
+                        && hypo.state.has_consistent_infs(&self.thoughts[o], hypo.me())
                     {
                         self.hypo_play(
                             &mut hypo,
@@ -981,7 +981,18 @@ impl Player {
         crate::stats::count(crate::stats::Counter::HypoPlay);
         let holder = hypo.state.holder_of[order];
 
-        let id = hypo.view(self).thoughts[order].id_with(true, false);
+        let id = {
+            let thought = &hypo.view(self).thoughts[order];
+            // Elim isn't run after playing each card, so the trash ids have to be removed by hand.
+            let inferred = thought.inferred.difference(hypo.state.trash_set);
+            if inferred == thought.inferred {
+                thought.id_with(true, false)
+            } else {
+                let mut live = thought.clone();
+                live.inferred = inferred;
+                live.id_with(true, false)
+            }
+        };
         match id {
             None if hypo.state.is_inverted_order(order) => {}
             None => {

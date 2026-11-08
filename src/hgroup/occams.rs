@@ -90,6 +90,10 @@ pub fn fp_simplicity(
 }
 
 pub fn filter_fps(ctx: &ClueContext, fps: &[FocusPossibility]) -> Vec<FocusPossibility> {
+    filter_dominated(ctx, &filter_by_true_fp(ctx, fps))
+}
+
+fn filter_by_true_fp(ctx: &ClueContext, fps: &[FocusPossibility]) -> Vec<FocusPossibility> {
     let ClueContext { game, action, .. } = *ctx;
     let state = &game.state;
     let our = state.our_player_index;
@@ -131,7 +135,7 @@ pub fn occams_razor(
     player_index: usize,
     actual_id: Option<Identity>,
 ) -> Vec<FocusPossibility> {
-    let ClueContext { game, action, .. } = *ctx;
+    let ClueContext { game, .. } = *ctx;
     let state = &game.state;
     let our = state.our_player_index;
     let focus = ctx.focus_result().focus;
@@ -215,8 +219,16 @@ pub fn occams_razor(
         simplest.extend(same_self_start);
     }
 
-    simplest
-        .iter()
+    filter_dominated(ctx, &simplest)
+}
+
+/// Leaves out the possibilities that need the target to self-finesse where another one, with the same connections up to
+/// that point, does not.
+fn filter_dominated(ctx: &ClueContext, fps: &[FocusPossibility]) -> Vec<FocusPossibility> {
+    let ClueContext { game, action, .. } = *ctx;
+    let state = &game.state;
+
+    fps.iter()
         .filter(|fp| {
             let next_self_conn = fp.connections.iter().enumerate().find(|(_, c)| {
                 c.reacting() == action.target

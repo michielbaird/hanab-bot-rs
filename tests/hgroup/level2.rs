@@ -524,3 +524,26 @@ fn understands_when_others_give_selfish_clues() {
     // Alice is not finessed for b1.
     has_status(&game, Alice, 1, CardStatus::None);
 }
+
+#[test]
+fn does_not_try_to_self_prompt_colour_clues() {
+    let mut game = setup(
+        hgroup(2),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y3", "g3", "b3", "p3"],
+            &["r4", "y4", "g4", "b4", "p4"],
+        ],
+        Setup {
+            starting: Cathy,
+            discarded: &["r1", "r1"],
+            init: Box::new(|g| {
+                pre_clue(g, Alice, 5, &["red"]);
+            }),
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Cathy clues red to Alice (slots 1,5)");
+
+    has_infs(&game, None, Alice, 1, &["r1", "r2"]);
+}

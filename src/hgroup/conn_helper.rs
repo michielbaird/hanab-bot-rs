@@ -528,6 +528,7 @@ pub fn resolve_clue(
     ctx: &ClueContext,
     fps: &[FocusPossibility],
     symmetric_interp: SymmetricInterp,
+    looks_direct: bool,
     thinks_stall: FastBitSet,
     ambiguous_own: &[FocusPossibility],
 ) -> Game {
@@ -541,7 +542,6 @@ pub fn resolve_clue(
         ..
     } = ClueFacts::new(ctx);
 
-    let looks_direct = looks_direct(ctx, fps);
     let symmetric_fps = find_symmetric_fps(ctx, fps, looks_direct);
     let ambiguous_fps = find_ambiguous_fps(ctx, fps, ambiguous_own, looks_direct);
 
@@ -606,30 +606,6 @@ pub fn resolve_clue(
 
     g.meta[focus].focused = true;
     g
-}
-
-fn looks_direct(ctx: &ClueContext, fps: &[FocusPossibility]) -> bool {
-    let ClueFacts {
-        game,
-        our,
-        target,
-        focus,
-        positional,
-        ..
-    } = ClueFacts::new(ctx);
-
-    game.common.thoughts[focus].id_with(false, true).is_none()
-        && (positional.is_some()
-            || fps.iter().any(|fp| {
-                game.players[target].thoughts[focus]
-                    .possible
-                    .contains(fp.id)
-                    && fp.connections.iter().all(|c| {
-                        (matches!(c, Connection::Known { .. })
-                            || (matches!(c, Connection::Playable { .. }) && c.reacting() != our))
-                            && !game.is_blind_playing(c.order()) // A blind-playing card is still unknown
-                    })
-            }))
 }
 
 fn find_symmetric_fps(
@@ -754,7 +730,13 @@ fn find_simplest_fps(
 
         // Simplest connections are all symmetric, but we could play into something more complicated
         if giver != our && simplest.iter().all(|fp| fp.symmetric) && !fps.is_empty() {
-            fps.to_vec()
+            let mut all = fps.to_vec();
+            for fp in simplest {
+                if !all.contains(&fp) {
+                    all.push(fp);
+                }
+            }
+            all
         } else {
             simplest
         }

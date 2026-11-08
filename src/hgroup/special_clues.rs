@@ -12,7 +12,7 @@ use crate::basics::clue::{ClueKind, ClueLike};
 use crate::basics::fix::distribution_clue;
 use crate::basics::interp::ClueInterp;
 use crate::basics::variant::{DARK, NamePattern, PINKISH};
-use crate::basics::{Game, Identifiable, Identity};
+use crate::basics::{Game, Identifiable, Identity, IdentitySet};
 use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, visible_find};
 use crate::{log_error, log_info, log_warn};
@@ -273,7 +273,10 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
 
     let stall = stalling_situation(ctx);
     let thinks_stall = stall.map_or(FastBitSet::EMPTY, |s| s.1);
-    let asymmetric_stall = !thinks_stall.is_empty() && thinks_stall.len() < state.num_players;
+    let asymmetric_stall = !thinks_stall.is_empty()
+        && thinks_stall.len() < state.num_players
+        // It's always a valid stall if the giver thinks it's a stall
+        && !thinks_stall.contains(giver);
 
     if let Some((interp, thinks_stall)) = stall {
         if asymmetric_stall {
@@ -284,7 +287,7 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
                     .map(|i| &state.names[i])
                     .collect::<Vec<_>>()
             );
-        } else if thinks_stall.len() == state.num_players {
+        } else if !thinks_stall.is_empty() {
             log_info!("stalling situation {interp:?}");
 
             let mut g = game.clone();
@@ -311,10 +314,16 @@ pub fn interp_special_clue(ctx: &ClueContext) -> SpecialClueResult {
         }
     }
 
+    let valid_distribution = |ids: IdentitySet| {
+        let thought = &game.me().thoughts[focus];
+        match thought.id_with(true, false) {
+            Some(id) => ids.contains(id),
+            None => thought.inferred.iter().all(|i| ids.contains(i)),
+        }
+    };
+
     if let Some(ids) = distribution_clue(prev, game, action, focus)
-        && ids
-            .iter()
-            .any(|i| game.me().thoughts[focus].matches_with(&i, true, false, true))
+        && valid_distribution(ids)
     {
         log_info!("distribution clue for [{}]!", ids.fmt(state));
 

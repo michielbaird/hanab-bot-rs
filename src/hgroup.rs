@@ -1723,7 +1723,7 @@ impl Convention for HGroup {
 
     fn solves_endgame(&self, game: &Game) -> bool {
         let state = &game.state;
-        state.cards_left <= 2
+        state.cards_left <= 3
             || (state.rem_score() <= state.variant.suits.len() + 1
                 && state.pace() + state.cards_left as isize <= 7)
     }

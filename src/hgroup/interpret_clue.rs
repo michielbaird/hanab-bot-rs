@@ -476,10 +476,17 @@ pub fn interp_normal_clue(
         );
     }
 
-    let looks_direct = common.thoughts[focus].id().is_none()
+    let initial_looks_direct = common.thoughts[focus].id().is_none()
         && (clue.kind == ClueKind::Colour || !save_poss.is_empty() || positional.is_some());
 
-    let focus_poss = focus_poss_for(ctx, focus, &save_poss, looks_direct, thinks_stall, true);
+    let focus_poss = focus_poss_for(
+        ctx,
+        focus,
+        &save_poss,
+        initial_looks_direct,
+        thinks_stall,
+        true,
+    );
 
     let simplest = {
         let possible: Vec<FocusPossibility> = save_poss
@@ -526,13 +533,22 @@ pub fn interp_normal_clue(
                     .collect::<Vec<_>>()
                     .join(",")
             );
-            resolve_clue(ctx, &simplest, symmetric_interp, thinks_stall, &[])
+            resolve_clue(
+                ctx,
+                &simplest,
+                symmetric_interp,
+                initial_looks_direct,
+                thinks_stall,
+                &[],
+            )
         }
     } else {
         log_highlight!(crate::logger::YELLOW, "finding own!");
 
         let own_looks_direct = game.players[target].thoughts[focus].id().is_none()
-            && (positional.is_some()
+            && !simplest.is_empty()
+            && (clue.kind == ClueKind::Colour
+                || positional.is_some()
                 || !save_poss.is_empty()
                 // Looks like an existing possibility
                 || focus_poss.iter().any(|fp| {
@@ -568,9 +584,10 @@ pub fn interp_normal_clue(
         }
 
         let combined: Vec<FocusPossibility> = simplest.iter().chain(&own_fps).cloned().collect();
+        let filtered = filter_fps(ctx, &combined);
         let simplest_own = occams_razor(
             ctx,
-            &filter_fps(ctx, &combined),
+            &filtered,
             state.our_player_index,
             game.me().thoughts[focus].id(),
         );
@@ -647,7 +664,14 @@ pub fn interp_normal_clue(
                             .collect::<Vec<_>>()
                             .join(",")
                     );
-                    resolve_clue(&new_ctx, &new_simplest, symmetric_interp, thinks_stall, &[])
+                    resolve_clue(
+                        &new_ctx,
+                        &new_simplest,
+                        symmetric_interp,
+                        own_looks_direct,
+                        thinks_stall,
+                        &[],
+                    )
                 }
             } else {
                 let mut g = game.clone();
@@ -658,7 +682,9 @@ pub fn interp_normal_clue(
             let ambiguous_own: Vec<FocusPossibility> = if save_poss.is_empty() {
                 own_fps
                     .iter()
-                    .filter(|fp| !simplest_own.contains(fp) && !fp.symmetric)
+                    .filter(|fp| {
+                        filtered.contains(fp) && !simplest_own.contains(fp) && !fp.symmetric
+                    })
                     .cloned()
                     .collect()
             } else {
@@ -668,6 +694,7 @@ pub fn interp_normal_clue(
                 ctx,
                 &simplest_own,
                 symmetric_interp,
+                own_looks_direct,
                 thinks_stall,
                 &ambiguous_own,
             )

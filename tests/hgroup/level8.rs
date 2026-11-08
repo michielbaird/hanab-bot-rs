@@ -523,3 +523,36 @@ fn understands_a_distribution_clue() {
         Some(Interp::Clue(ClueInterp::Distribution))
     );
 }
+
+#[test]
+fn receives_a_distribution_clue() {
+    let mut game = setup(
+        hgroup(8),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"], // xx xx r5 b4 b5
+            &["p2", "b3", "r5", "b4", "b5"],
+            &["g2", "y4", "r4", "y1", "b1"],
+        ],
+        Setup {
+            starting: Cathy,
+            play_stacks: Some(vec![4, 5, 5, 3, 5]),
+            // Missing: r4, y1, g1, g4, b4, p1, p4
+            discarded: &[
+                "r1", "r2", "r3", "y1", "y2", "y3", "g1", "g3", "b1", "b2", "p1",
+            ],
+            clue_tokens: 1,
+            init: Box::new(|g| {
+                fully_known(g, Bob, 3, "r5");
+                fully_known(g, Bob, 4, "b4");
+                fully_known(g, Bob, 5, "b5");
+                g.hg_mut().in_early_game = false;
+            }),
+            ..Setup::default()
+        },
+    );
+    assert_eq!(game.state.cards_left, 2);
+    take_turn(&mut game, "Cathy clues 4 to Alice (slot 1)");
+
+    has_infs(&game, None, Alice, 1, &["b4"]);
+    assert_eq!(game.last_move(), Some(ClueInterp::Distribution.into()));
+}

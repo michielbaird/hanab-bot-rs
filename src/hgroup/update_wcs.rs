@@ -738,13 +738,17 @@ fn resolve_retained(
         return UpdateResult::Keep;
     }
 
-    let hidden_wc = game.waiting().iter().find(|w| {
-        // This is a hidden connection that is not currently revealed
-        !w.connections.is_empty()
-            && w.connections[1..]
-                .iter()
-                .any(|c| c.order() == conn_order && c.hidden())
-    });
+    let hidden_wc = if wc.curr_conn().is_bluff() {
+        None
+    } else {
+        game.waiting().iter().find(|w| {
+            // This is a hidden connection that is not currently revealed
+            !w.connections.is_empty()
+                && w.connections[1..]
+                    .iter()
+                    .any(|c| c.order() == conn_order && c.hidden())
+        })
+    };
 
     if let Some(h) = hidden_wc {
         log_info!(
