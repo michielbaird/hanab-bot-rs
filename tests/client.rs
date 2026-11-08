@@ -726,3 +726,62 @@ fn after_a_forced_switch_the_bot_plays_its_turn_with_the_new_convention() {
     assert!(!sends(&outs).iter().any(|m| m.starts_with("loaded ")));
     assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
 }
+
+fn chats(outs: &[Out]) -> Vec<&str> {
+    sends(outs)
+        .into_iter()
+        .filter(|s| s.starts_with("chat "))
+        .collect()
+}
+
+#[test]
+fn it_warns_about_table_options_in_chat_without_a_recipient() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot"}"#);
+    client.handle_msg(r#"joined {"tableID": 3}"#);
+    drain(&mut rx);
+
+    let table = json!({
+        "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
+        "variant": "No Variant", "sharedReplay": false, "progress": 0, "players": ["bot"],
+        "options": {"numPlayers": 2, "variantName": "No Variant", "emptyClues": true},
+        "spectators": [], "maxPlayers": 5
+    });
+    client.handle_msg(&format!("table {table}"));
+
+    let outs = drain(&mut rx);
+    let chat = chats(&outs);
+    assert_eq!(chat.len(), 1, "{outs:?}");
+    assert!(chat[0].contains("emptyClues") && chat[0].contains(r#""room":"table3""#));
+    assert!(!chat[0].contains("recipient"), "{}", chat[0]);
+}
+
+#[test]
+fn it_reads_a_table_from_an_old_server_and_ignores_tables_after_the_start() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(r#"welcome {"userID": 1, "username": "bot"}"#);
+    client.handle_msg(r#"joined {"tableID": 3}"#);
+    drain(&mut rx);
+
+    // Spectators are names, and there are no options.
+    let old = r#"table {"id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
+        "variant": "No Variant", "sharedReplay": false, "progress": 0, "players": ["bot"], "spectators": ["alice"]}"#;
+    client.handle_msg(old);
+    assert!(chats(&drain(&mut rx)).is_empty());
+
+    // Once the game has started, a table update is not looked at (it could make the bot leave the game).
+    client.handle_msg(r#"tableStart {"tableID": 3}"#);
+    drain(&mut rx);
+    let unsupported = json!({
+        "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": true,
+        "variant": "No Variant", "sharedReplay": false, "progress": 0, "players": ["bot"],
+        "options": {"numPlayers": 2, "variantName": "No Variant", "oneLessCard": true},
+        "spectators": [], "maxPlayers": 5
+    });
+    client.handle_msg(&format!("table {unsupported}"));
+    assert!(chats(&drain(&mut rx)).is_empty());
+}
