@@ -14,6 +14,11 @@ pub fn calc_slot(focus_slot: usize, slot: usize) -> usize {
     if other == 0 { 5 } else { other }
 }
 
+/// The slot (counting from 1) that the order is in, if the hand has it.
+fn slot_of(hand: &[usize], order: usize) -> Option<usize> {
+    hand.iter().position(|&o| o == order).map(|i| i + 1)
+}
+
 /// The reacter's slot and the slot of the receiver's card they are targeting, if it still exists.
 fn calc_target_slot(
     prev: &Game,
@@ -28,11 +33,10 @@ fn calc_target_slot(
         focus_slot,
         ..
     } = *wc;
-    // (The Scala `indexOf` returns -1 for a missing order, making this slot 0.)
-    let react_slot = prev.state.hands[reacter]
-        .iter()
-        .position(|&o| o == order)
-        .map_or(0, |i| i + 1);
+    let Some(react_slot) = slot_of(&prev.state.hands[reacter], order) else {
+        log_warn!("reacter {reacter} did not hold {order}!");
+        return None;
+    };
     let target_slot = calc_slot(focus_slot, react_slot);
 
     match receiver_hand.get(target_slot - 1) {
@@ -549,4 +553,16 @@ pub fn react_play(
 
     game.with_move(PlayInterp::None.into(), false);
     game
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slot_of;
+
+    #[test]
+    fn a_missing_order_has_no_slot_instead_of_slot_0() {
+        assert_eq!(slot_of(&[10, 11, 12], 10), Some(1));
+        assert_eq!(slot_of(&[10, 11, 12], 12), Some(3));
+        assert_eq!(slot_of(&[10, 11, 12], 99), None);
+    }
 }
