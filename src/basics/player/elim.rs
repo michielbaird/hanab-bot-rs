@@ -513,7 +513,7 @@ impl Player {
                         focused.first().unwrap(),
                         inferred.first().unwrap(),
                     );
-                } else if orders.len() > inferred.len() {
+                } else if orders.len() >= inferred.len() {
                     // We have enough inferred cards to elim elsewhere
                     log_info!(
                         "adding link {orders} infs {} ({})",

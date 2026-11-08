@@ -13,7 +13,7 @@ use crate::basics::interp::ClueInterp;
 use crate::basics::{Game, Identifiable, Identity, Link, PromptOpts};
 use crate::collections::FastBitSet;
 use crate::util::{VisibleOpts, in_between, players_until, visible_find};
-use crate::{log_info, log_warn};
+use crate::{log_highlight, log_info, log_warn};
 
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectContext {
@@ -105,7 +105,7 @@ pub fn find_known_conn(
         };
 
         let valid_known = !ignore.contains(o)
-            && state.deck[o].matches_assume(&id)
+            && state.deck[o].matches_with(&id, false, false, !game.common.thoughts[o].reset)
             && (common.thoughts[o].matches_infer(&id) || asymmetric_known())
             && !game.meta[o].hidden
             && !game.xmeta(o).f_status.contains(&FStatus::PossiblyOn(giver))
@@ -240,14 +240,29 @@ pub fn find_known_conn(
             .iter()
             .find(|pl| pl.orders.contains(&o) && state.our_hand().contains(&pl.target));
 
+        // Maybe someone clued a colour to us (in an omni variant) and the giver knows their 1 must connect
+        let waiting_conn = game.waiting().iter().find(|wc| {
+            wc.connections
+                .iter()
+                .position(|c| c.order() == o && c.ids().len() == 1 && c.ids().contains(&id))
+                .is_some_and(|giver_conn| {
+                    wc.giver != giver
+                        && (wc.connections[giver_conn + 1..]
+                            .iter()
+                            .any(|c| c.reacting() == our)
+                            || wc.target == our)
+                })
+        });
+
         let play = !ignore.contains(o)
             && state.deck[o].clued
-            && play_link.is_some()
+            && (play_link.is_some() || waiting_conn.is_some())
             && common.thoughts[o].inferred.contains(id)
             && state.deck[o].matches(&id);
 
-        if play && let Some(pl) = play_link {
-            return Some(Connection::playable(giver, o, id, pl.orders.clone()));
+        if play {
+            let linked = play_link.map_or_else(Vec::new, |pl| pl.orders.clone());
+            return Some(Connection::playable(giver, o, id, linked));
         }
     }
 
@@ -1289,8 +1304,11 @@ impl ConnectSearch<'_, '_> {
                             .is_some_and(|n| game.common.thoughts[focus].possible.contains(n)))
                         || positional.is_some()
                         || !conns.iter().any(|c| {
-                            matches!(c, Connection::Finesse { reacting, .. } if *reacting != target)
-                                && !c.hidden()
+                            matches!(
+                                c,
+                                Connection::Finesse { reacting, .. }
+                                    | Connection::Prompt { reacting, .. } if *reacting != target
+                            ) && !c.hidden()
                         }));
                 for c in &conns {
                     new_conn_ctx.connected.insert(c.order());
@@ -1387,37 +1405,44 @@ pub fn connect(
     attempts
         .into_iter()
         .flat_map(|attempt| match attempt {
-            (Err(conns), _) if conns.iter().any(|c| matches!(c, Connection::Known { .. })) => {
-                // Failed connection: try again without the known card
-                let known_order = conns
-                    .iter()
-                    .find_map(|c| match c {
-                        Connection::Known { order, .. } => Some(*order),
-                        _ => None,
-                    })
-                    .expect("checked above");
-                let mut new_ignore = ignore;
-                new_ignore.insert(known_order);
-                connect(
-                    ctx,
-                    id,
-                    FocusSearch {
-                        ignore_known: new_ignore,
-                        ..focus_search
-                    },
-                )
-            }
+            (Err(conns), bluffed) => {
+                if game.level() >= level::BLUFFS && !assume_truth && bluffed {
+                    log_highlight!(
+                        crate::logger::MAGENTA,
+                        "bluff connection failed, retrying true finesse"
+                    );
+                    let true_finesse = connect(
+                        ctx,
+                        id,
+                        FocusSearch {
+                            assume_truth: true,
+                            ..focus_search
+                        },
+                    );
+                    if !true_finesse.is_empty() {
+                        return true_finesse;
+                    }
+                }
 
-            (Err(_), bluffed) if game.level() >= level::BLUFFS && !assume_truth && bluffed => {
-                // The bluff connection failed, retry with a true finesse
-                connect(
-                    ctx,
-                    id,
-                    FocusSearch {
-                        assume_truth: true,
-                        ..focus_search
-                    },
-                )
+                match conns.iter().find_map(|c| match c {
+                    Connection::Known { order, .. } => Some(*order),
+                    _ => None,
+                }) {
+                    // Failed connection: try again without the known card
+                    Some(known_order) => {
+                        let mut new_ignore = ignore;
+                        new_ignore.insert(known_order);
+                        connect(
+                            ctx,
+                            id,
+                            FocusSearch {
+                                ignore_known: new_ignore,
+                                ..focus_search
+                            },
+                        )
+                    }
+                    None => Vec::new(),
+                }
             }
 
             (Ok(conns), _) => {
@@ -1471,8 +1496,6 @@ pub fn connect(
                 fp.ambiguous = prefer_own;
                 vec![fp]
             }
-
-            _ => Vec::new(),
         })
         .collect()
 }

@@ -11,7 +11,7 @@ use crate::basics::clue_result::{
 };
 use crate::basics::eval::{ForceClueResult, force_clue};
 use crate::basics::interp::{ClueInterp, DiscardInterp, Interp, PlayInterp};
-use crate::basics::{Game, Identity, PerformAction, State};
+use crate::basics::{Game, Identity, Link, PerformAction, State};
 use crate::collections::FastBitSet;
 use crate::logger::{self, LevelGuard, LogLevel};
 use crate::util::{VisibleOpts, indent, visible_find};
@@ -236,7 +236,6 @@ struct Advance<'a> {
     offset: usize,
     player_index: usize,
     bob: usize,
-    bob_chop: Option<usize>,
     trash_cell: OnceCell<Vec<usize>>,
     early_game_clue_cell: OnceCell<Option<Clue>>,
 }
@@ -246,18 +245,12 @@ impl<'a> Advance<'a> {
         let state = &game.state;
         let player_index = (state.our_player_index + offset) % state.num_players;
         let bob = state.next_player_index(player_index);
-        let bob_chop = if state.num_players > 2 {
-            game.chop(bob)
-        } else {
-            None
-        };
         Self {
             orig,
             game,
             offset,
             player_index,
             bob,
-            bob_chop,
             trash_cell: OnceCell::new(),
             early_game_clue_cell: OnceCell::new(),
         }
@@ -625,7 +618,6 @@ impl<'a> Advance<'a> {
             offset,
             player_index,
             bob,
-            bob_chop,
             ..
         } = self;
         let state = &game.state;
@@ -704,14 +696,6 @@ impl<'a> Advance<'a> {
                         0.8
                     } else if common.thinks_loaded(game, bob) {
                         0.2
-                    } else if let Some(chop) = bob_chop {
-                        if state
-                            .is_basic_trash(state.deck[chop].id().expect("Bob's chop is visible"))
-                        {
-                            0.2
-                        } else {
-                            0.7
-                        }
                     } else {
                         0.5
                     }
@@ -777,7 +761,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
     let value = match action {
         Action::Clue(clue_action) => {
             let hypo = hypo_of(action);
-            let clue_value = get_result(game, &hypo, clue_action, false);
+            let clue_value = 0.2 * get_result(game, &hypo, clue_action, false);
 
             if hypo.last_move() == Some(ClueInterp::Mistake.into()) || clue_value == -100.0 {
                 -100.0
@@ -794,16 +778,19 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
 
                 let my_playables = game.me().thinks_playables(game, our, false, true);
                 let value = if !my_playables.is_empty() && game.in_endgame() {
-                    -1.0 + 0.5 * clue_value
+                    -1.0 + clue_value
                 } else if my_playables.iter().any(|&p| {
                     game.me().thoughts[p]
                         .id_with(true, false)
                         .is_some_and(|id| game.me().hypo_stacks[id.suit_index] > id.rank)
                 }) {
                     log_highlight!(logger::CYAN, "holding up a play sequence to clue!");
-                    -1.0 + 0.5 * clue_value
+                    -1.0 + clue_value
+                } else if !my_playables.is_empty() {
+                    log_highlight!(logger::CYAN, "cluing while holding a playable!");
+                    -0.5 + clue_value
                 } else {
-                    0.5 * clue_value
+                    clue_value
                 };
                 log_info!("initial clue value: {value:.2}");
                 let best = value + advance(game, &hypo, 1);
@@ -1068,7 +1055,7 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
         offset,
     );
 
-    let future_val = (if orig.hg().in_early_game { 1.75 } else { 1.0 })
+    let future_val = (if orig.hg().in_early_game { 1.5 } else { 1.0 })
         * game
             .common
             .hypo_plays
@@ -1252,6 +1239,15 @@ pub fn eval_game(orig: &Game, game: &Game, offset: usize) -> f64 {
                 )
                 .into_iter()
                 .all(|o| !game.is_touched(o))
+                && !orig.common.links.iter().any(|l| match l {
+                    Link::Unpromised { orders, ids } => {
+                        ids.contains(id)
+                            && orders
+                                .iter()
+                                .any(|o| game.me().thoughts[o].matches_assume(&id))
+                    }
+                    l => l.promise() == Some(id),
+                })
         })
         .count() as f64);
 

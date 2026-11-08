@@ -300,7 +300,8 @@ pub fn alternative_clue(ctx: &ClueContext, severity: usize, max_stall: usize) ->
                 stall_index(interp) < max_stall
                     && match interp {
                         StallInterp::Stall5 => {
-                            hypo.level() >= 2 && (!hypo.hg().in_early_game || !hypo.hg().stalled5)
+                            hypo.level() >= 2
+                                && !(hypo.hg().in_early_game && hypo.hg().stalled5 && severity <= 1)
                         }
                         _ => true,
                     }

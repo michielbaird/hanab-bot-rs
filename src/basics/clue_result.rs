@@ -36,12 +36,12 @@ pub fn elim_result(
         if !prev.state.deck[order].clued && !prev.is_blind_playing(order) {
             new_touched.push(order);
         } else if list.contains(&order)
-            && state.has_consistent_infs(thought)
+            && state.has_consistent_infs(thought, game.me())
             && status != CardStatus::CalledToPlay
             && status != CardStatus::DragToPlay
         {
             fill.push(order);
-        } else if state.has_consistent_infs(thought) {
+        } else if state.has_consistent_infs(thought, game.me()) {
             elim.push(order);
         }
     }

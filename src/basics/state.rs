@@ -311,11 +311,21 @@ impl State {
     }
 
     /// Whether a thought's inferences agree with the card's actual identity (when it is known).
-    pub fn has_consistent_infs(&self, thought: &super::card::Thought) -> bool {
+    /// Whether the card's inferences include what it really is. If that is not known, whether they overlap what we think
+    /// it might be.
+    pub fn has_consistent_infs(
+        &self,
+        thought: &super::card::Thought,
+        me: &super::player::Player,
+    ) -> bool {
         thought.possible.len() == 1
-            || self.deck[thought.order]
-                .id()
-                .is_none_or(|id| thought.inferred.contains(id))
+            || match self.deck[thought.order].id() {
+                Some(id) => thought.inferred.contains(id),
+                None => !thought
+                    .inferred
+                    .intersect(me.thoughts[thought.order].possible)
+                    .is_empty(),
+            }
     }
 
     pub fn can_clue(&self) -> bool {

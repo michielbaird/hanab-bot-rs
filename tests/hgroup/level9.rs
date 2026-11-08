@@ -861,3 +861,53 @@ fn gives_an_anxiety_clue_to_the_next_player() {
     ];
     assert!(clues.contains(&action), "Expected clue, got {action:?}");
 }
+
+#[test]
+fn interprets_a_stall_when_the_giver_thinks_it_s_a_stall() {
+    let mut game = setup(
+        hgroup(9),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r3", "y3", "g3", "b3", "p4"],
+            &["r4", "y4", "g4", "b4", "p4"],
+        ],
+        Setup {
+            starting: Bob,
+            clue_tokens: 5,
+            ..Setup::default()
+        },
+    );
+    take_turn_draw(&mut game, "Bob discards p4", "r5");
+    take_turn(&mut game, "Cathy clues 5 to Bob");
+
+    assert_eq!(game.last_move(), Some(ClueInterp::Stall.into()));
+}
+
+#[test]
+fn doesn_t_give_a_lhs_when_a_5_stall_is_available_even_in_early_game_after_a_5_stall() {
+    let mut game = setup(
+        hgroup(9),
+        &[
+            &["xx", "xx", "xx", "xx"],
+            &["r4", "y5", "g4", "b4"],
+            &["r5", "r1", "g3", "b3"],
+        ],
+        Setup {
+            play_stacks: Some(vec![2, 0, 0, 0, 0]),
+            discarded: &["y4", "p4"],
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Alice clues 5 to Bob"); // 5 Stall
+    take_turn(&mut game, "Bob clues 4 to Alice (slots 3,4)");
+    take_turn(&mut game, "Cathy clues 5 to Alice (slots 1,2)");
+
+    // Alice must clue 5 to Cathy (as opposed to something like LHS with 3 to Cathy).
+    assert_eq!(
+        game.take_action(),
+        PerformAction::Rank {
+            target: Cathy.ordinal(),
+            value: 5
+        }
+    );
+}

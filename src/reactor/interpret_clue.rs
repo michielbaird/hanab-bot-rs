@@ -283,7 +283,7 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
             .filter(|&o| prev.state.deck[o].clued)
             .filter_map(|o| {
                 let thought = &game.common.thoughts[o];
-                if !game.state.has_consistent_infs(thought) {
+                if !game.state.has_consistent_infs(thought, game.me()) {
                     return None;
                 }
                 let id = thought.id()?;
@@ -586,7 +586,7 @@ pub fn bad_stable(
 
     let bad_playable = || {
         state.held_orders.iter().find(|&o| {
-            !state.has_consistent_infs(&game.common.thoughts[o])
+            !state.has_consistent_infs(&game.common.thoughts[o], game.me())
                 && (game.gained_status(prev, o, CardStatus::CalledToPlay)
                     || (game.gained_status(prev, o, CardStatus::DragToPlay)
                         && !state.is_inverted_order(o))
@@ -862,7 +862,7 @@ pub fn target_play(
         .id()
         .is_some_and(|id| state.is_inverted(id));
 
-    if (new_inferred.is_empty() || !state.has_consistent_infs(&g.common.thoughts[target]))
+    if (new_inferred.is_empty() || !state.has_consistent_infs(&g.common.thoughts[target], g.me()))
         && !inverted_id
     {
         log_warn!("target {target} was reset!");
