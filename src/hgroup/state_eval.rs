@@ -878,7 +878,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
             if mistaken {
                 -100.0
             } else {
-                let average = total / unique_infs.len() as f64;
+                let average = average_value(total, unique_infs.len());
                 log_highlight!(
                     logger::GREEN,
                     "average for {}: {average:.2}",
@@ -964,7 +964,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
             if mistaken {
                 -100.0
             } else {
-                total / poss.len() as f64
+                average_value(total, poss.len())
             }
         }
 
@@ -976,6 +976,16 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
         -100.0
     } else {
         value
+    }
+}
+
+/// The average of the values of an action over what the card might be. With nothing it could be, the action can't be
+/// valued, and it is a mistake (rather than `NaN`, which no comparison ever prefers).
+fn average_value(total: f64, candidates: usize) -> f64 {
+    if candidates == 0 {
+        -100.0
+    } else {
+        total / candidates as f64
     }
 }
 

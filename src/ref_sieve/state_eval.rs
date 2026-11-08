@@ -435,7 +435,9 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                     if game.in_endgame() { 0.1 } else { 0.25 }
                 };
 
-                let initial = get_result(game, &hypo, clue) * mult - 0.5;
+                let result = get_result(game, &hypo, clue);
+                // Only a good result is scaled down: a bad one is not made less bad
+                let initial = result * if result > 0.0 { mult } else { 1.0 } - 0.5;
                 log_info!("initial clue value: {initial:.2}");
 
                 (hypo.last_move(), initial + advance(game, &hypo, 1))
@@ -500,6 +502,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                 .collect();
 
             let mut acc: (Option<Interp>, f64) = (Some(PlayInterp::None.into()), 0.0);
+            let mut mistaken = unique_infs.is_empty();
             for id in &unique_infs {
                 log_highlight!(logger::GREEN, "playing {}", state.log_id(*id));
                 let hypo = game.simulate(
@@ -512,7 +515,7 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                 );
 
                 if hypo.last_move() == Some(Interp::Play(PlayInterp::Mistake)) {
-                    acc = (Some(PlayInterp::Mistake.into()), -100.0);
+                    mistaken = true;
                     break;
                 }
 
@@ -520,8 +523,13 @@ pub fn eval_action_impl(game: &Game, action: &Action) -> f64 {
                 log_info!("{}: {best:.2} ({:?})", action.fmt(state), hypo.last_move());
                 acc = (hypo.last_move(), acc.1 + best);
             }
-            // (As in the Scala bot, the average is taken even for a mistake.)
-            (acc.0, acc.1 / unique_infs.len() as f64)
+
+            // Nothing it could be, or a mistake if it is one of the things it could be: not a play to make
+            if mistaken {
+                (Some(PlayInterp::Mistake.into()), -100.0)
+            } else {
+                (acc.0, acc.1 / unique_infs.len() as f64)
+            }
         }
 
         Action::Discard(DiscardAction { order, id, .. }) => {
