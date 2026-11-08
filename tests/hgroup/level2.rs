@@ -547,3 +547,50 @@ fn does_not_try_to_self_prompt_colour_clues() {
 
     has_infs(&game, None, Alice, 1, &["r1", "r2"]);
 }
+
+#[test]
+fn refreshing_waiting_connections_is_skipped_only_when_nothing_reacts() {
+    use hanab_bot::basics::action::{Action, PlayAction};
+    use hanab_bot::hgroup::HGroupGame;
+    use hanab_bot::hgroup::update_wcs::{refresh_wcs, refresh_wcs_changed};
+
+    let mut game = setup(
+        hgroup(2),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "b3", "g3", "y4", "p4"],
+            &["p2", "r2", "g4", "b4", "y3"],
+        ],
+        Setup::default(),
+    );
+    take_turn(&mut game, "Alice clues red to Cathy");
+    assert_eq!(game.waiting().len(), 1, "Bob is waited on for the r1");
+
+    let play = |player: Player, slot: usize, id: Identity| {
+        let order = game.state.hands[player.ordinal()][slot];
+        let action = PlayAction {
+            player_index: player.ordinal(),
+            order,
+            id: Some(id),
+        };
+        let mut after = game.clone();
+        after.on_play(&action);
+        (after, Action::Play(action))
+    };
+
+    // Cathy plays a card that has nothing to do with the connection: nothing changes.
+    let (after, action) = play(Cathy, 4, Identity::new(4, 3));
+    assert!(refresh_wcs_changed(&game, &after, &action, false, false, Some(-1)).is_none());
+    let refreshed = refresh_wcs(&game, &after, &action, false, false, Some(-1));
+    assert_eq!(refreshed.waiting(), after.waiting());
+
+    // Bob plays the r1 he is waited on for: the connection is resolved.
+    let (after, action) = play(Bob, 0, Identity::new(0, 1));
+    let changed = refresh_wcs_changed(&game, &after, &action, false, false, Some(-1))
+        .expect("the connection reacts to Bob's play");
+    assert_ne!(changed.waiting(), after.waiting());
+    assert_eq!(
+        changed.waiting(),
+        refresh_wcs(&game, &after, &action, false, false, Some(-1)).waiting()
+    );
+}

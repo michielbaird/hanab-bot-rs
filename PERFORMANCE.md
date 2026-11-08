@@ -54,6 +54,25 @@ shows what is left. Sharing `ConvData::reasoning` (copy-on-write) took it to 27.
 
 Profile of the same run (inclusive timers, temporary): `Game::elim` 16.7 s of 28.7, of which `update_hypo_stacks` 12.0 (game copy 3.6, hypothetical plays 3.8, `thinks_playables` 2.4) and `card_elim` 2.4. `order_trash` is only about 0.5 s in total (1.3M calls), so caching it (idea 3) would not pay.
 
+## Profile after the Scala v1.3.1 port (HGroup3 benchmark, 3 repetitions together, with timers around the pieces)
+
+The port made the bot give fewer speculative clues, so the work per repetition halved (55,814 simulated games instead of 106,174) and the benchmark
+takes 13.5 s here. Where the 42 s of the three repetitions went (inclusive; the pieces overlap):
+
+| | time | share |
+|---|---|---|
+| `Game::elim` | 27.4 s | 65% |
+| of which `update_hypo_stacks` | 20.3 s | 48% |
+| ... the game copy for it (`clone_for_hypo`) | 5.4 s | 13% |
+| ... `thinks_playables` | 2.8 s | 7% |
+| ... hypothetical plays | 9.5 s | 23% |
+| ... ... of which the copy of `prev` and `refresh_wcs` when connections are waiting | 8.7 s | 21% |
+| `card_elim` of the other perspectives | 2.9 s | 7% |
+
+Skipping the `refresh_wcs` copy when no waiting connection reacts to the hypothetical play (`refresh_wcs_changed` returns `None`) took the benchmark from 13.52 s to
+12.75 s (-6%) with the same fingerprint. What is left of that branch is the copy of `prev` (2.6 s, which `update_wc` reads: hands, playable set, chop) and
+evaluating every waiting connection against the play (3.5 s).
+
 ## Where the time goes
 
 `Game::elim` is about 55% of self-play time, and `update_hypo_stacks` about 75% of that: `elim` runs it for the common perspective and once for

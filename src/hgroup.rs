@@ -38,7 +38,7 @@ use interpret_dc::{
 };
 use stalling::stall_severity;
 use state_eval::eval_action_impl;
-use update_wcs::{check_reveal_layer, refresh_wcs, revert};
+use update_wcs::{check_reveal_layer, refresh_wcs, refresh_wcs_changed, revert};
 
 /// Convention levels (the level at which each feature is introduced).
 pub mod level {
@@ -1979,14 +1979,16 @@ impl Convention for HGroup {
     }
 
     fn refresh_after_play(&self, prev: &Game, game: &mut Game, action: &PlayAction) {
-        *game = refresh_wcs(
+        if let Some(refreshed) = refresh_wcs_changed(
             prev,
             game,
             &Action::Play(action.clone()),
             false,
             false,
             Some(-1),
-        );
+        ) {
+            *game = refreshed;
+        }
     }
 
     fn find_all_clues(&self, game: &Game, giver: usize) -> Vec<PerformAction> {

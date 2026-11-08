@@ -155,8 +155,37 @@ pub fn refresh_wcs(
     elim: bool,
     hypo: Option<isize>,
 ) -> Game {
+    refresh_wcs_changed(prev, game, action, before_clue_interp, elim, hypo)
+        .unwrap_or_else(|| game.clone())
+}
+
+/// Like [`refresh_wcs`], but `None` when nothing changes (so the caller doesn't have to copy the game for nothing).
+///
+/// Nothing changes when no waiting connection reacts to the action and nothing is eliminated afterwards.
+pub fn refresh_wcs_changed(
+    prev: &Game,
+    game: &Game,
+    action: &Action,
+    before_clue_interp: bool,
+    elim: bool,
+    hypo: Option<isize>,
+) -> Option<Game> {
     if game.waiting().is_empty() {
-        return game.clone();
+        return None;
+    }
+
+    // Every connection is kept as it is, and nothing is removed along the way (`to_remove` stays empty).
+    if !elim
+        && game.waiting().iter().all(|wc| {
+            hypo == Some(wc.target as isize)
+                || wc.turn == game.state.turn_count
+                || matches!(
+                    update_wc(prev, game, action, wc, &[], before_clue_interp),
+                    UpdateResult::Keep
+                )
+        })
+    {
+        return None;
     }
 
     let mut new_game = game.clone();
@@ -459,7 +488,7 @@ pub fn refresh_wcs(
         let except = hypo.filter(|&h| h >= 0).map(|h| h as usize);
         g.elim(except, hypo.is_some());
     }
-    g
+    Some(g)
 }
 
 pub fn update_wc(
