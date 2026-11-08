@@ -90,6 +90,29 @@ pub fn interpret_transfer(
             || (prev.common.hypo_plays.contains(order) && !game.common.thoughts[order].reset)
             || prev.common.order_playable(prev, order, false)
         {
+            /// Whether discarding this card (instead of playing it) is plausible: it is trash, or another copy is visible or
+            /// inferred. (An orange card can be a layer only then: a critical one could not be thrown away.)
+            fn possible_trash(hypo_game: &Game, id: Identity, excluded: usize) -> bool {
+                hypo_game.state.is_basic_trash(id)
+                    || !visible_find(
+                        &hypo_game.state,
+                        hypo_game.me(),
+                        id,
+                        VisibleOpts {
+                            infer: true,
+                            exclude_order: Some(excluded),
+                            ..VisibleOpts::default()
+                        },
+                        |_, _| true,
+                    )
+                    .is_empty()
+                    || hypo_game
+                        .state
+                        .our_hand()
+                        .iter()
+                        .any(|&o| hypo_game.me().thoughts[o].inferred.contains(id))
+            }
+
             fn find_gd(
                 ctx: &DiscardContext,
                 hypo_game: &Game,
@@ -114,7 +137,7 @@ pub fn interpret_transfer(
                         game.future[f].intersect(
                             hypo_state
                                 .playable_set
-                                .union(hypo_state.all_ids.filter(|i| game.state.is_inverted(i))),
+                                .union(game.state.all_ids.filter(|i| game.state.is_inverted(i))),
                         )
                     };
 
@@ -128,30 +151,15 @@ pub fn interpret_transfer(
                 match finesse_id {
                     None => Some(vec![f]),
                     Some(i) if i == id => Some(vec![f]),
-                    // A gentleman's discard can be layered through any orange card: the discard gets the "land mine" out of the
-                    // game early, like a hollow bluff does.
-                    Some(i) if !inverted && game.state.is_inverted(i) => {
-                        let mut next = hypo_game.clone();
-                        next.state.add_discard(i, f);
-                        next.state.hands[holder].retain(|&o| o != f);
-
-                        let mut next_connected = connected;
-                        next_connected.insert(f);
-                        find_gd(ctx, &next, next_connected, holder, inverted, id).map(|rest| {
-                            let mut all = vec![f];
-                            all.extend(rest);
-                            all
-                        })
-                    }
                     Some(i)
                         if if inverted ^ game.state.is_inverted(i) {
-                            hypo_state.is_basic_trash(i)
+                            possible_trash(hypo_game, i, f)
                         } else {
                             hypo_state.is_playable(i)
                         } =>
                     {
                         let mut next = hypo_game.clone();
-                        if inverted {
+                        if inverted ^ game.state.is_inverted(i) {
                             next.state.add_discard(i, f);
                             next.state.hands[holder].retain(|&o| o != f);
                         } else {
