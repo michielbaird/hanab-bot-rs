@@ -83,6 +83,63 @@ impl Game {
         state.clue_tokens = state.clue_tokens.saturating_sub(1);
     }
 
+    /// Whether the card is the last one of the deck, played with Deck Plays before anyone drew it.
+    fn is_deck_play(&self, order: usize) -> bool {
+        let state = &self.state;
+        let total_cards: usize = state.card_count.iter().sum();
+        state.options.deck_plays && order == total_cards - 1 && !state.held_orders.contains(order)
+    }
+
+    /// With Deck Plays, the last card of the deck can be played without having been drawn. It joins the game (as a card in
+    /// nobody's hand) before the play is handled, so that everything that looks at the game from before the play finds it.
+    fn add_undrawn_deck_card(&mut self, action: &Action) {
+        let (player_index, order, id) = match action {
+            Action::Play(PlayAction {
+                player_index,
+                order,
+                id,
+            })
+            | Action::Discard(DiscardAction {
+                player_index,
+                order,
+                id,
+                failed: true,
+            }) => (*player_index, *order, *id),
+            _ => return,
+        };
+
+        let state = &mut self.state;
+        let total_cards: usize = state.card_count.iter().sum();
+        if !(state.options.deck_plays && order == total_cards - 1 && state.deck.len() == order) {
+            return;
+        }
+
+        state.deck.push(Card::new(id, order, state.turn_count));
+        state.holder_of.push(player_index);
+        state.next_card_order += 1;
+        state.cards_left = state.cards_left.saturating_sub(1);
+        if let Some(id) = id {
+            self.deck_ids
+                .resize(self.deck_ids.len().max(order + 1), None);
+            self.deck_ids[order] = Some(id);
+        }
+
+        for (i, player) in self.players.iter_mut().enumerate() {
+            let seen = if i == player_index { None } else { id };
+            let all_possible = player.all_possible;
+            player
+                .thoughts_mut()
+                .push(Thought::new(seen, order, all_possible));
+            player.dirty.insert(order);
+        }
+        let all_possible = self.common.all_possible;
+        self.common
+            .thoughts_mut()
+            .push(Thought::new(None, order, all_possible));
+        self.common.dirty.insert(order);
+        self.meta.push(ConvData::new(order));
+    }
+
     /// Updates the game after the discard, without conventional interpretation or elim.
     pub fn on_discard(&mut self, action: &DiscardAction) {
         let DiscardAction {
@@ -92,10 +149,14 @@ impl Game {
             failed,
         } = *action;
 
+        let deck_play = failed && self.is_deck_play(order);
         let state = &mut self.state;
         state.hands[player_index].retain(|&o| o != order);
         state.held_orders.remove(order);
         state.endgame_turns = state.endgame_turns.map(|n| n - 1);
+        if deck_play {
+            state.endgame_turns = Some(state.num_players as isize);
+        }
         if failed {
             state.strikes += 1;
         } else {
@@ -221,33 +282,13 @@ impl Game {
             id,
         } = *action;
 
+        let deck_play = self.is_deck_play(order);
         let state = &mut self.state;
         state.hands[player_index].retain(|&o| o != order);
         state.held_orders.remove(order);
         state.endgame_turns = state.endgame_turns.map(|n| n - 1);
-
-        let total_cards: usize = state.card_count.iter().sum();
-        if state.options.deck_plays && order == total_cards - 1 && state.deck.len() == order {
-            state.deck.push(Card::new(id, order, state.turn_count));
-            state.holder_of.push(player_index);
-            state.next_card_order += 1;
-            state.cards_left = state.cards_left.saturating_sub(1);
+        if deck_play {
             state.endgame_turns = Some(state.num_players as isize);
-
-            for (i, player) in self.players.iter_mut().enumerate() {
-                let seen = if i == player_index { None } else { id };
-                let all_possible = player.all_possible;
-                player
-                    .thoughts_mut()
-                    .push(Thought::new(seen, order, all_possible));
-                player.dirty.insert(order);
-            }
-            let all_possible = self.common.all_possible;
-            self.common
-                .thoughts_mut()
-                .push(Thought::new(None, order, all_possible));
-            self.common.dirty.insert(order);
-            self.meta.push(ConvData::new(order));
         }
 
         self.common.update_thought(order, |t| {
@@ -404,6 +445,8 @@ impl Game {
         if matches!(action, Action::Status(_) | Action::Strike(_)) {
             return Ok(());
         }
+
+        self.add_undrawn_deck_card(action);
 
         let prev = self.clone();
         let turn_count = self.state.turn_count;
