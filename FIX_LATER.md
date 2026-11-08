@@ -61,7 +61,8 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     condition was nearly always met. It now asks whether the discarded slot-1 card was touched (`is_touched(order)`).
 11. **fixed** (Scala v1.3.0 fixed it too) `elim_dc_play` / `elim_play_play` (`reactor/interpret_reaction.rs`): `updateMeta(meta, ...)` was passed the
     original `meta` instead of the accumulated one, so only the last processed slot's `trash` flag survived.
-12. **open** `calc_target_slot`: `indexOf` returns -1 when the reacting order isn't in the reacter's old hand, making the slot 0.
+12. **fixed** `calc_target_slot`: `indexOf` returned -1 when the reacting order wasn't in the reacter's old hand, making the slot 0 (and
+    `target_slot - 1` underflow); the reaction is now not interpreted.
 13. **open** `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in Scala.
     The Rust treats "no old inference" as "different from the played identity".
 
