@@ -39,10 +39,21 @@ fn reads_the_game_events() {
         other => panic!("{other:?}"),
     }
 
-    match event(
+    // A failed play is a `misplay` (before November 2026, a `discard` with `failed`).
+    for failed in [
+        json!({"type": "misplay", "playerIndex": 1, "order": 4, "identity": {"suitIndex": 3, "rank": 5}}),
         json!({"type": "discard", "playerIndex": 1, "order": 4, "failed": true, "identity": {"suitIndex": 3, "rank": 5}}),
+    ] {
+        match event(failed) {
+            Action::Discard(d) => assert!(d.failed && d.order == 4),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    match event(
+        json!({"type": "discard", "playerIndex": 1, "order": 4, "identity": {"suitIndex": 3, "rank": 5}}),
     ) {
-        Action::Discard(d) => assert!(d.failed && d.order == 4),
+        Action::Discard(d) => assert!(!d.failed && d.order == 4),
         other => panic!("{other:?}"),
     }
 
@@ -60,15 +71,18 @@ fn reads_the_game_events() {
 
 #[test]
 fn reads_a_clue_event() {
-    let clue = event(
-        json!({"type": "clue", "clue": {"type": "color", "value": 2}, "playerIndex": 0, "target": 1, "orders": [3, 4]}),
-    );
-    match clue {
-        Action::Clue(c) => {
-            assert_eq!((c.giver, c.target, c.list), (0, 1, vec![3, 4]));
-            assert_eq!(c.clue.value, 2);
+    // (The receiver was `target` until November 2026.)
+    for receiver in ["receiverIndex", "target"] {
+        let clue = event(
+            json!({"type": "clue", "clue": {"type": "color", "value": 2}, "playerIndex": 0, receiver: 1, "orders": [3, 4]}),
+        );
+        match clue {
+            Action::Clue(c) => {
+                assert_eq!((c.giver, c.target, c.list), (0, 1, vec![3, 4]));
+                assert_eq!(c.clue.value, 2);
+            }
+            other => panic!("{other:?}"),
         }
-        other => panic!("{other:?}"),
     }
 
     // (Before November 2026 the giver was `giver`, the cards `list`, and the clue was numbered.)
@@ -127,7 +141,7 @@ fn sends_player_actions_in_the_new_shape() {
             value: 2
         }
         .json(7),
-        json!({"tableId": 7, "action": {"type": "clue", "target": 1, "clue": {"type": "color", "value": 2}}})
+        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "value": 2}}})
     );
     assert_eq!(
         PerformAction::Rank {
@@ -135,7 +149,7 @@ fn sends_player_actions_in_the_new_shape() {
             value: 4
         }
         .json(7),
-        json!({"tableId": 7, "action": {"type": "clue", "target": 2, "clue": {"type": "rank", "value": 4}}})
+        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "value": 4}}})
     );
 }
 
@@ -153,7 +167,7 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
             PerformAction::Discard { target: 6 },
         ),
         (
-            json!({"type": "clue", "target": 1, "clue": {"type": "color", "value": 3}}),
+            json!({"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "value": 3}}),
             json!({"type": 2, "target": 1, "value": 3}),
             PerformAction::Colour {
                 target: 1,
@@ -161,7 +175,7 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
             },
         ),
         (
-            json!({"type": "clue", "target": 2, "clue": {"type": "rank", "value": 5}}),
+            json!({"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "value": 5}}),
             json!({"type": 3, "target": 2, "value": 5}),
             PerformAction::Rank {
                 target: 2,
@@ -173,6 +187,17 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
         assert_eq!(PerformAction::from_json(&new).unwrap(), expected, "{new}");
         assert_eq!(PerformAction::from_json(&old).unwrap(), expected, "{old}");
     }
+    // (The receiver of a clue was `target` until November 2026.)
+    assert_eq!(
+        PerformAction::from_json(
+            &json!({"type": "clue", "target": 1, "clue": {"type": "color", "value": 3}})
+        )
+        .unwrap(),
+        PerformAction::Colour {
+            target: 1,
+            value: 3
+        }
+    );
     assert_eq!(
         PerformAction::from_json(&json!({"type": "gameOver", "endCondition": "terminatedByVote"}))
             .unwrap(),
@@ -189,10 +214,10 @@ fn as_new_export(old: &Value) -> Value {
         Some(0) => json!({"type": "play", "order": a["target"]}),
         Some(1) => json!({"type": "discard", "order": a["target"]}),
         Some(2) => {
-            json!({"type": "clue", "target": a["target"], "clue": {"type": "color", "value": a["value"]}})
+            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "color", "value": a["value"]}})
         }
         Some(3) => {
-            json!({"type": "clue", "target": a["target"], "clue": {"type": "rank", "value": a["value"]}})
+            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "rank", "value": a["value"]}})
         }
         other => panic!("{other:?}"),
     };

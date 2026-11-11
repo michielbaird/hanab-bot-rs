@@ -15,8 +15,8 @@ function newExport(old) {
     ({
       0: { type: "play", order: a.target },
       1: { type: "discard", order: a.target },
-      2: { type: "clue", target: a.target, clue: { type: "color", value: a.value } },
-      3: { type: "clue", target: a.target, clue: { type: "rank", value: a.value } },
+      2: { type: "clue", receiverIndex: a.target, clue: { type: "color", value: a.value } },
+      3: { type: "clue", receiverIndex: a.target, clue: { type: "rank", value: a.value } },
     })[a.type];
   const { variant, ...flags } = old.options ?? {};
   return {

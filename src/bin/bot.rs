@@ -42,9 +42,6 @@ fn fetch(url: &str) -> Result<String, String> {
         .map_err(|e| format!("{url}: {e}"))
 }
 
-/// What older servers want as the version from a bot. (Newer ones want `bot=true` instead and ignore the version.)
-const CLIENT_VERSION: &str = "bot";
-
 /// What logging in gives: the cookies to show the websocket, and the account they are for.
 struct Session {
     cookie: String,
@@ -59,8 +56,7 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
         .form(&[
             ("username", username),
             ("password", password),
-            ("version", CLIENT_VERSION),
-            ("bot", "true"),
+            ("client", "bot"),
         ])
         .send()
         .map_err(|e| e.to_string())?;
@@ -103,7 +99,7 @@ async fn run_connection(
     console: &ConsoleSink,
 ) -> Result<(), String> {
     // A bot says so (and which account it is, since a session can hold several): the server then wants no client version.
-    let mut url = format!("{ws_url}?version={CLIENT_VERSION}&bot=true");
+    let mut url = format!("{ws_url}?client=bot");
     if session.user_id > 0 {
         url.push_str(&format!("&account={}", session.user_id));
     }

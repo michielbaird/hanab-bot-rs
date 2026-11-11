@@ -410,7 +410,7 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
         .find(|m| m.starts_with("playerAction "))
         .expect("an action");
     assert!(
-        action.contains(r#""type":"rank""#) && action.contains(r#""target":1"#),
+        action.contains(r#""type":"rank""#) && action.contains(r#""receiverIndex":1"#),
         "{action}"
     );
 
@@ -796,6 +796,27 @@ fn it_asks_for_the_game_when_the_table_starts() {
 
     client.handle_msg(r#"tableStarted {"tableId": 7, "stage": "justStarted"}"#);
     assert_eq!(sends(&drain(&mut rx)), [r#"gameInitLoad {"tableId":7}"#]);
+}
+
+#[test]
+fn it_forgets_a_table_that_is_removed() {
+    // (`tableRemoved` was `tableGone` until November 2026.)
+    for removed in ["tableRemoved", "tableGone"] {
+        logger::set_level(LogLevel::Off);
+        let (tx, mut rx) = unbounded_channel();
+        let mut client = BotClient::new(BotConfig::default(), tx);
+        client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+        client.handle_msg(
+            r#"tableList {"tables": [{"tableId": 3, "joined": false, "ownerId": 9, "passwordProtected": false,
+            "settings": {"name": "t", "options": {"variantName": "No Variant", "emptyClues": true}},
+            "playerNames": ["alice"], "progress": 0, "phase": "pregame", "spectators": []}]}"#,
+        );
+        client.handle_msg(&format!(r#"{removed} {{"tableId": 3}}"#));
+        client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+
+        // The table is not known any more, so there are no settings to complain about.
+        assert!(chats(&drain(&mut rx)).is_empty(), "{removed}");
+    }
 }
 
 #[test]

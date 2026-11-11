@@ -19,6 +19,7 @@ const END_CONDITIONS: Record<string, number> = {
 interface Turn {
   type: string | number;
   order?: number;
+  receiverIndex?: number;
   target?: number;
   value?: number;
   clue?: { type: string; value: number };
@@ -38,7 +39,8 @@ function oldTurn(turn: Turn): unknown {
     case "clue":
       return {
         type: turn.clue?.type === "rank" ? 3 : 2,
-        target: turn.target,
+        // (The receiver of a clue was `target` until November 2026 too.)
+        target: turn.receiverIndex ?? turn.target,
         value: turn.clue?.value,
       };
     case "gameOver":

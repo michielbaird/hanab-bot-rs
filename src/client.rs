@@ -485,8 +485,11 @@ impl BotClient {
                     self.tables.insert(table.table_id, table);
                 }
 
-                "tableGone" => {
-                    let id = parse("tableGone")?["tableId"].as_i64().unwrap_or_default();
+                // (`tableGone` before November 2026.)
+                "tableRemoved" | "tableGone" => {
+                    let id = parse("tableRemoved")?["tableId"]
+                        .as_i64()
+                        .unwrap_or_default();
                     self.tables.remove(&id);
                 }
 
