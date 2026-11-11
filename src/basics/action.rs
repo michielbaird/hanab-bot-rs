@@ -15,6 +15,18 @@ fn get_usize(json: &Value, key: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("missing or invalid '{key}' in {json}"))
 }
 
+/// The player that receives a clue (`receiverIndex` since November 2026, `target` before).
+fn get_receiver(json: &Value) -> Result<usize, String> {
+    get_usize(
+        json,
+        if json.get("receiverIndex").is_some() {
+            "receiverIndex"
+        } else {
+            "target"
+        },
+    )
+}
+
 /// The identity of a card in an event: nested as `identity: {suitIndex, rank}` and left out when unknown (older servers:
 /// `suitIndex` and `rank` on the event itself, -1 when unknown).
 fn get_identity(json: &Value) -> Result<Option<Identity>, String> {
@@ -286,7 +298,7 @@ impl Action {
                         "playerIndex"
                     },
                 )?,
-                target: get_usize(json, "target")?,
+                target: get_receiver(json)?,
                 list: json
                     .get("orders")
                     .or_else(|| json.get("list"))
@@ -301,11 +313,12 @@ impl Action {
                     .collect::<Result<_, _>>()?,
                 clue: BaseClue::from_json(&json["clue"])?,
             }),
-            "discard" => Self::Discard(DiscardAction {
+            // (A failed play is a `misplay` since November 2026, and a `discard` with `failed` before.)
+            kind @ ("discard" | "misplay") => Self::Discard(DiscardAction {
                 player_index: get_usize(json, "playerIndex")?,
                 order: get_usize(json, "order")?,
                 id: get_identity(json)?,
-                failed: json["failed"].as_bool().ok_or("discard without 'failed'")?,
+                failed: kind == "misplay" || json["failed"].as_bool().unwrap_or(false),
             }),
             "play" => Self::Play(PlayAction {
                 player_index: get_usize(json, "playerIndex")?,
@@ -593,10 +606,10 @@ impl PerformAction {
             Self::Play { target } => json!({"type": "play", "order": target}),
             Self::Discard { target } => json!({"type": "discard", "order": target}),
             Self::Colour { target, value } => {
-                json!({"type": "clue", "target": target, "clue": {"type": "color", "value": value}})
+                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "color", "value": value}})
             }
             Self::Rank { target, value } => {
-                json!({"type": "clue", "target": target, "clue": {"type": "rank", "value": value}})
+                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "rank", "value": value}})
             }
             // (Not something a player can do: a game is ended with `tableTerminate`.)
             Self::Terminate { target, value } => {
@@ -700,7 +713,7 @@ impl PerformAction {
         }
     }
 
-    /// Parses an action from hanab.live: a turn of an exported game (`{type: "play", order}`, `{type: "clue", target,
+    /// Parses an action from hanab.live: a turn of an exported game (`{type: "play", order}`, `{type: "clue", receiverIndex,
     /// clue}`, `{type: "gameOver", endCondition}`), or the numbered form of older exports.
     pub fn from_json(json: &Value) -> Result<Self, String> {
         if let Some(kind) = json["type"].as_str() {
@@ -747,7 +760,7 @@ impl PerformAction {
                 target: get_usize(json, "order")?,
             }),
             "clue" => {
-                let target = get_usize(json, "target")?;
+                let target = get_receiver(json)?;
                 let clue = BaseClue::from_json(&json["clue"])?;
                 Ok(match clue.kind {
                     ClueKind::Colour => Self::Colour {

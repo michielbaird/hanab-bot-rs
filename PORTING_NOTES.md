@@ -205,19 +205,22 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `f6f7d51` of 11 November, 14:13), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
-- **Login:** `POST /login` with `username`, `password`, `bot=true` (and `version=bot` for older servers). The answer is `{"userId": n}` and
-  one cookie per account; all of them go to `/ws?bot=true&account=<userId>` (a bot sends no client version).
+- **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
+  `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
+  people use and leaves the account alone). The answer is `{"userId": n}` and one cookie per account; all of them go to
+  `/ws?client=bot&account=<userId>` (a bot sends no client version).
 - **Received:** `welcome`, `chat` (`text`, `username`, `tableId`, `recipient`), `chatList`, `table`, `tableList` (`{"tables": [...]}`),
-  `tableGone`, `tableJoined`, `tableLeft`, `tableStarted`, `init` (`mode.ourPlayerIndex`), `gameEvent`, `gameEventList`, `noteListPlayer`,
-  `warning`/`error` (`message`). Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events.
+  `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `init` (`mode.ourPlayerIndex`), `gameEvent`, `gameEventList`, `noteListPlayer`,
+  `warning`/`error` (`message`). Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events. A clue
+  names its receiver as `receiverIndex`, and a failed play is a `misplay` event (a `discard` has no `failed` field any more).
 - **Sent:** `chatPm`, `chat` (with `tableId`), `tableJoin`, `tableLeave`, `tableUnattend`, `tableReattend`, `tableStart`, `tableTerminate`,
-  `gameInitLoad`, `gameStateLoad`, `loaded`, `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`). Chat longer than
+  `gameInitLoad`, `gameStateLoad`, `loaded`, `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`, a clue with `receiverIndex` and `clue`). Chat longer than
   300 characters is rejected, so `split_chat` cuts it.
-- **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`),
+- **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`, a clue `{"type": "clue", "receiverIndex": n, "clue": {...}}`),
   `options.variantName`, `gameId`, `seed`. The readers (`GameData`, `Action::from_json`, `PerformAction::from_json`) also take the older shapes,
-  and the older names of a few messages (`joined`, `left`, a bare `tableList`, `giver`), so old exports and fixtures keep working. The bot does
+  and the older names of a few messages (`joined`, `left`, `tableGone`, a bare `tableList`, `giver`, a clue's `target`), so old exports and fixtures keep working. The bot does
   not speak the old protocol when sending.
 
 ## Referential Sieve (M5)

@@ -11,8 +11,8 @@ const NEW_EXPORT = {
   actions: [
     { type: "play", order: 5 },
     { type: "discard", order: 6 },
-    { type: "clue", target: 1, clue: { type: "color", value: 3 } },
-    { type: "clue", target: 2, clue: { type: "rank", value: 5 } },
+    { type: "clue", receiverIndex: 1, clue: { type: "color", value: 3 } },
+    { type: "clue", receiverIndex: 2, clue: { type: "rank", value: 5 } },
     { type: "gameOver", endCondition: "terminatedByVote", playerIndex: 1 },
   ],
 };
@@ -32,6 +32,14 @@ test("turns a new export into the old shape", () => {
       { type: 4, target: 1, value: 10 },
     ],
   });
+});
+
+test("a clue still names its receiver as the target in an export of before the rename", () => {
+  const exported = toOldExport({
+    playerNames: ["Alice", "Bob"],
+    actions: [{ type: "clue", target: 1, clue: { type: "rank", value: 2 } }],
+  }) as { actions: unknown[] };
+  assert.deepEqual(exported.actions, [{ type: 3, target: 1, value: 2 }]);
 });
 
 test("an export without options is the default variant", () => {
