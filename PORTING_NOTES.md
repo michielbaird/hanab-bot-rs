@@ -201,6 +201,25 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 - TLS is rustls (not the JVM's); HTTP uses blocking `reqwest` (login, variants, `/export/<id>`), so `GameData::fetch_id` and `replay id=...` work.
 - Not verified live: a complete game (needs a second player). Login, websocket and the lobby handshake were exercised against hanab.live.
 
+### The wire protocol (hanab.live, November 2026)
+
+hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
+The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
+has examples), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+
+- **Login:** `POST /login` with `username`, `password`, `bot=true` (and `version=bot` for older servers). The answer is `{"userId": n}` and
+  one cookie per account; all of them go to `/ws?bot=true&account=<userId>` (a bot sends no client version).
+- **Received:** `welcome`, `chat` (`text`, `username`, `tableId`, `recipient`), `chatList`, `table`, `tableList` (`{"tables": [...]}`),
+  `tableGone`, `tableJoined`, `tableLeft`, `tableStarted`, `init` (`mode.ourPlayerIndex`), `gameEvent`, `gameEventList`, `noteListPlayer`,
+  `warning`/`error` (`message`). Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events.
+- **Sent:** `chatPm`, `chat` (with `tableId`), `tableJoin`, `tableLeave`, `tableUnattend`, `tableReattend`, `tableStart`, `tableTerminate`,
+  `gameInitLoad`, `gameStateLoad`, `loaded`, `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`). Chat longer than
+  300 characters is rejected, so `split_chat` cuts it.
+- **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`),
+  `options.variantName`, `gameId`, `seed`. The readers (`GameData`, `Action::from_json`, `PerformAction::from_json`) also take the older shapes,
+  and the older names of a few messages (`joined`, `left`, a bare `tableList`, `giver`), so old exports and fixtures keep working. The bot does
+  not speak the old protocol when sending.
+
 ## Referential Sieve (M5)
 
 - **State.** `Ext::RefSieve(RefSieveData { waiting, zcs_turn, locked_shifts })`. `waiting` is only ever appended to (nothing reads it yet,

@@ -248,11 +248,11 @@ pub fn summary_json(
     summary: &GameSummary,
 ) -> Value {
     json!({
-        "players": NAMES[..num_players],
+        "playerNames": NAMES[..num_players],
         "deck": deck.iter().map(|id| json!({"suitIndex": id.suit_index, "rank": id.rank})).collect::<Vec<_>>(),
-        "actions": summary.actions.iter().map(|a| a.json(0)).collect::<Vec<_>>(),
+        "actions": summary.actions.iter().map(PerformAction::turn_json).collect::<Vec<_>>(),
         "notes": summary.notes,
-        "options": {"variant": variant.name},
+        "options": {"variantName": variant.name},
     })
 }
 

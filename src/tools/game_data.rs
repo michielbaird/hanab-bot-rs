@@ -53,8 +53,11 @@ impl GameData {
     }
 
     pub fn parse(data: &Value) -> Result<Self, String> {
-        let players: Vec<String> = data["players"]
-            .as_array()
+        // (The exports of before November 2026 call them `players`, and put the variant under `options.variant`.)
+        let players: Vec<String> = data
+            .get("playerNames")
+            .or_else(|| data.get("players"))
+            .and_then(Value::as_array)
             .ok_or("missing players")?
             .iter()
             .map(|p| p.as_str().map(String::from).ok_or("player is not a string"))
@@ -82,7 +85,11 @@ impl GameData {
         let opts = &data["options"];
         let options = TableOptions {
             num_players: players.len(),
-            variant_name: opts["variant"].as_str().unwrap_or("No Variant").to_string(),
+            variant_name: opts["variantName"]
+                .as_str()
+                .or_else(|| opts["variant"].as_str())
+                .unwrap_or("No Variant")
+                .to_string(),
             deck_plays: opts["deckPlays"].as_bool().unwrap_or(false),
             empty_clues: opts["emptyClues"].as_bool().unwrap_or(false),
             ..TableOptions::default()
@@ -93,7 +100,7 @@ impl GameData {
             deck,
             actions,
             options,
-            id: data["id"].as_u64(),
+            id: data["gameId"].as_u64().or_else(|| data["id"].as_u64()),
             seed: data["seed"].as_str().map(String::from),
             notes: data["notes"]
                 .as_array()

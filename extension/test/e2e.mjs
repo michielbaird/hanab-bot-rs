@@ -1,7 +1,7 @@
 // End-to-end test in a real Chromium: loads the built extension (dist/chrome, built for the fake site, see below), opens
 // the fake replay page and goes through an analysis.
 //
-//   EXT_MATCHES="http://localhost:8099/*" node build.mjs && node test/e2e.mjs
+//   EXT_MATCHES="http://localhost:8099/*" node build.mjs && node test/e2e.mjs   (CHROMIUM=<chrome> to name the browser)
 //
 // It needs a Chromium that Playwright can find (and its system libraries, and some fonts).
 
@@ -32,8 +32,10 @@ const extensionId = createHash("sha256")
     String.fromCharCode("a".charCodeAt(0) + Number.parseInt(c, 16)),
   );
 
+// CHROMIUM=<path to chrome> uses that browser (when Playwright's own build of Chromium is not installed).
+const browser = process.env["CHROMIUM"];
 const context = await chromium.launchPersistentContext(userDataDir, {
-  channel: "chromium",
+  ...(browser ? { executablePath: browser } : { channel: "chromium" }),
   headless: true,
   args: [
     `--disable-extensions-except=${extension}`,

@@ -42,11 +42,17 @@ fn fetch(url: &str) -> Result<String, String> {
         .map_err(|e| format!("{url}: {e}"))
 }
 
-/// The version that the server accepts from bots, on both `/login` and `/ws`.
+/// What older servers want as the version from a bot. (Newer ones want `bot=true` instead and ignore the version.)
 const CLIENT_VERSION: &str = "bot";
 
-/// Logs in and returns the session cookie.
-fn login(base: &str, username: &str, password: &str) -> Result<String, String> {
+/// What logging in gives: the cookies to show the websocket, and the account they are for.
+struct Session {
+    cookie: String,
+    user_id: i64,
+}
+
+/// Logs in as a bot.
+fn login(base: &str, username: &str, password: &str) -> Result<Session, String> {
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(format!("{base}/login"))
@@ -54,6 +60,7 @@ fn login(base: &str, username: &str, password: &str) -> Result<String, String> {
             ("username", username),
             ("password", password),
             ("version", CLIENT_VERSION),
+            ("bot", "true"),
         ])
         .send()
         .map_err(|e| e.to_string())?;
@@ -61,27 +68,49 @@ fn login(base: &str, username: &str, password: &str) -> Result<String, String> {
     if !response.status().is_success() {
         return Err(format!("login failed: {}", response.status()));
     }
-    response
+
+    // (There is a cookie for the account, and one for the browser's most recent sign-in: the websocket gets them all.)
+    let cookie = response
         .headers()
-        .get("set-cookie")
-        .and_then(|c| c.to_str().ok())
-        .map(String::from)
-        .ok_or_else(|| "No cookie found in the login response".to_string())
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|c| c.to_str().ok())
+        .filter_map(|c| c.split(';').next())
+        .collect::<Vec<_>>()
+        .join("; ");
+    if cookie.is_empty() {
+        return Err("No cookie found in the login response".to_string());
+    }
+
+    // The body is `{"userId": n}` (older servers: no JSON).
+    let user_id = response
+        .text()
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .and_then(|json| json["userId"].as_i64())
+        .unwrap_or_default();
+
+    Ok(Session { cookie, user_id })
 }
 
 /// Runs the client until the connection closes: a thread owns the `BotClient` (choosing actions is slow),
 /// this task owns the socket.
 async fn run_connection(
     ws_url: &str,
-    cookie: &str,
+    session: &Session,
     config: BotConfig,
     username: &str,
     console: &ConsoleSink,
 ) -> Result<(), String> {
-    let mut request = ws_url.into_client_request().map_err(|e| e.to_string())?;
+    // A bot says so (and which account it is, since a session can hold several): the server then wants no client version.
+    let mut url = format!("{ws_url}?version={CLIENT_VERSION}&bot=true");
+    if session.user_id > 0 {
+        url.push_str(&format!("&account={}", session.user_id));
+    }
+    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
     request.headers_mut().insert(
         "Cookie",
-        HeaderValue::from_str(cookie).map_err(|e| e.to_string())?,
+        HeaderValue::from_str(&session.cookie).map_err(|e| e.to_string())?,
     );
 
     let (ws, _) = tokio_tungstenite::connect_async(request)
@@ -204,15 +233,15 @@ async fn supervise(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result
             spec.username.clone(),
             spec.password.clone(),
         );
-        let cookie = tokio::task::spawn_blocking(move || login(&base, &user, &pass))
+        let session = tokio::task::spawn_blocking(move || login(&base, &user, &pass))
             .await
             .map_err(|e| e.to_string())?;
 
-        let (result, connected) = match cookie {
-            Ok(cookie) => (
+        let (result, connected) = match session {
+            Ok(session) => (
                 run_connection(
                     &net.ws_url,
-                    &cookie,
+                    &session,
                     net.config.clone(),
                     &username,
                     &console,
@@ -293,7 +322,7 @@ fn main() -> Result<(), String> {
             if use_ssl { "https" } else { "http" }
         ),
         ws_url: format!(
-            "{}://{hostname}{}/ws?version={CLIENT_VERSION}",
+            "{}://{hostname}{}/ws",
             if use_ssl { "wss" } else { "ws" },
             if custom_port {
                 format!(":{port}")

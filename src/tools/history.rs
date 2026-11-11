@@ -28,26 +28,49 @@ pub struct HistoryRow {
 }
 
 impl HistoryRow {
+    /// Reads a row of the history API: `{gameId, score, variantId, playerNames, finishedAt, seed}` (before November
+    /// 2026: `{id, num_players, score, variant, users, datetime, seed}`).
     pub fn parse(row: &Value) -> Option<Self> {
-        Some(Self {
-            id: row["id"].as_u64()?,
-            num_players: row["num_players"].as_u64()? as usize,
-            score: row["score"].as_u64()? as usize,
-            variant_id: row["variant"].as_u64().unwrap_or_default(),
-            users: row["users"]
+        let users: Vec<String> = match row["playerNames"].as_array() {
+            Some(names) => names
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect(),
+            None => row["users"]
                 .as_str()?
                 .split(',')
                 .map(|u| u.trim().to_string())
                 .collect(),
-            datetime: normalize_datetime(row["datetime"].as_str()?),
+        };
+        let datetime = row["finishedAt"]
+            .as_str()
+            .or_else(|| row["datetime"].as_str())?;
+        Some(Self {
+            id: row["gameId"].as_u64().or_else(|| row["id"].as_u64())?,
+            num_players: row["num_players"]
+                .as_u64()
+                .map_or(users.len(), |n| n as usize),
+            score: row["score"].as_u64()? as usize,
+            variant_id: row["variantId"]
+                .as_u64()
+                .or_else(|| row["variant"].as_u64())
+                .unwrap_or_default(),
+            users,
+            datetime: normalize_datetime(datetime),
             seed: row["seed"].as_str().unwrap_or_default().to_string(),
         })
     }
 }
 
-/// `2026-10-26 - 18:52:34 UTC` -> `2026-10-26 18:52:34`.
+/// `2026-11-11T02:09:00.123Z` (or, before November 2026, `2026-10-26 - 18:52:34 UTC`) -> `2026-11-11 02:09:00`.
 pub fn normalize_datetime(raw: &str) -> String {
-    raw.replace(" - ", " ").trim_end_matches(" UTC").to_string()
+    let raw = raw.replace(" - ", " ");
+    let raw = raw.trim_end_matches(" UTC").trim_end_matches('Z');
+    let raw = raw.replacen('T', " ", 1);
+    match raw.split_once('.') {
+        Some((seconds, _fraction)) => seconds.to_string(),
+        None => raw,
+    }
 }
 
 pub fn fetch_text(url: &str) -> Result<String, String> {
@@ -69,12 +92,14 @@ pub fn fetch_history(
 
     for page in 0.. {
         let url =
-            format!("https://{host}/api/v1/history/{user}?size={PAGE}&page={page}&col%5B0%5D=1");
+            format!("https://{host}/api/v1/history/{user}?size={PAGE}&page={page}&col%5Bid%5D=1");
         let json: Value =
             serde_json::from_str(&fetch_text(&url)?).map_err(|e| format!("{url}: {e}"))?;
-        let batch: Vec<HistoryRow> = json["rows"]
+        // (`games`; before November 2026 `rows`.)
+        let batch: Vec<HistoryRow> = json["games"]
             .as_array()
-            .ok_or_else(|| format!("{url}: no rows"))?
+            .or_else(|| json["rows"].as_array())
+            .ok_or_else(|| format!("{url}: no games"))?
             .iter()
             .filter_map(HistoryRow::parse)
             .collect();
@@ -582,6 +607,32 @@ mod tests {
         assert_eq!(row.users, ["michiel-test", "MichielBaird", "potato_bot_1"]);
         assert_eq!(row.datetime, "2026-10-26 18:52:34");
         assert_eq!(row.seed, "p3v0s111");
+    }
+
+    #[test]
+    fn parses_history_rows_in_the_new_shape() {
+        let row = HistoryRow::parse(&json!({
+            "gameId": 2045738, "score": 25, "variantId": 0,
+            "playerNames": ["michiel-test", "MichielBaird", "potato_bot_1"],
+            "finishedAt": "2026-11-11T02:09:00.123Z", "seed": "p3v0s111"
+        }))
+        .unwrap();
+        assert_eq!(row.id, 2045738);
+        assert_eq!(row.num_players, 3);
+        assert_eq!(row.users, ["michiel-test", "MichielBaird", "potato_bot_1"]);
+        assert_eq!(row.datetime, "2026-11-11 02:09:00");
+    }
+
+    #[test]
+    fn normalizes_both_kinds_of_datetime() {
+        assert_eq!(
+            normalize_datetime("2026-11-11T02:09:00.123Z"),
+            "2026-11-11 02:09:00"
+        );
+        assert_eq!(
+            normalize_datetime("2026-10-26 - 18:52:34 UTC"),
+            "2026-10-26 18:52:34"
+        );
     }
 
     #[test]
