@@ -62,11 +62,11 @@ impl BaseClue {
         }
     }
 
-    /// Parses hanab.live's `{type: 0|1, value: n}`.
+    /// Parses hanab.live's `{type: "color"|"rank", value: n}` (older servers: `{type: 0|1, value: n}`).
     pub fn from_json(json: &serde_json::Value) -> Result<Self, String> {
-        let kind = match json["type"].as_u64() {
-            Some(0) => ClueKind::Colour,
-            Some(1) => ClueKind::Rank,
+        let kind = match (json["type"].as_str(), json["type"].as_u64()) {
+            (Some("color" | "colour"), _) | (_, Some(0)) => ClueKind::Colour,
+            (Some("rank"), _) | (_, Some(1)) => ClueKind::Rank,
             _ => return Err("Invalid clue kind".into()),
         };
         let value = json["value"].as_u64().ok_or("clue is missing a value")? as usize;

@@ -15,11 +15,39 @@ fn get_usize(json: &Value, key: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("missing or invalid '{key}' in {json}"))
 }
 
-/// An identity from hanab.live's `suitIndex`/`rank` pair, where `-1` means unknown.
+/// The identity of a card in an event: nested as `identity: {suitIndex, rank}` and left out when unknown (older servers:
+/// `suitIndex` and `rank` on the event itself, -1 when unknown).
 fn get_identity(json: &Value) -> Result<Option<Identity>, String> {
-    let suit = json["suitIndex"].as_i64().ok_or("missing 'suitIndex'")?;
-    let rank = json["rank"].as_i64().ok_or("missing 'rank'")?;
+    let identity = match json.get("identity") {
+        Some(nested) => nested,
+        None if json.get("suitIndex").is_some() => json,
+        None => return Ok(None),
+    };
+    let suit = identity["suitIndex"]
+        .as_i64()
+        .ok_or("missing 'suitIndex'")?;
+    let rank = identity["rank"].as_i64().ok_or("missing 'rank'")?;
     Ok((suit != -1 && rank != -1).then(|| Identity::new(suit as usize, rank as usize)))
+}
+
+/// The number of an end condition, from its name (or already a number).
+fn end_condition_value(json: &Value) -> Option<i64> {
+    match json.as_str() {
+        Some(name) => Some(match name {
+            "normal" => 1,
+            "strikeout" => 2,
+            "timeout" => 3,
+            "terminatedByPlayer" => 4,
+            "speedrunFail" => 5,
+            "idleTimeout" => 6,
+            "characterSoftlock" => 7,
+            "allOrNothingFail" => 8,
+            "allOrNothingSoftlock" => 9,
+            "terminatedByVote" => 10,
+            _ => return None,
+        }),
+        None => json.as_i64(),
+    }
 }
 
 /// Pretty-prints an optional identity, `xx` for unknown.
@@ -249,10 +277,20 @@ impl Action {
     pub fn from_json(json: &Value) -> Result<Option<Self>, String> {
         let action = match json["type"].as_str().ok_or("action without a type")? {
             "clue" => Self::Clue(ClueAction {
-                giver: get_usize(json, "giver")?,
+                // (`playerIndex` since November 2026, `giver` before.)
+                giver: get_usize(
+                    json,
+                    if json.get("giver").is_some() {
+                        "giver"
+                    } else {
+                        "playerIndex"
+                    },
+                )?,
                 target: get_usize(json, "target")?,
-                list: json["list"]
-                    .as_array()
+                list: json
+                    .get("orders")
+                    .or_else(|| json.get("list"))
+                    .and_then(Value::as_array)
                     .ok_or("clue without a list")?
                     .iter()
                     .map(|v| {
@@ -285,7 +323,14 @@ impl Action {
                 max_score: get_usize(json, "maxScore")?,
             }),
             "turn" => Self::Turn(TurnAction {
-                num: get_usize(json, "num")?,
+                num: get_usize(
+                    json,
+                    if json.get("turn").is_some() {
+                        "turn"
+                    } else {
+                        "num"
+                    },
+                )?,
                 current_player_index: json["currentPlayerIndex"]
                     .as_i64()
                     .and_then(|i| usize::try_from(i).ok()),
@@ -296,9 +341,8 @@ impl Action {
                 order: get_usize(json, "order")?,
             }),
             "gameOver" => Self::GameOver(GameOverAction {
-                end_condition: json["endCondition"]
-                    .as_i64()
-                    .ok_or("gameOver without endCondition")?,
+                end_condition: end_condition_value(&json["endCondition"])
+                    .ok_or("gameOver without a known endCondition")?,
                 player_index: json["playerIndex"]
                     .as_i64()
                     .and_then(|i| usize::try_from(i).ok()),
@@ -538,19 +582,25 @@ impl PerformAction {
         format!("{action_type} ({})", state.names[player_index])
     }
 
-    /// The message to send to hanab.live.
+    /// The `playerAction` message to send to hanab.live.
     pub fn json(&self, table_id: usize) -> Value {
+        json!({"tableId": table_id, "action": self.turn_json()})
+    }
+
+    /// The action as a turn of an exported game (and as the `action` of a `playerAction`).
+    pub fn turn_json(&self) -> Value {
         match *self {
-            Self::Play { target } => json!({"tableID": table_id, "type": 0, "target": target}),
-            Self::Discard { target } => json!({"tableID": table_id, "type": 1, "target": target}),
+            Self::Play { target } => json!({"type": "play", "order": target}),
+            Self::Discard { target } => json!({"type": "discard", "order": target}),
             Self::Colour { target, value } => {
-                json!({"tableID": table_id, "type": 2, "target": target, "value": value})
+                json!({"type": "clue", "target": target, "clue": {"type": "color", "value": value}})
             }
             Self::Rank { target, value } => {
-                json!({"tableID": table_id, "type": 3, "target": target, "value": value})
+                json!({"type": "clue", "target": target, "clue": {"type": "rank", "value": value}})
             }
+            // (Not something a player can do: a game is ended with `tableTerminate`.)
             Self::Terminate { target, value } => {
-                json!({"tableID": table_id, "type": 4, "target": target, "value": value})
+                json!({"type": "gameOver", "playerIndex": target, "endCondition": value})
             }
         }
     }
@@ -650,8 +700,13 @@ impl PerformAction {
         }
     }
 
-    /// Parses a message from hanab.live's action format.
+    /// Parses an action from hanab.live: a turn of an exported game (`{type: "play", order}`, `{type: "clue", target,
+    /// clue}`, `{type: "gameOver", endCondition}`), or the numbered form of older exports.
     pub fn from_json(json: &Value) -> Result<Self, String> {
+        if let Some(kind) = json["type"].as_str() {
+            return Self::from_named_json(kind, json);
+        }
+
         let value = || get_usize(json, "value");
 
         // Type 5 is how newer games record the end of a game by a vote of the players: it has no target (-1).
@@ -678,6 +733,38 @@ impl PerformAction {
             Some(4) => Ok(Self::Terminate {
                 target,
                 value: value()?,
+            }),
+            other => Err(format!("unknown perform action type {other:?}")),
+        }
+    }
+
+    fn from_named_json(kind: &str, json: &Value) -> Result<Self, String> {
+        match kind {
+            "play" => Ok(Self::Play {
+                target: get_usize(json, "order")?,
+            }),
+            "discard" => Ok(Self::Discard {
+                target: get_usize(json, "order")?,
+            }),
+            "clue" => {
+                let target = get_usize(json, "target")?;
+                let clue = BaseClue::from_json(&json["clue"])?;
+                Ok(match clue.kind {
+                    ClueKind::Colour => Self::Colour {
+                        target,
+                        value: clue.value,
+                    },
+                    ClueKind::Rank => Self::Rank {
+                        target,
+                        value: clue.value,
+                    },
+                })
+            }
+            "gameOver" => Ok(Self::Terminate {
+                target: json["playerIndex"].as_u64().unwrap_or(0) as usize,
+                value: end_condition_value(&json["endCondition"])
+                    .and_then(|n| usize::try_from(n).ok())
+                    .ok_or("gameOver without a known endCondition")?,
             }),
             other => Err(format!("unknown perform action type {other:?}")),
         }

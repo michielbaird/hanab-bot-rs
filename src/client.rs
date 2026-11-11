@@ -38,79 +38,77 @@ pub enum Out {
     Wait(Duration),
 }
 
+/// A chat message from the server: to everyone (neither a table nor a recipient), to a table, or private.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ChatMessage {
-    pub msg: String,
-    pub who: String,
-    pub room: String,
-    pub recipient: String,
+    pub text: String,
+    /// "user", "server" or "discord".
+    pub source: String,
+    /// Who sent it (nobody, for the server).
+    pub username: String,
+    pub table_id: Option<usize>,
+    /// Who it was sent to, if it is a private message.
+    pub recipient: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 struct ChatList {
-    list: Vec<ChatMessage>,
+    messages: Vec<ChatMessage>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Spectator {
-    pub name: String,
+    pub username: String,
 }
 
-/// Servers differ: a spectator is an object with a name (and more), or just the name.
-impl<'de> Deserialize<'de> for Spectator {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            Name(String),
-            Full {
-                #[serde(default)]
-                name: String,
-            },
-        }
-
-        Ok(Spectator {
-            name: match Raw::deserialize(deserializer)? {
-                Raw::Name(name) | Raw::Full { name } => name,
-            },
-        })
-    }
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TableSettings {
+    pub name: String,
+    pub options: TableOptions,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Table {
-    pub id: i64,
-    pub name: String,
-    pub password_protected: bool,
+    pub table_id: i64,
     pub joined: bool,
-    pub running: bool,
-    pub variant: String,
-    /// Missing on some servers (the defaults then ask nothing unsupported of the bot).
-    pub options: TableOptions,
-    pub shared_replay: bool,
+    pub settings: TableSettings,
+    pub password_protected: bool,
+    pub player_names: Vec<String>,
     pub progress: i64,
-    pub players: Vec<String>,
+    /// "pregame", "playing", "replay" or "sharedReplay".
+    pub phase: String,
     pub spectators: Vec<Spectator>,
-    /// Missing on some servers, which only have games of up to 6.
-    #[serde(default = "default_max_players")]
-    pub max_players: i64,
 }
 
-fn default_max_players() -> i64 {
-    6
+impl Table {
+    pub fn is_playing(&self) -> bool {
+        self.phase == "playing"
+    }
+
+    pub fn is_pregame(&self) -> bool {
+        self.phase == "pregame"
+    }
+
+    pub fn is_shared_replay(&self) -> bool {
+        self.phase == "sharedReplay"
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct InitMessage {
-    #[serde(rename = "tableID")]
     table_id: usize,
     player_names: Vec<String>,
-    our_player_index: usize,
-    seed: String,
+    /// How we take part: `{type: "playing", ourPlayerIndex}`, or `{type: "spectating"}` for someone who only watches.
+    mode: Value,
+    /// (Where `ourPlayerIndex` was before it moved into `mode`.)
+    our_player_index: Option<usize>,
+    seed: Option<String>,
     options: TableOptions,
 }
 
@@ -121,9 +119,8 @@ pub struct SelfData {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 struct NoteListPlayerMessage {
-    #[serde(rename = "tableID")]
     table_id: usize,
     notes: Vec<String>,
 }
@@ -300,14 +297,18 @@ impl BotClient {
     }
 
     fn send_pm(&self, recipient: &str, msg: &str) {
-        let args = json!({"msg": msg, "recipient": recipient, "room": "lobby"});
-        self.emit(Out::Send(format!("chatPM {args}")));
+        for text in split_chat(msg) {
+            let args = json!({"text": text, "recipient": recipient});
+            self.emit(Out::Send(format!("chatPm {args}")));
+        }
     }
 
     fn send_chat(&self, msg: &str) {
         let Some(id) = self.table_id else { return };
-        let args = json!({"msg": msg, "room": format!("table{id}")});
-        self.emit(Out::Send(format!("chat {args}")));
+        for text in split_chat(msg) {
+            let args = json!({"text": text, "tableId": id});
+            self.emit(Out::Send(format!("chat {args}")));
+        }
     }
 
     fn new_game(
@@ -355,26 +356,25 @@ impl BotClient {
                         serde_json::from_value(parse("chatList")?).map_err(|e| e.to_string())?;
                     let help_msg = "PM /help for help.";
 
-                    let send_help = list.list.first().is_some_and(|msg| {
-                        self.table_id
-                            .is_some_and(|id| msg.room == format!("table{id}"))
-                    }) && !list.list.iter().any(|m| m.msg == help_msg);
+                    let send_help = list.messages.first().is_some_and(|msg| {
+                        self.table_id.is_some_and(|id| msg.table_id == Some(id))
+                    }) && !list.messages.iter().any(|m| m.text == help_msg);
 
                     if send_help {
                         self.send_chat(help_msg);
                     }
                 }
 
-                "gameAction" => {
+                "gameEvent" => {
                     if self.resyncing {
                         return Ok(());
                     }
-                    let json = parse("gameAction")?;
-                    match Action::from_json(&json["action"]) {
+                    let json = parse("gameEvent")?;
+                    match Action::from_json(&json["event"]) {
                         Ok(Some(action)) => self.handle_action(&action),
                         Ok(None) => {}
                         Err(e) => println!(
-                            "{RED}failed to read gameAction {args}: {e}{}",
+                            "{RED}failed to read gameEvent {args}: {e}{}",
                             crate::logger::RESET
                         ),
                     }
@@ -387,14 +387,14 @@ impl BotClient {
                     self.handle_note_list(msg);
                 }
 
-                // Received at the beginning of the game, as a list of all actions that have happened so far.
-                "gameActionList" => {
+                // Received at the beginning of the game, as a list of all events that have happened so far.
+                "gameEventList" => {
                     // The settings have not been (attempted to be) restored so far.
                     // This will happen in 'noteListPlayer', which will then request the list again.
                     if self.restored_settings {
-                        let json = parse("gameActionList")?;
-                        let table_id = json["tableID"].as_u64().unwrap_or_default();
-                        let list: Vec<Action> = json["list"]
+                        let json = parse("gameEventList")?;
+                        let table_id = json["tableId"].as_u64().unwrap_or_default();
+                        let list: Vec<Action> = json["events"]
                             .as_array()
                             .map(|l| {
                                 l.iter()
@@ -420,7 +420,7 @@ impl BotClient {
                                 game.catchup = false;
                             }
                             if !resync {
-                                self.send_cmd("loaded", &json!({"tableID": table_id}));
+                                self.send_cmd("loaded", &json!({"tableId": table_id}));
                                 self.emit(Out::Wait(Duration::from_millis(1000)));
                             }
                             self.handle_action(last);
@@ -432,8 +432,8 @@ impl BotClient {
                     }
                 }
 
-                "joined" => {
-                    let id = parse("joined")?["tableID"].as_i64().unwrap_or_default();
+                "tableJoined" | "joined" => {
+                    let id = parse(command)?["tableId"].as_i64().unwrap_or_default();
                     self.table_id = Some(id as usize);
                     self.game_started = false;
                     self.last_requester = None;
@@ -450,7 +450,7 @@ impl BotClient {
                     self.handle_init(msg)?;
                 }
 
-                "left" => {
+                "tableLeft" | "left" => {
                     self.table_id = None;
                     self.game_started = false;
                 }
@@ -459,19 +459,22 @@ impl BotClient {
                     let table: Table =
                         serde_json::from_value(parse("table")?).map_err(|e| e.to_string())?;
 
-                    if self.table_id == Some(table.id as usize) && !self.game_started {
+                    if self.table_id == Some(table.table_id as usize) && !self.game_started {
                         if self.config.leave_replay_if_only_bots
-                            && table.shared_replay
+                            && table.is_shared_replay()
                             && table
                                 .spectators
                                 .iter()
-                                .all(|s| self.config.is_bot_name(&s.name))
+                                .all(|s| self.config.is_bot_name(&s.username))
                         {
                             log_info!("Leaving game. Only bots left spectating.");
                             self.leave_room();
                         } else if self.leave_pregame_if_only_bots
-                            && !table.running
-                            && table.players.iter().all(|p| self.config.is_bot_name(p))
+                            && table.is_pregame()
+                            && table
+                                .player_names
+                                .iter()
+                                .all(|p| self.config.is_bot_name(p))
                         {
                             log_info!("Leaving game. Only bots left in lobby.");
                             self.leave_room();
@@ -479,44 +482,53 @@ impl BotClient {
                             self.check_supported_settings(&table);
                         }
                     }
-                    self.tables.insert(table.id, table);
+                    self.tables.insert(table.table_id, table);
                 }
 
                 "tableGone" => {
-                    let id = parse("tableGone")?["tableID"].as_i64().unwrap_or_default();
+                    let id = parse("tableGone")?["tableId"].as_i64().unwrap_or_default();
                     self.tables.remove(&id);
                 }
 
                 "tableList" => {
+                    // An object with the tables (a bare list before November 2026).
+                    let json = parse("tableList")?;
+                    let tables = if json.is_array() {
+                        json
+                    } else {
+                        json["tables"].clone()
+                    };
                     let list: Vec<Table> =
-                        serde_json::from_value(parse("tableList")?).map_err(|e| e.to_string())?;
+                        serde_json::from_value(tables).map_err(|e| e.to_string())?;
                     for t in list {
-                        self.tables.insert(t.id, t);
+                        self.tables.insert(t.table_id, t);
                     }
 
                     if let Some(me) = &self.info {
                         let my_table = self
                             .tables
                             .values()
-                            .find(|t| t.players.contains(&me.username) && t.running)
-                            .map(|t| t.id);
+                            .find(|t| t.player_names.contains(&me.username) && t.is_playing())
+                            .map(|t| t.table_id);
 
                         if let Some(id) = my_table {
                             log_info!("automatically reattending table with id {id}");
-                            self.send_cmd("tableReattend", &json!({"tableID": id}));
+                            self.send_cmd("tableReattend", &json!({"tableId": id}));
                         }
                     }
                 }
 
-                "tableStart" => {
-                    let id = parse("tableStart")?["tableID"].as_i64().unwrap_or_default();
+                "tableStarted" => {
+                    let id = parse("tableStarted")?["tableId"]
+                        .as_i64()
+                        .unwrap_or_default();
                     self.game_started = true;
                     self.last_requester = None;
-                    self.send_cmd("getGameInfo1", &json!({"tableID": id}));
+                    self.send_cmd("gameInitLoad", &json!({"tableId": id}));
                 }
 
-                "warning" => {
-                    let msg = parse("warning")?["warning"]
+                "warning" | "error" => {
+                    let msg = parse(command)?["message"]
                         .as_str()
                         .unwrap_or_default()
                         .to_string();
@@ -524,7 +536,7 @@ impl BotClient {
                     if let Some(who) = self.last_requester.take() {
                         self.send_pm(&who, &msg);
                     }
-                    println!("warn: {args}");
+                    println!("{command}: {args}");
                 }
 
                 "welcome" => {
@@ -594,14 +606,14 @@ impl BotClient {
             );
             self.send_cmd(
                 "note",
-                &json!({"tableID": msg.table_id, "order": 0, "note": note_str}),
+                &json!({"tableId": msg.table_id, "order": 0, "text": note_str}),
             );
         }
 
         self.restored_settings = true;
         // This causes 'gameActionList' to be sent again and 'noteListPlayer'.
         // This time around we can properly catch up with the game using the correct settings.
-        self.send_cmd("getGameInfo2", &json!({"tableID": msg.table_id}));
+        self.send_cmd("gameStateLoad", &json!({"tableId": msg.table_id}));
     }
 
     fn leave_room(&mut self) {
@@ -612,7 +624,7 @@ impl BotClient {
         };
 
         if let Some(id) = self.table_id {
-            self.send_cmd(cmd, &json!({"tableID": id}));
+            self.send_cmd(cmd, &json!({"tableId": id}));
         }
         self.table_id = None;
         self.game_started = false;
@@ -624,14 +636,25 @@ impl BotClient {
     fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
         let variant = Variant::get(&msg.options.variant_name)?;
         let players = msg.player_names.clone();
-        let state = State::new(msg.player_names, msg.our_player_index, variant, msg.options);
+        let mut options = msg.options;
+        options.num_players = players.len();
+        let state = State::new(
+            msg.player_names,
+            msg.mode["ourPlayerIndex"]
+                .as_u64()
+                .map(|i| i as usize)
+                .or(msg.our_player_index)
+                .unwrap_or_default(),
+            variant,
+            options,
+        );
         let game = self.new_game(msg.table_id, state, self.convention)?;
 
         self.table_id = Some(msg.table_id);
         self.restored_settings = false;
         self.game = Some(game);
         self.game_convention = Some(self.convention);
-        self.seed = Some(msg.seed.clone()).filter(|s| !s.is_empty());
+        self.seed = msg.seed.filter(|s| !s.is_empty());
 
         if self.config.feedback_intro
             && self.feedback.is_enabled()
@@ -646,7 +669,7 @@ impl BotClient {
         }
 
         // We will receive the 'noteListPlayer' next. This is when we can restore the settings.
-        self.send_cmd("getGameInfo2", &json!({"tableID": msg.table_id}));
+        self.send_cmd("gameStateLoad", &json!({"tableId": msg.table_id}));
         Ok(())
     }
 
@@ -675,13 +698,13 @@ impl BotClient {
     fn assign_settings(&mut self, data: &ChatMessage, pm: bool) {
         let reply = |this: &Self, msg: &str| {
             if pm {
-                this.send_pm(&data.who, msg);
+                this.send_pm(&data.username, msg);
             } else {
                 this.send_chat(msg);
             }
         };
 
-        let Some((_, rest)) = data.msg.split_once(' ') else {
+        let Some((_, rest)) = data.text.split_once(' ') else {
             reply(self, &self.settings_reply());
             return;
         };
@@ -703,7 +726,7 @@ impl BotClient {
 
         match self.running_convention() {
             Some(running) if force && running != c => {
-                if let Err(msg) = self.force_switch(&data.who, c) {
+                if let Err(msg) = self.force_switch(&data.username, c) {
                     reply(self, &msg);
                 }
                 return;
@@ -765,10 +788,10 @@ impl BotClient {
         ));
         self.send_cmd(
             "note",
-            &json!({"tableID": table_id, "order": 0, "note": note}),
+            &json!({"tableId": table_id, "order": 0, "text": note}),
         );
-        // This sends 'gameActionList' again, which is replayed into the new game.
-        self.send_cmd("getGameInfo2", &json!({"tableID": table_id}));
+        // This sends 'gameEventList' again, which is replayed into the new game.
+        self.send_cmd("gameStateLoad", &json!({"tableId": table_id}));
         Ok(())
     }
 
@@ -777,7 +800,7 @@ impl BotClient {
     }
 
     fn check_supported_settings(&self, table: &Table) {
-        let o = &table.options;
+        let o = &table.settings.options;
         let unsupported_options = unsupported_table_options(
             o.empty_clues,
             o.detrimental_characters,
@@ -807,12 +830,17 @@ impl BotClient {
 
     fn handle_chat(&mut self, data: &ChatMessage) {
         let ChatMessage {
-            msg,
-            who,
-            room,
+            text: msg,
+            username: who,
+            table_id,
             recipient,
+            ..
         } = data;
-        let within_room = recipient.is_empty() && room.starts_with("table");
+        // Only what people say (not the server, which has no one to answer).
+        if who.is_empty() {
+            return;
+        }
+        let within_room = recipient.is_none() && table_id.is_some();
         let starts = |cmd: &str| msg.starts_with(cmd);
 
         if within_room {
@@ -827,7 +855,7 @@ impl BotClient {
         let Some(username) = self.info.as_ref().map(|i| i.username.clone()) else {
             return;
         };
-        if *recipient != username {
+        if recipient.as_deref() != Some(username.as_str()) {
             return;
         }
 
@@ -836,24 +864,27 @@ impl BotClient {
                 .tables
                 .values()
                 .filter(|t| {
-                    (t.players.contains(who) && !t.shared_replay)
-                        || t.spectators.iter().any(|s| s.name == *who)
+                    (t.player_names.contains(who) && !t.is_shared_replay())
+                        || t.spectators.iter().any(|s| s.username == *who)
                 })
-                .max_by_key(|t| t.id)
+                .max_by_key(|t| t.table_id)
                 .cloned();
 
             match table {
                 Some(t) if t.password_protected => match msg.split(' ').nth(1) {
                     Some(password) => {
                         self.last_requester = Some(who.clone());
-                        self.send_cmd("tableJoin", &json!({"tableID": t.id, "password": password}));
+                        self.send_cmd(
+                            "tableJoin",
+                            &json!({"tableId": t.table_id, "password": password}),
+                        );
                     }
                     None => self.send_pm(
                         who,
                         "Room is password protected, please provide a password.",
                     ),
                 },
-                Some(t) => self.send_cmd("tableJoin", &json!({"tableID": t.id})),
+                Some(t) => self.send_cmd("tableJoin", &json!({"tableId": t.table_id})),
                 None => self.send_pm(who, "Could not join, as you are not in a room."),
             }
         } else if starts("/rejoin") {
@@ -863,12 +894,12 @@ impl BotClient {
                 let table = self
                     .tables
                     .values()
-                    .filter(|t| t.players.contains(&username))
-                    .max_by_key(|t| t.id)
-                    .map(|t| t.id);
+                    .filter(|t| t.player_names.contains(&username))
+                    .max_by_key(|t| t.table_id)
+                    .map(|t| t.table_id);
 
                 match table {
-                    Some(id) => self.send_cmd("tableReattend", &json!({"tableID": id})),
+                    Some(id) => self.send_cmd("tableReattend", &json!({"tableId": id})),
                     None => self.send_pm(
                         who,
                         "Could not rejoin, as the bot is not a player in any open room.",
@@ -879,7 +910,7 @@ impl BotClient {
             match self.table_id {
                 Some(id) => {
                     self.last_requester = Some(who.clone());
-                    self.send_cmd("tableStart", &json!({"tableID": id}));
+                    self.send_cmd("tableStart", &json!({"tableId": id}));
                 }
                 None => self.send_pm(who, "Cannot start table, as the bot is not in a table."),
             }
@@ -889,7 +920,7 @@ impl BotClient {
             match &self.game {
                 Some(game) if game.in_progress => {
                     if game.state.names.contains(who) {
-                        self.send_cmd("tableTerminate", &json!({"tableID": game.table_id}));
+                        self.send_cmd("tableTerminate", &json!({"tableId": game.table_id}));
                     } else {
                         self.send_pm(
                             who,
@@ -1012,7 +1043,7 @@ impl BotClient {
         for (order, note) in notes {
             self.send_cmd(
                 "note",
-                &json!({"tableID": table_id, "order": order, "note": note}),
+                &json!({"tableId": table_id, "order": order, "text": note}),
             );
         }
     }
@@ -1075,8 +1106,10 @@ impl BotClient {
         let who = who.to_string();
         std::thread::spawn(move || {
             let pm = |msg: &str| {
-                let args = json!({"msg": msg, "recipient": who, "room": "lobby"});
-                let _ = out.send(Out::Send(format!("chatPM {args}")));
+                for text in split_chat(msg) {
+                    let args = json!({"text": text, "recipient": who});
+                    let _ = out.send(Out::Send(format!("chatPm {args}")));
+                }
             };
 
             let result = catch_unwind(AssertUnwindSafe(|| -> Result<Vec<String>, String> {
@@ -1174,7 +1207,7 @@ impl BotClient {
                 Duration::from_secs(2).saturating_sub(started.elapsed()),
             ));
         }
-        self.send_cmd("action", &action.json(table_id));
+        self.send_cmd("playerAction", &action.json(table_id));
     }
 
     /// Runs a console command against the current game.
@@ -1189,6 +1222,43 @@ impl BotClient {
     pub fn username(&self) -> Option<&str> {
         self.info.as_ref().map(|i| i.username.as_str())
     }
+}
+
+/// What the server accepts in a chat message.
+const MAX_CHAT_LENGTH: usize = 300;
+
+/// The text in messages that are short enough to send (a long one is split at spaces; nothing is sent for empty text).
+fn split_chat(text: &str) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+
+    for word in text.split_inclusive(' ') {
+        // (A single word that is too long is cut where it must be.)
+        let mut rest = word;
+        while rest.chars().count() > MAX_CHAT_LENGTH {
+            let cut = rest
+                .char_indices()
+                .nth(MAX_CHAT_LENGTH)
+                .map_or(rest.len(), |(i, _)| i);
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+            parts.push(rest[..cut].to_string());
+            rest = &rest[cut..];
+        }
+
+        if current.chars().count() + rest.chars().count() > MAX_CHAT_LENGTH {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push_str(rest);
+    }
+    parts.push(current);
+
+    parts
+        .into_iter()
+        .map(|part| part.trim_end().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
 }
 
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
@@ -1250,43 +1320,55 @@ mod variant_support_tests {
 }
 
 #[cfg(test)]
-mod table_format_tests {
-    use super::Table;
+mod wire_format_tests {
+    use super::{MAX_CHAT_LENGTH, Table, split_chat};
     use serde_json::json;
 
     #[test]
-    fn reads_the_table_format_of_a_new_server() {
+    fn reads_a_table() {
         let table: Table = serde_json::from_value(json!({
-            "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
-            "variant": "No Variant", "sharedReplay": true, "progress": 0, "players": ["bot"],
-            "options": {"numPlayers": 2, "variantName": "No Variant", "emptyClues": true},
-            "spectators": [{"name": "alice", "shadowingPlayerIndex": -1, "shadowingPlayerUsername": ""}],
-            "maxPlayers": 5
+            "tableId": 3, "joined": true, "ownerId": 9, "passwordProtected": false,
+            "settings": {"name": "t", "maxPlayers": 5,
+                "options": {"variantName": "No Variant", "emptyClues": true, "deckPlays": false}},
+            "playerNames": ["bot"], "progress": 0, "phase": "sharedReplay",
+            "spectators": [{"username": "alice", "shadowingPlayerIndex": 1}, {"username": "bob"}]
         }))
         .unwrap();
-        assert!(table.options.empty_clues);
-        assert_eq!(table.spectators[0].name, "alice");
-        assert_eq!(table.max_players, 5);
-    }
-
-    #[test]
-    fn reads_the_table_format_of_an_old_server() {
-        // No options and no maxPlayers, and the spectators are just names.
-        let table: Table = serde_json::from_value(json!({
-            "id": 3, "name": "t", "passwordProtected": false, "joined": true, "running": false,
-            "variant": "No Variant", "sharedReplay": true, "progress": 0, "players": ["bot"],
-            "spectators": ["alice", "bob"]
-        }))
-        .unwrap();
-        assert!(!table.options.empty_clues);
+        assert_eq!(table.table_id, 3);
+        assert!(table.settings.options.empty_clues);
+        assert!(table.is_shared_replay() && !table.is_playing() && !table.is_pregame());
         assert_eq!(
             table
                 .spectators
                 .iter()
-                .map(|s| s.name.as_str())
+                .map(|s| s.username.as_str())
                 .collect::<Vec<_>>(),
             ["alice", "bob"]
         );
-        assert_eq!(table.max_players, 6);
+    }
+
+    #[test]
+    fn short_chat_is_sent_as_it_is() {
+        assert_eq!(split_chat("hello there"), ["hello there"]);
+        assert!(split_chat("").is_empty());
+        assert!(split_chat("   ").is_empty());
+    }
+
+    #[test]
+    fn long_chat_is_split_at_spaces_within_the_limit() {
+        let text = vec!["word"; 200].join(" ");
+        let parts = split_chat(&text);
+        assert!(parts.len() > 1);
+        assert!(parts.iter().all(|p| p.chars().count() <= MAX_CHAT_LENGTH));
+        assert_eq!(parts.join(" "), text, "nothing is lost");
+    }
+
+    #[test]
+    fn a_word_that_is_too_long_is_cut() {
+        let text = "x".repeat(MAX_CHAT_LENGTH * 2 + 10);
+        let parts = split_chat(&text);
+        assert_eq!(parts.len(), 3);
+        assert!(parts.iter().all(|p| p.chars().count() <= MAX_CHAT_LENGTH));
+        assert_eq!(parts.concat(), text);
     }
 }
