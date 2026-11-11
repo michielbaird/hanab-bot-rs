@@ -1152,11 +1152,22 @@ impl HGroupGame for Game {
 
     /// Returns whether a real waiting connection was lost, which usually indicates that a mistake occurred.
     fn wc_lost(&self, prev: &Game, action: &Action) -> Option<WaitingConnection> {
+        // Playing a card that links another reading of the same clue only rules this reading out.
+        let disambiguates = |wc: &WaitingConnection| {
+            matches!(action, Action::Play(p) if prev.waiting().iter().any(|w| {
+                w.focus == wc.focus
+                    && w.turn == wc.turn
+                    && w.inference != wc.inference
+                    && w.connections.iter().any(|c| c.order() == p.order)
+            }))
+        };
+
         prev.waiting()
             .iter()
             .find(|wc| {
                 !wc.symmetric
                     && !wc.ambiguous_self
+                    && !disambiguates(wc)
                     && !matches!(action, Action::Play(p)
                         if p.order == wc.curr_conn().order()
                             || p.id.is_some_and(|id| wc.curr_conn().ids() == [id]))
