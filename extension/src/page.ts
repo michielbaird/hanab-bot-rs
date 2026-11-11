@@ -1,6 +1,7 @@
 // Runs in the page's own context (`"world": "MAIN"`): the isolated content script can't see "window.globals", where the
 // site keeps the game's state. Reads what the extension needs and moves the replay. Never throws into the site.
 
+import { readReplay, type SiteReplay } from "./pageState";
 import {
   CONTENT_SOURCE,
   PAGE_SOURCE,
@@ -21,14 +22,8 @@ interface KonvaNode {
 
 interface GameState {
   finished: boolean;
-  replay: {
-    active: boolean;
-    segment: number;
-    databaseID: number | null;
-    hypothetical: unknown;
-    shared: { useSharedSegments: boolean; amLeader: boolean } | null;
-  };
-  ongoingGame: { turn: { segment: number | null } };
+  replay: SiteReplay;
+  ongoingGame: { turn: { segment?: number | null } };
   metadata: {
     options: {
       variantName: string;
@@ -77,17 +72,18 @@ function read(): PageState {
 
     const state = store.getState();
     const { options } = state.metadata;
+    const replay = readReplay(state.replay);
     const info = {
-      databaseID: state.replay.databaseID,
+      databaseID: replay.gameId,
       finished: state.finished,
       variant: options.variantName,
       emptyClues: options.emptyClues,
       detrimentalCharacters: options.detrimentalCharacters,
       oneExtraCard: options.oneExtraCard,
       oneLessCard: options.oneLessCard,
-      segment: state.replay.segment,
+      segment: replay.segment,
       finalSegment: state.ongoingGame.turn.segment ?? 0,
-      replayActive: state.replay.active,
+      replayActive: replay.active,
     };
 
     const {
@@ -178,18 +174,19 @@ function goTo(segment: number) {
     }
 
     const state = store.getState();
+    const replay = readReplay(state.replay);
     // The site doesn't move the replay during a hypothetical either.
-    if (state.replay.hypothetical !== null) {
+    if (replay.inHypothetical) {
       return;
     }
 
     const finalSegment = state.ongoingGame.turn.segment ?? 0;
     const target = Math.max(0, Math.min(segment, finalSegment));
-    if (!state.replay.active) {
+    if (!replay.active) {
       store.dispatch({ type: "replayEnter", segment: target });
     }
 
-    const { shared } = state.replay;
+    const { shared } = replay;
     if (shared !== null && shared.useSharedSegments && !shared.amLeader) {
       store.dispatch({
         type: "replayUseSharedSegments",

@@ -1,5 +1,5 @@
 // A stand-in for a hanab.live replay page, for the tests: it serves a page that sets "window.globals" with the same
-// shape as the site's (only the parts that the extension reads), and the exported game at "/export/<id>".
+// shape as the site's (only the parts that the extension reads), and the exported game at "/export/<id>" (in the site's new shape).
 
 import { readFileSync } from "node:fs";
 import http from "node:http";
@@ -9,9 +9,35 @@ import { getSiteLayout } from "./site-layout.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const GAME_ID = 1_970_135;
-const EXPORT = readFileSync(
-  path.join(here, "../../investigations/replay_1970135.json"),
-  "utf8",
+/** A saved game of before November 2026, in the shape that the site now exports: named turns, `playerNames`, `variantName`. */
+function newExport(old) {
+  const turn = (a) =>
+    ({
+      0: { type: "play", order: a.target },
+      1: { type: "discard", order: a.target },
+      2: { type: "clue", target: a.target, clue: { type: "color", value: a.value } },
+      3: { type: "clue", target: a.target, clue: { type: "rank", value: a.value } },
+    })[a.type];
+  const { variant, ...flags } = old.options ?? {};
+  return {
+    gameId: GAME_ID,
+    seed: old.seed,
+    playerNames: old.players,
+    deck: old.deck,
+    actions: old.actions.map(turn),
+    options: { variantName: variant ?? "No Variant", ...flags },
+  };
+}
+
+const EXPORT = JSON.stringify(
+  newExport(
+    JSON.parse(
+      readFileSync(
+        path.join(here, "../../investigations/replay_1970135.json"),
+        "utf8",
+      ),
+    ),
+  ),
 );
 
 const PAGE = (variant, nodes, boxes) => `<!doctype html>
@@ -25,7 +51,8 @@ const PAGE = (variant, nodes, boxes) => `<!doctype html>
   const nodes = ${JSON.stringify(nodes)};
   const state = {
     finished: true,
-    replay: { active: true, segment: 0, databaseID: ${GAME_ID}, hypothetical: null, shared: null },
+    // (The site's state since November 2026: no "active", a "gameId", and "undefined" for what is not there.)
+    replay: { segment: 0, gameId: ${GAME_ID}, hypothetical: undefined, shared: undefined },
     ongoingGame: { turn: { segment: 72 } },
     metadata: { options: { variantName: ${JSON.stringify(variant)}, emptyClues: false, detrimentalCharacters: false, oneExtraCard: false, oneLessCard: false } },
   };

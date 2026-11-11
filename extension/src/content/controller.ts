@@ -1,3 +1,4 @@
+import { normalizeExport } from "../exportFormat";
 import { saveSettings } from "../settings";
 import {
   getAnalyzable,
@@ -129,7 +130,7 @@ export function createController(
       if (!response.ok) {
         throw new Error(`The server could not export game ${info.databaseID}.`);
       }
-      const exportJson = await response.text();
+      const exportJson = normalizeExport(await response.text());
 
       running("Bot analysis: starting...");
       const result = await engine.analyze(
