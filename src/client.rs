@@ -22,7 +22,10 @@ use crate::basics::{Game, PerformAction, State};
 use crate::feedback::{
     Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
 };
-use crate::settings::{BOT_VERSION, ConventionKind, info_note, parse_convention_from_note};
+use crate::settings::{
+    BOT_VERSION, ConventionKind, info_note, is_unsupported_variant, parse_convention_from_note,
+    unsupported_table_options,
+};
 use crate::tools::console::{ConsoleCmd, run_command};
 use crate::tools::game_data::{GameData, build_game};
 use crate::{log_error, log_highlight, log_info, wire};
@@ -257,49 +260,6 @@ pub struct BotClient {
     seed: Option<String>,
     /// The current game, if any.
     pub game: Option<Game>,
-}
-
-/// Variants the bot knows it cannot play.
-const UNSUPPORTED_VARIANTS: [&str; 17] = [
-    "Blind",
-    "Mute",
-    "Ambiguous",
-    "Dual-Color",
-    "Synesthesia",
-    "Mix",
-    "Funnels",
-    "Chimneys",
-    "Matryoshka",
-    "Alternating",
-    "Odds",
-    "Cow",
-    "Duck",
-    "Reversed",
-    "Throw",
-    "Up or Down",
-    "Sudoku",
-];
-
-pub fn unsupported_table_options(
-    empty_clues: bool,
-    detrimental_characters: bool,
-    one_extra_card: bool,
-    one_less_card: bool,
-) -> Vec<&'static str> {
-    [
-        (empty_clues, "emptyClues"),
-        (detrimental_characters, "detrimentalChars"),
-        (one_extra_card, "oneExtraCard"),
-        (one_less_card, "oneLessCard"),
-    ]
-    .into_iter()
-    .filter_map(|(set, name)| set.then_some(name))
-    .collect()
-}
-
-/// Whether the bot knows that it cannot play the variant (and so can't analyse games of it either).
-pub fn is_unsupported_variant(name: &str) -> bool {
-    UNSUPPORTED_VARIANTS.iter().any(|v| name.contains(v))
 }
 
 impl BotClient {
