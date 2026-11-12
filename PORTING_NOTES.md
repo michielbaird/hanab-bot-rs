@@ -233,7 +233,10 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
 - **Receiving:** `wire::receive(command, args)` reads a message into an `Incoming` (the messages the bot follows, in the shape it uses).
   Each message is named by the server's own constant (`server::TABLE`), which carries its payload type, and is checked against the
-  schema, so a message that does not match (an extra or missing field) is an error. `to_action` turns a `GameEvent` into the game model's
+  schema. A field that the server added does not stop a message: `lenient` leaves it out (and reports it once in the log, as a reason
+  to bump the pin) and reads the rest. A field that is missing or of another type, a kind of something the bot does not know (a phase,
+  an event) or a value out of range is an error, because the bot cannot follow the game without it. Users and the welcome are read only
+  for who they are. `to_action` turns a `GameEvent` into the game model's
   `Action` with a `match` that has no catch-all; `login_response` and `login_refusal` read the answer to a login.
 - **`BotClient`** matches on `Incoming` and sends through `wire::send`; `bot.rs` logs in and connects through `wire`. The older names of messages
   (`init`, `tableGone`, `noteListPlayer`, `gameEventList`, ...) are not read any more: the bot speaks the current protocol only. The readers

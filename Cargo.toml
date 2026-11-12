@@ -17,7 +17,7 @@ net = ["protocol", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "de
 # The messages of hanab.live's protocol, typed by the server's own `hanabi_protocol` crate (see `wire`), so that a change of the
 # protocol is a compile error, and `BotClient`, which speaks it. Not in the library by default: it brings in schemars, jsonschema
 # and chrono.
-protocol = ["dep:hanabi_protocol"]
+protocol = ["dep:hanabi_protocol", "dep:serde_path_to_error"]
 # Counts the work the bot does (see `stats`), for the benchmark. Compiles to nothing without it.
 stats = []
 # Compiles in the bot's debug logging (the Scala bot elides it at compile time by default).
@@ -56,6 +56,7 @@ futures-util = { version = "0.3", optional = true, default-features = false, fea
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
 # The server's protocol crate, pinned to a commit of the hanabi-live repository. To follow the protocol, change `rev` and fix what
 # no longer compiles in `wire`.
+serde_path_to_error = { version = "0.1", optional = true }
 hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "87a5e3a72a56e10a2e685297108aa9eb1fa01ea7", optional = true }
 
 # `Instant::now()` panics on `wasm32-unknown-unknown`; `web-time` reads the browser's clock instead (see `clock`).

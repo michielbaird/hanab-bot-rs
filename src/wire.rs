@@ -25,7 +25,7 @@ use crate::basics::action::{
 };
 use crate::basics::state::TableOptions;
 use crate::basics::{BaseClue, ClueKind, Identity, PerformAction};
-use crate::log_error;
+use crate::{log_error, log_warn};
 
 /// The name and the JSON of a command, as the websocket sends them (`name {json}`).
 pub fn command(message: &ClientMessage) -> (&'static str, Value) {
@@ -206,14 +206,14 @@ pub fn websocket_query(account: Option<i64>) -> Result<Vec<(String, String)>, St
 pub fn login_response(body: &str) -> Result<i64, String> {
     let value: Value = serde_json::from_str(body).map_err(|e| format!("the login answer: {e}"))?;
     let response: hanabi_protocol::LoginResponse =
-        hanabi_protocol::decode(&value).map_err(|e| format!("the login answer: {e}"))?;
+        lenient(&value).map_err(|e| format!("the login answer: {e}"))?;
     Ok(i64::from(response.user_id.get()))
 }
 
 /// Why the server refused a login, if the answer says so (a notice with a message).
 pub fn login_refusal(body: &str) -> Option<String> {
     let value: Value = serde_json::from_str(body).ok()?;
-    let notice: hanabi_protocol::Notice = hanabi_protocol::decode(&value).ok()?;
+    let notice: hanabi_protocol::Notice = lenient(&value).ok()?;
     Some(notice.message)
 }
 
@@ -318,7 +318,7 @@ pub fn to_action(event: &GameEvent) -> Result<Option<Action>, String> {
 
 /// A `gameEvent`'s event, read with the server's own types.
 pub fn game_event(json: &Value) -> Result<Option<Action>, String> {
-    let event: GameEvent = hanabi_protocol::decode(json).map_err(|e| e.to_string())?;
+    let event: GameEvent = lenient(json)?;
     to_action(&event)
 }
 
@@ -563,12 +563,105 @@ fn game_state(state: &hanabi_protocol::GameState) -> GameState {
     }
 }
 
-/// A payload of the server, checked against its schema and read. The message says which type it is.
+/// The most fields of one message that are left out.
+const MAX_LEFT_OUT: usize = 64;
+
+/// The names of the unknown fields that were already reported, so that each is once.
+static REPORTED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The name in serde's "unknown field `name`, ..." error.
+fn unknown_field(message: &str) -> Option<&str> {
+    let rest = message.strip_prefix("unknown field `")?;
+    rest.split('`').next()
+}
+
+/// Takes `name` out of the object that serde named: the path ends with the field in a plain struct, and at the object in an
+/// enum that is tagged by a field. Failing that, out of the first object that has it.
+fn remove_field(value: &mut Value, path: &serde_path_to_error::Path, name: &str) -> bool {
+    use serde_path_to_error::Segment;
+
+    fn walk<'a>(mut at: &'a mut Value, steps: &[&Segment]) -> Option<&'a mut Value> {
+        for step in steps {
+            at = match step {
+                Segment::Map { key } => at.get_mut(key.as_str())?,
+                Segment::Seq { index } => at.get_mut(*index)?,
+                Segment::Enum { .. } | Segment::Unknown => at,
+            };
+        }
+        Some(at)
+    }
+
+    fn first_with(at: &mut Value, name: &str) -> bool {
+        match at {
+            Value::Object(fields) => {
+                fields.remove(name).is_some() || fields.values_mut().any(|v| first_with(v, name))
+            }
+            Value::Array(items) => items.iter_mut().any(|v| first_with(v, name)),
+            _ => false,
+        }
+    }
+
+    let mut steps: Vec<&Segment> = path.iter().collect();
+    if matches!(steps.last(), Some(Segment::Map { key }) if key == name) {
+        steps.pop();
+    }
+    if let Some(Value::Object(fields)) = walk(value, &steps)
+        && fields.remove(name).is_some()
+    {
+        return true;
+    }
+    first_with(value, name)
+}
+
+/// A payload of the server: checked against its schema and read, after leaving out the fields it has that this version of the
+/// protocol does not know. A field that the server added does not stop the message (it is reported once, as a reason to
+/// follow the protocol); one that is missing or of another type, or a kind of something that is not known, does.
+fn lenient<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
+    value: &Value,
+) -> Result<T, String> {
+    let mut value = value.clone();
+    let mut left_out: Vec<String> = Vec::new();
+    while left_out.len() < MAX_LEFT_OUT {
+        let Err(error) = serde_path_to_error::deserialize::<_, T>(&value) else {
+            break;
+        };
+        let Some(name) = unknown_field(&error.inner().to_string()).map(String::from) else {
+            break;
+        };
+        if !remove_field(&mut value, error.path(), &name) {
+            break;
+        }
+        left_out.push(name);
+    }
+
+    let mut reported = REPORTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for name in left_out {
+        if !reported.contains(&name) {
+            log_warn!(
+                "ignoring the field `{name}` of {}: this version of the protocol does not have it",
+                T::schema_name()
+            );
+            reported.push(name);
+        }
+    }
+    drop(reported);
+
+    hanabi_protocol::decode(&value).map_err(|e| e.to_string())
+}
+
+/// A payload of the server, read with `lenient`. The message says which type it is.
 fn payload<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
     _message: ServerMessage<T>,
     value: &Value,
 ) -> Result<T, String> {
-    hanabi_protocol::decode(value).map_err(|e| e.to_string())
+    lenient(value)
+}
+
+/// The user of a message about one (a welcome, a user of the lobby), by ID and name, whatever else the message says.
+fn user_of(value: &Value) -> Result<UserInfo, String> {
+    lenient::<UserRef>(value).map(|u| user(&u))
 }
 
 /// Reads a message of the server (`command` and its JSON `args`). `None` for one that the bot does not follow.
@@ -580,14 +673,22 @@ pub fn receive(command: &str, args: &str) -> Result<Option<Incoming>, String> {
 
     // (A chain and not a `match`: the names are the constants of the server, which a pattern cannot be.)
     Ok(Some(if command == server::WELCOME.name() {
-        Incoming::Welcome(user(
-            &payload(server::WELCOME, &value()?).map_err(read)?.user,
-        ))
+        Incoming::Welcome(user_of(&value()?).map_err(read)?)
     } else if command == server::USER.name() {
-        Incoming::User(user(&payload(server::USER, &value()?).map_err(read)?.user))
+        Incoming::User(user_of(&value()?).map_err(read)?)
     } else if command == server::USER_LIST.name() {
-        let list = payload(server::USER_LIST, &value()?).map_err(read)?;
-        Incoming::UserList(list.users.iter().map(|u| user(&u.user)).collect())
+        // (All the bot wants of a user is who they are.)
+        let list = value()?;
+        let users = list["users"]
+            .as_array()
+            .ok_or_else(|| read("the list has no users".to_string()))?;
+        Incoming::UserList(
+            users
+                .iter()
+                .map(user_of)
+                .collect::<Result<_, _>>()
+                .map_err(read)?,
+        )
     } else if command == server::USER_REMOVED.name() {
         let removed = payload(server::USER_REMOVED, &value()?).map_err(read)?;
         Incoming::UserRemoved(i64::from(removed.user_id.get()))
@@ -1010,9 +1111,9 @@ mod tests {
         // Not followed: nothing to do. Unknown: the same.
         assert!(receive("clock", "{}").unwrap().is_none());
         assert!(receive("nope", "{}").unwrap().is_none());
-        // Followed, but not what the schema says (an extra field, a missing one, not JSON).
-        assert!(receive("tableJoined", r#"{"tableId": 3, "extra": 1}"#).is_err());
+        // Followed, but not what the schema says (a missing field, one of another type, not JSON).
         assert!(receive("tableJoined", "{}").is_err());
+        assert!(receive("tableJoined", r#"{"tableId": "3"}"#).is_err());
         assert!(receive("tableJoined", "not json").is_err());
         // The names of before 12 November are not the server's any more.
         assert!(receive("tableGone", r#"{"tableId": 3}"#).unwrap().is_none());
@@ -1024,13 +1125,129 @@ mod tests {
         assert_eq!(login_response(r#"{"userId": 12}"#), Ok(12));
         assert!(login_response("").is_err());
         assert!(login_response(r#"{"userId": 0}"#).is_err());
-        assert!(login_response(r#"{"userId": 12, "extra": 1}"#).is_err());
+        // A field the server added does not matter.
+        assert_eq!(login_response(r#"{"userId": 12, "extra": 1}"#), Ok(12));
 
         assert_eq!(
             login_refusal(r#"{"message": "Wrong password."}"#).as_deref(),
             Some("Wrong password.")
         );
         assert_eq!(login_refusal("Unauthorized"), None);
+    }
+
+    /// Something the server added to a message does not stop the bot, wherever it is: in a plain struct, nested, in an
+    /// object that is tagged by a field, in a list, or next to a flattened struct.
+    #[test]
+    fn a_field_the_server_added_is_left_out() {
+        // A table: on the table, in its options, on its phase and on a spectator.
+        let mut table = table_json(json!({"type": "pregame", "next": 1}));
+        table["added"] = json!(true);
+        table["settings"]["options"]["brandNew"] = json!(5);
+        table["spectators"][0]["status"] = json!("away");
+        let Incoming::Table(table) = received("table", table) else {
+            panic!("a table");
+        };
+        assert!(table.is_pregame() && table.settings.options.empty_clues);
+        assert_eq!(table.spectators.len(), 2);
+
+        // A list of them.
+        let mut one = table_json(json!({"type": "playing"}));
+        one["added"] = json!([1, 2]);
+        assert!(matches!(
+            received("tableList", json!({"tables": [one], "total": 1})),
+            Incoming::TableList(tables) if tables[0].is_playing()
+        ));
+
+        // Events: on a clue, on a turn, and in the events of a game state.
+        let clue = json!({"type": "clue", "clue": {"type": "rank", "rank": 5, "novel": 1},
+            "receiverIndex": 1, "orders": [3], "playerIndex": 0, "extra": 1});
+        assert!(matches!(
+            received(
+                "gameEvent",
+                json!({"tableId": 7, "event": clue.clone(), "seq": 9})
+            ),
+            Incoming::GameEvent(Some(Action::Clue(_)))
+        ));
+        let Incoming::GameState(state) = received(
+            "gameState",
+            json!({"tableId": 7, "connected": [true, true], "spectators": [], "latency": 3,
+                "events": [clue, {"type": "turn", "turn": 0, "currentPlayerIndex": 0, "more": true}],
+                "notes": [{"username": "bot", "notes": ["x"], "spectator": false, "color": "red"}]}),
+        ) else {
+            panic!("a game state");
+        };
+        assert_eq!((state.events.len(), state.notes.len()), (2, 1));
+
+        // Chat, a game start and the answer to a login.
+        let Incoming::Chat(chat) = received(
+            "chat",
+            json!({"text": "hi", "sentAt": "2026-01-01T12:00:00.000Z", "reactions": [],
+                "kind": {"type": "public", "author": {"type": "user", "username": "alice", "badge": 1}}}),
+        ) else {
+            panic!("chat");
+        };
+        assert_eq!(chat.username, "alice");
+        assert!(matches!(
+            received(
+                "gameInit",
+                json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "spectating", "x": 1},
+                    "customSeed": false, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
+                    "characters": [], "rated": true})
+            ),
+            Incoming::GameInit(_)
+        ));
+        assert_eq!(
+            login_response(r#"{"userId": 12, "newCookie": "x"}"#),
+            Ok(12)
+        );
+    }
+
+    /// All the bot wants of a user is who they are, so the rest of the message may be anything.
+    #[test]
+    fn a_user_is_who_they_are_whatever_else_is_said() {
+        let user = json!({"userId": 7, "username": "Alice", "activity": {"type": "a_new_kind"}, "avatar": "x"});
+        assert!(matches!(
+            received("user", user.clone()),
+            Incoming::User(u) if u.id == 7
+        ));
+        assert!(matches!(
+            received("userList", json!({"users": [user]})),
+            Incoming::UserList(users) if users.len() == 1
+        ));
+        assert!(matches!(
+            received(
+                "welcome",
+                json!({"userId": 7, "username": "Alice", "settings": {"theme": "dark"}, "somethingNew": 1})
+            ),
+            Incoming::Welcome(u) if u.name == "Alice"
+        ));
+        // ... but who they are is needed.
+        assert!(receive("user", r#"{"username": "Alice"}"#).is_err());
+    }
+
+    /// What the bot cannot do without stays an error: a missing field, one of another type, a kind it does not know, or
+    /// something out of range.
+    #[test]
+    fn a_change_that_is_not_an_addition_is_still_an_error() {
+        let mut missing = table_json(json!({"type": "pregame"}));
+        missing.as_object_mut().unwrap().remove("playerNames");
+        assert!(receive("table", &missing.to_string()).is_err());
+
+        let mut retyped = table_json(json!({"type": "pregame"}));
+        retyped["progress"] = json!("half");
+        assert!(receive("table", &retyped.to_string()).is_err());
+
+        // A phase that is not known (and one in the old form, a name).
+        assert!(receive("table", &table_json(json!({"type": "paused"})).to_string()).is_err());
+        assert!(receive("table", &table_json(json!("pregame")).to_string()).is_err());
+
+        // An addition together with a change: the change is reported.
+        let mut both = table_json(json!({"type": "pregame"}));
+        both["added"] = json!(1);
+        both["tableId"] = json!(-4);
+        assert!(receive("table", &both.to_string()).is_err());
+        let range = json!({"type": "play", "playerIndex": 9, "order": 1, "added": 1});
+        assert!(game_event(&range).is_err());
     }
 
     #[test]
@@ -1182,11 +1399,10 @@ mod tests {
 
     #[test]
     fn an_event_the_server_would_not_send_is_an_error() {
-        // A clue that the recipient may not see the type of, a field the schema does not have, a number out of range.
+        // A clue that the recipient may not see the type of, a number out of range, a kind of event that is not known.
         let hidden = json!({"type": "clue", "playerIndex": 0, "receiverIndex": 1, "orders": [3]});
         assert!(game_event(&hidden).is_err());
-        let extra = json!({"type": "turn", "turn": 1, "currentPlayerIndex": 0, "nope": true});
-        assert!(game_event(&extra).is_err());
+        assert!(game_event(&json!({"type": "strike", "turn": 1})).is_err());
         let range = json!({"type": "play", "playerIndex": 9, "order": 1});
         assert!(game_event(&range).is_err());
     }
