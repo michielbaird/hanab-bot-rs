@@ -67,10 +67,11 @@ pub mod send {
         })
     }
 
-    pub fn table_join(table: usize) -> Result<ClientMessage, String> {
+    /// Joins a table, with its password if it has one.
+    pub fn table_join(table: usize, password: Option<&str>) -> Result<ClientMessage, String> {
         Ok(ClientMessage::TableJoin(TableJoinRequest {
             table_id: table_id(table)?,
-            password: None,
+            password: password.map(String::from),
         }))
     }
 
@@ -318,7 +319,8 @@ mod tests {
             send::chat("hello", None).unwrap(),
             send::chat("hello", Some(7)).unwrap(),
             send::chat_pm("hello", "alice"),
-            send::table_join(7).unwrap(),
+            send::table_join(7, None).unwrap(),
+            send::table_join(7, Some("secret")).unwrap(),
             send::table_leave(7).unwrap(),
             send::table_unattend(7).unwrap(),
             send::table_reattend(7).unwrap(),
@@ -388,7 +390,7 @@ mod tests {
 
     #[test]
     fn a_value_the_wire_does_not_take_is_an_error_here() {
-        assert!(send::table_join(usize::MAX).is_err());
+        assert!(send::table_join(usize::MAX, None).is_err());
         assert!(send::note(7, 100_000, "x").is_err());
         assert!(
             send::player_action(
@@ -433,6 +435,25 @@ mod tests {
             [("client".to_string(), "bot".to_string())]
         );
         assert!(websocket_query(Some(0)).is_err());
+    }
+
+    /// What reqwest sends and the server reads: a form (and a query) in the `application/x-www-form-urlencoded` encoding.
+    #[test]
+    fn the_login_form_and_the_query_are_what_the_server_reads() {
+        let form = serde_urlencoded::to_string(login_request("bot", "se&cret")).unwrap();
+        let read: LoginRequest = serde_urlencoded::from_str(&form).unwrap();
+        assert_eq!(
+            (read.username.as_str(), read.password.as_str(), read.client),
+            ("bot", "se&cret", ClientKind::Bot)
+        );
+        assert!(read.version.is_none() && !read.create_account);
+
+        let query = serde_urlencoded::to_string(websocket_query(Some(12)).unwrap()).unwrap();
+        let read: WebSocketQuery = serde_urlencoded::from_str(&query).unwrap();
+        assert_eq!(
+            (read.account, read.version, read.client),
+            (UserId::new(12), None, ClientKind::Bot)
+        );
     }
 
     #[test]
