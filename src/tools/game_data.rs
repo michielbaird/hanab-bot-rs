@@ -90,6 +90,7 @@ impl GameData {
                 .or_else(|| opts["variant"].as_str())
                 .unwrap_or("No Variant")
                 .to_string(),
+            variant_id: opts["variantId"].as_u64().map(|n| n as u32),
             deck_plays: opts["deckPlays"].as_bool().unwrap_or(false),
             empty_clues: opts["emptyClues"].as_bool().unwrap_or(false),
             ..TableOptions::default()
@@ -251,7 +252,7 @@ pub fn parse_replay_args<S: AsRef<str>>(raw: &[S]) -> Result<ReplayArgs, String>
         }
         (None, None) => return Err("Must provide either id or file argument.".to_string()),
     };
-    let variant = load_variant(&data.options.variant_name, &args)?;
+    let variant = load_variant(&data.options.variant_label(), &args)?;
 
     Ok(ReplayArgs {
         data,

@@ -17,6 +17,9 @@ use crate::collections::FastBitSet;
 pub struct TableOptions {
     pub num_players: usize,
     pub variant_name: String,
+    /// The variant's number in `variants.json`, which replaced `variantName` in November 2026 (it takes precedence).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant_id: Option<u32>,
     pub starting_player: usize,
     pub deck_plays: bool,
     pub detrimental_characters: bool,
@@ -31,6 +34,7 @@ impl Default for TableOptions {
         Self {
             num_players: 2,
             variant_name: "No Variant".to_string(),
+            variant_id: None,
             starting_player: 0,
             deck_plays: false,
             detrimental_characters: false,
@@ -48,6 +52,23 @@ impl TableOptions {
             num_players,
             variant_name: variant_name.to_string(),
             ..Self::default()
+        }
+    }
+
+    /// The name of the variant: looked up by its number when the options have one.
+    pub fn variant_label(&self) -> String {
+        self.variant_id
+            .and_then(Variant::name_by_id)
+            .unwrap_or_else(|| self.variant_name.clone())
+    }
+
+    /// The variant. [`Variant::init`] must have been called.
+    pub fn variant(&self) -> Result<Arc<Variant>, String> {
+        match self.variant_id {
+            Some(id) => Variant::name_by_id(id)
+                .ok_or_else(|| format!("Variant {id} not found! Were variants initialized?"))
+                .and_then(|name| Variant::get(&name)),
+            None => Variant::get(&self.variant_name),
         }
     }
 }

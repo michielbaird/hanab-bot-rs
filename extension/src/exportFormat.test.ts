@@ -7,18 +7,18 @@ const NEW_EXPORT = {
   seed: "p3v0s1",
   playerNames: ["Alice", "Bob", "Cathy"],
   deck: [{ suitIndex: 0, rank: 1 }],
-  options: { variantName: "Rainbow (5 Suits)", deckPlays: true },
+  options: { variantId: 21, deckPlays: true },
   actions: [
     { type: "play", order: 5 },
     { type: "discard", order: 6 },
-    { type: "clue", receiverIndex: 1, clue: { type: "color", value: 3 } },
-    { type: "clue", receiverIndex: 2, clue: { type: "rank", value: 5 } },
+    { type: "clue", receiverIndex: 1, clue: { type: "color", color: 3 } },
+    { type: "clue", receiverIndex: 2, clue: { type: "rank", rank: 5 } },
     { type: "gameOver", endCondition: "terminatedByVote", playerIndex: 1 },
   ],
 };
 
-test("turns a new export into the old shape", () => {
-  assert.deepEqual(toOldExport(NEW_EXPORT), {
+test("turns a new export into the old shape, with the variant that the page names", () => {
+  assert.deepEqual(toOldExport(NEW_EXPORT, "Rainbow (5 Suits)"), {
     id: 2045738,
     seed: "p3v0s1",
     players: ["Alice", "Bob", "Cathy"],
@@ -32,6 +32,21 @@ test("turns a new export into the old shape", () => {
       { type: 4, target: 1, value: 10 },
     ],
   });
+});
+
+test("an export that names the variant keeps it, and a clue may name its value", () => {
+  const exported = toOldExport(
+    {
+      playerNames: ["Alice", "Bob"],
+      options: { variantName: "Black (5 Suits)" },
+      actions: [
+        { type: "clue", receiverIndex: 1, clue: { type: "color", value: 2 } },
+      ],
+    },
+    "Rainbow (5 Suits)",
+  ) as { options: { variant: string }; actions: unknown[] };
+  assert.equal(exported.options.variant, "Black (5 Suits)");
+  assert.deepEqual(exported.actions, [{ type: 2, target: 1, value: 2 }]);
 });
 
 test("a clue still names its receiver as the target in an export of before the rename", () => {

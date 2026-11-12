@@ -124,6 +124,7 @@ pub struct Variant {
 #[derive(Default)]
 struct Registry {
     variants: HashMap<String, Arc<Variant>>,
+    names_by_id: HashMap<u32, String>,
     colours: Vec<Suit>,
 }
 
@@ -244,8 +245,15 @@ impl Variant {
             .map(|v| v.map(|v| (v.name.clone(), Arc::new(v))))
             .collect::<Result<HashMap<_, _>, String>>()?;
 
-        REGISTRY.write().unwrap().variants = variants;
+        let mut registry = REGISTRY.write().unwrap();
+        registry.names_by_id = variants.values().map(|v| (v.id, v.name.clone())).collect();
+        registry.variants = variants;
         Ok(())
+    }
+
+    /// The name of the variant with this number in `variants.json`, if there is one.
+    pub fn name_by_id(id: u32) -> Option<String> {
+        REGISTRY.read().unwrap().names_by_id.get(&id).cloned()
     }
 
     /// Looks up a variant by name. [`Variant::init`] must have been called.

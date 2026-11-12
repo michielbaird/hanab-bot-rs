@@ -606,10 +606,10 @@ impl PerformAction {
             Self::Play { target } => json!({"type": "play", "order": target}),
             Self::Discard { target } => json!({"type": "discard", "order": target}),
             Self::Colour { target, value } => {
-                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "color", "value": value}})
+                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "color", "color": value}})
             }
             Self::Rank { target, value } => {
-                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "rank", "value": value}})
+                json!({"type": "clue", "receiverIndex": target, "clue": {"type": "rank", "rank": value}})
             }
             // (Not something a player can do: a game is ended with `tableTerminate`.)
             Self::Terminate { target, value } => {

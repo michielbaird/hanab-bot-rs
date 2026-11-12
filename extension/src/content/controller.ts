@@ -130,7 +130,7 @@ export function createController(
       if (!response.ok) {
         throw new Error(`The server could not export game ${info.databaseID}.`);
       }
-      const exportJson = normalizeExport(await response.text());
+      const exportJson = normalizeExport(await response.text(), info.variant);
 
       running("Bot analysis: starting...");
       const result = await engine.analyze(

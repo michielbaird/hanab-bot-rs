@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::basics::action::Action;
 use crate::basics::game::Note;
 use crate::basics::state::TableOptions;
-use crate::basics::{Game, PerformAction, State, Variant};
+use crate::basics::{Game, PerformAction, State};
 use crate::feedback::{
     Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
 };
@@ -40,7 +40,7 @@ pub enum Out {
 
 /// A chat message from the server: to everyone (neither a table nor a recipient), to a table, or private.
 #[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(from = "RawChatMessage")]
 pub struct ChatMessage {
     pub text: String,
     /// "user", "server" or "discord".
@@ -56,6 +56,50 @@ pub struct ChatMessage {
 #[serde(default, rename_all = "camelCase")]
 struct ChatList {
     messages: Vec<ChatMessage>,
+}
+
+/// A chat message as sent: with a `kind` since November 2026 (`{type: "public", author: {type: "user", username}}`,
+/// `{type: "private", author, recipient}` or `{type: "suggestion", recipient, settings}`), and with `source`, `username` and
+/// `recipient` on the message itself before.
+#[derive(Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct RawChatMessage {
+    text: String,
+    source: String,
+    username: String,
+    table_id: Option<usize>,
+    recipient: Option<String>,
+    kind: Value,
+}
+
+impl From<RawChatMessage> for ChatMessage {
+    fn from(raw: RawChatMessage) -> Self {
+        let kind = &raw.kind;
+        let Some(kind_type) = kind["type"].as_str() else {
+            return Self {
+                text: raw.text,
+                source: raw.source,
+                username: raw.username,
+                table_id: raw.table_id,
+                recipient: raw.recipient,
+            };
+        };
+
+        // (A suggestion is from the server.)
+        let author = &kind["author"];
+        let source = if kind_type == "suggestion" {
+            "server"
+        } else {
+            author["type"].as_str().unwrap_or("server")
+        };
+        Self {
+            text: raw.text,
+            source: source.to_string(),
+            username: author["username"].as_str().unwrap_or_default().to_string(),
+            table_id: raw.table_id,
+            recipient: kind["recipient"].as_str().map(String::from),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -387,48 +431,27 @@ impl BotClient {
                     self.handle_note_list(msg);
                 }
 
-                // Received at the beginning of the game, as a list of all events that have happened so far.
+                // Received at the beginning of the game: all events that have happened so far, and the notes.
+                "gameState" => {
+                    let json = parse("gameState")?;
+                    if self.restored_settings {
+                        self.handle_event_list(&json);
+                    } else {
+                        // The settings have not been (attempted to be) restored so far. That happens with the notes, and
+                        // then the state is requested again.
+                        let msg = NoteListPlayerMessage {
+                            table_id: json["tableId"].as_u64().unwrap_or_default() as usize,
+                            notes: self.own_notes(&json),
+                        };
+                        self.handle_note_list(msg);
+                    }
+                }
+
+                // (Before November 2026 the notes came as `noteListPlayer`, then the events as `gameEventList`.)
                 "gameEventList" => {
-                    // The settings have not been (attempted to be) restored so far.
-                    // This will happen in 'noteListPlayer', which will then request the list again.
                     if self.restored_settings {
                         let json = parse("gameEventList")?;
-                        let table_id = json["tableId"].as_u64().unwrap_or_default();
-                        let list: Vec<Action> = json["events"]
-                            .as_array()
-                            .map(|l| {
-                                l.iter()
-                                    .filter_map(|a| Action::from_json(a).ok().flatten())
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        if let Some(game) = &mut self.game {
-                            game.catchup = true;
-                        } else {
-                            return Ok(());
-                        }
-
-                        // After a forced convention switch the table has already loaded the game.
-                        let resync = std::mem::take(&mut self.resyncing);
-
-                        if let Some((last, init)) = list.split_last() {
-                            for action in init {
-                                self.handle_action(action);
-                            }
-                            if let Some(game) = &mut self.game {
-                                game.catchup = false;
-                            }
-                            if !resync {
-                                self.send_cmd("loaded", &json!({"tableId": table_id}));
-                                self.emit(Out::Wait(Duration::from_millis(1000)));
-                            }
-                            self.handle_action(last);
-                        }
-
-                        if resync {
-                            self.rewrite_notes(table_id as usize);
-                        }
+                        self.handle_event_list(&json);
                     }
                 }
 
@@ -444,9 +467,10 @@ impl BotClient {
                     }
                 }
 
-                "init" => {
+                // (`init` until November 2026.)
+                "gameInit" | "init" => {
                     let msg: InitMessage =
-                        serde_json::from_value(parse("init")?).map_err(|e| e.to_string())?;
+                        serde_json::from_value(parse("gameInit")?).map_err(|e| e.to_string())?;
                     self.handle_init(msg)?;
                 }
 
@@ -559,6 +583,67 @@ impl BotClient {
         }
     }
 
+    /// Plays through the events of the game so far.
+    fn handle_event_list(&mut self, json: &Value) {
+        let table_id = json["tableId"].as_u64().unwrap_or_default();
+        let list: Vec<Action> = json["events"]
+            .as_array()
+            .map(|l| {
+                l.iter()
+                    .filter_map(|a| Action::from_json(a).ok().flatten())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if let Some(game) = &mut self.game {
+            game.catchup = true;
+        } else {
+            return;
+        }
+
+        // After a forced convention switch the table has already loaded the game.
+        let resync = std::mem::take(&mut self.resyncing);
+
+        if let Some((last, init)) = list.split_last() {
+            for action in init {
+                self.handle_action(action);
+            }
+            if let Some(game) = &mut self.game {
+                game.catchup = false;
+            }
+            if !resync {
+                self.send_cmd("gameLoaded", &json!({"tableId": table_id}));
+                self.emit(Out::Wait(Duration::from_millis(1000)));
+            }
+            self.handle_action(last);
+        }
+
+        if resync {
+            self.rewrite_notes(table_id as usize);
+        }
+    }
+
+    /// Our notes in a `gameState`: one for each card, by order (the first entry that is not a spectator's, for a player).
+    fn own_notes(&self, json: &Value) -> Vec<String> {
+        let name = self.info.as_ref().map(|i| i.username.as_str());
+        let entries = json["notes"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let ours = entries
+            .iter()
+            .find(|e| e["username"].as_str() == name && e["spectator"] != true)
+            .or_else(|| entries.iter().find(|e| e["spectator"] != true));
+        ours.and_then(|e| e["notes"].as_array())
+            .map(|notes| {
+                notes
+                    .iter()
+                    .map(|n| n.as_str().unwrap_or_default().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn handle_note_list(&mut self, msg: NoteListPlayerMessage) {
         // If the settings have already been restored do nothing.
         if self.restored_settings || self.game.is_none() {
@@ -637,7 +722,7 @@ impl BotClient {
     }
 
     fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
-        let variant = Variant::get(&msg.options.variant_name)?;
+        let variant = msg.options.variant()?;
         let players = msg.player_names.clone();
         let mut options = msg.options;
         options.num_players = players.len();
@@ -823,10 +908,10 @@ impl BotClient {
             ));
         }
 
-        if is_unsupported_variant(&o.variant_name) {
+        let variant_name = o.variant_label();
+        if is_unsupported_variant(&variant_name) {
             self.send_chat(&format!(
-                "This bot doesn't support the variant {} and may crash or behave nonsensically.",
-                o.variant_name
+                "This bot doesn't support the variant {variant_name} and may crash or behave nonsensically."
             ));
         }
     }
@@ -1117,7 +1202,7 @@ impl BotClient {
 
             let result = catch_unwind(AssertUnwindSafe(|| -> Result<Vec<String>, String> {
                 let data = GameData::fetch_id(&hostname, &id)?;
-                let variant = Variant::get(&data.options.variant_name)?;
+                let variant = data.options.variant()?;
                 let _quiet = crate::logger::LevelGuard::set(crate::logger::LogLevel::Off);
                 Ok(build_game(convention, &data, variant, 0, false)?.analyze())
             }));

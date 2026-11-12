@@ -26,7 +26,9 @@ interface GameState {
   ongoingGame: { turn: { segment?: number | null } };
   metadata: {
     options: {
-      variantName: string;
+      /** Until November 2026; the options hold `variantId` now, and the site keeps the variant in `globals.variant`. */
+      variantName?: string;
+      variantId?: number;
       emptyClues: boolean;
       detrimentalCharacters: boolean;
       oneExtraCard: boolean;
@@ -42,6 +44,7 @@ interface Store {
 
 interface PageGlobals {
   store: Store | null;
+  variant?: { name: string };
   stage: { container: () => HTMLElement };
   elements: {
     replayBar: KonvaNode | null;
@@ -76,7 +79,7 @@ function read(): PageState {
     const info = {
       databaseID: replay.gameId,
       finished: state.finished,
-      variant: options.variantName,
+      variant: options.variantName ?? pageGlobals.variant?.name ?? "",
       emptyClues: options.emptyClues,
       detrimentalCharacters: options.detrimentalCharacters,
       oneExtraCard: options.oneExtraCard,
