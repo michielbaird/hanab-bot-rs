@@ -330,10 +330,9 @@ pub fn alternative_clue(ctx: &ClueContext, severity: usize, max_stall: usize) ->
         .copied();
 
         if let Some(dupe) = dupe {
-            for i in 0..state.num_players {
+            for (i, player) in game.players.iter().enumerate().take(state.num_players) {
                 // Exclude if they can see the card, or the holder infers it
-                if state.holder_of[dupe] != i || game.players[i].thoughts[dupe].matches_infer(&dda)
-                {
+                if state.holder_of[dupe] != i || player.thoughts[dupe].matches_infer(&dda) {
                     thinks_stall.remove(i);
                 }
             }
