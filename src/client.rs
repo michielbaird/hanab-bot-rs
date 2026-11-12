@@ -387,48 +387,27 @@ impl BotClient {
                     self.handle_note_list(msg);
                 }
 
-                // Received at the beginning of the game, as a list of all events that have happened so far.
+                // Received at the beginning of the game: all events that have happened so far, and the notes.
+                "gameState" => {
+                    let json = parse("gameState")?;
+                    if self.restored_settings {
+                        self.handle_event_list(&json);
+                    } else {
+                        // The settings have not been (attempted to be) restored so far. That happens with the notes, and
+                        // then the state is requested again.
+                        let msg = NoteListPlayerMessage {
+                            table_id: json["tableId"].as_u64().unwrap_or_default() as usize,
+                            notes: self.own_notes(&json),
+                        };
+                        self.handle_note_list(msg);
+                    }
+                }
+
+                // (Before November 2026 the notes came as `noteListPlayer`, then the events as `gameEventList`.)
                 "gameEventList" => {
-                    // The settings have not been (attempted to be) restored so far.
-                    // This will happen in 'noteListPlayer', which will then request the list again.
                     if self.restored_settings {
                         let json = parse("gameEventList")?;
-                        let table_id = json["tableId"].as_u64().unwrap_or_default();
-                        let list: Vec<Action> = json["events"]
-                            .as_array()
-                            .map(|l| {
-                                l.iter()
-                                    .filter_map(|a| Action::from_json(a).ok().flatten())
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        if let Some(game) = &mut self.game {
-                            game.catchup = true;
-                        } else {
-                            return Ok(());
-                        }
-
-                        // After a forced convention switch the table has already loaded the game.
-                        let resync = std::mem::take(&mut self.resyncing);
-
-                        if let Some((last, init)) = list.split_last() {
-                            for action in init {
-                                self.handle_action(action);
-                            }
-                            if let Some(game) = &mut self.game {
-                                game.catchup = false;
-                            }
-                            if !resync {
-                                self.send_cmd("loaded", &json!({"tableId": table_id}));
-                                self.emit(Out::Wait(Duration::from_millis(1000)));
-                            }
-                            self.handle_action(last);
-                        }
-
-                        if resync {
-                            self.rewrite_notes(table_id as usize);
-                        }
+                        self.handle_event_list(&json);
                     }
                 }
 
@@ -557,6 +536,67 @@ impl BotClient {
         if let Err(e) = res {
             log_error!("{e}");
         }
+    }
+
+    /// Plays through the events of the game so far.
+    fn handle_event_list(&mut self, json: &Value) {
+        let table_id = json["tableId"].as_u64().unwrap_or_default();
+        let list: Vec<Action> = json["events"]
+            .as_array()
+            .map(|l| {
+                l.iter()
+                    .filter_map(|a| Action::from_json(a).ok().flatten())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if let Some(game) = &mut self.game {
+            game.catchup = true;
+        } else {
+            return;
+        }
+
+        // After a forced convention switch the table has already loaded the game.
+        let resync = std::mem::take(&mut self.resyncing);
+
+        if let Some((last, init)) = list.split_last() {
+            for action in init {
+                self.handle_action(action);
+            }
+            if let Some(game) = &mut self.game {
+                game.catchup = false;
+            }
+            if !resync {
+                self.send_cmd("loaded", &json!({"tableId": table_id}));
+                self.emit(Out::Wait(Duration::from_millis(1000)));
+            }
+            self.handle_action(last);
+        }
+
+        if resync {
+            self.rewrite_notes(table_id as usize);
+        }
+    }
+
+    /// Our notes in a `gameState`: one for each card, by order (the first entry that is not a spectator's, for a player).
+    fn own_notes(&self, json: &Value) -> Vec<String> {
+        let name = self.info.as_ref().map(|i| i.username.as_str());
+        let entries = json["notes"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let ours = entries
+            .iter()
+            .find(|e| e["username"].as_str() == name && e["spectator"] != true)
+            .or_else(|| entries.iter().find(|e| e["spectator"] != true));
+        ours.and_then(|e| e["notes"].as_array())
+            .map(|notes| {
+                notes
+                    .iter()
+                    .map(|n| n.as_str().unwrap_or_default().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn handle_note_list(&mut self, msg: NoteListPlayerMessage) {
