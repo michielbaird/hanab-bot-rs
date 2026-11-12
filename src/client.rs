@@ -12,12 +12,9 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use hanabi_protocol::ClientMessage;
-use serde::Deserialize;
-use serde_json::Value;
 
 use crate::basics::action::Action;
 use crate::basics::game::Note;
-use crate::basics::state::TableOptions;
 use crate::basics::{Game, PerformAction, State};
 use crate::feedback::{
     Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
@@ -28,7 +25,8 @@ use crate::settings::{
 };
 use crate::tools::console::{ConsoleCmd, run_command};
 use crate::tools::game_data::{GameData, build_game};
-use crate::{log_error, log_highlight, log_info, wire};
+use crate::wire::{self, AuthorNotes, GameInit, Incoming, UserInfo};
+use crate::{log_error, log_highlight, log_info};
 
 const RED: &str = "\x1b[31m";
 const BLUE: &str = "\x1b[34m";
@@ -42,143 +40,10 @@ pub enum Out {
     Wait(Duration),
 }
 
-/// A chat message from the server: to everyone (neither a table nor a recipient), to a table, or private.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(from = "RawChatMessage")]
-pub struct ChatMessage {
-    pub text: String,
-    /// "user", "server" or "discord".
-    pub source: String,
-    /// Who sent it (nobody, for the server).
-    pub username: String,
-    pub table_id: Option<usize>,
-    /// Who it was sent to, if it is a private message.
-    pub recipient: Option<String>,
-}
+pub use crate::wire::{ChatMessage, Phase, Spectator, Table, TableSettings};
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct ChatList {
-    messages: Vec<ChatMessage>,
-}
-
-/// A chat message as sent: with a `kind` since November 2026 (`{type: "public", author: {type: "user", username}}`,
-/// `{type: "private", author, recipient}` or `{type: "suggestion", recipient, settings}`), and with `source`, `username` and
-/// `recipient` on the message itself before.
-#[derive(Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct RawChatMessage {
-    text: String,
-    source: String,
-    username: String,
-    table_id: Option<usize>,
-    recipient: Option<String>,
-    kind: Value,
-}
-
-impl From<RawChatMessage> for ChatMessage {
-    fn from(raw: RawChatMessage) -> Self {
-        let kind = &raw.kind;
-        let Some(kind_type) = kind["type"].as_str() else {
-            return Self {
-                text: raw.text,
-                source: raw.source,
-                username: raw.username,
-                table_id: raw.table_id,
-                recipient: raw.recipient,
-            };
-        };
-
-        // (A suggestion is from the server.)
-        let author = &kind["author"];
-        let source = if kind_type == "suggestion" {
-            "server"
-        } else {
-            author["type"].as_str().unwrap_or("server")
-        };
-        Self {
-            text: raw.text,
-            source: source.to_string(),
-            username: author["username"].as_str().unwrap_or_default().to_string(),
-            table_id: raw.table_id,
-            recipient: kind["recipient"].as_str().map(String::from),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Spectator {
-    pub username: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct TableSettings {
-    pub name: String,
-    pub options: TableOptions,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Table {
-    pub table_id: i64,
-    pub settings: TableSettings,
-    pub password_protected: bool,
-    pub player_names: Vec<String>,
-    pub progress: i64,
-    /// "pregame", "playing", "replay" or "sharedReplay".
-    #[serde(deserialize_with = "phase_name")]
-    pub phase: String,
-    pub spectators: Vec<Spectator>,
-}
-
-/// The phase of a table: `{"type": "pregame"}` (a shared replay has its `gameId` there too), or just the name before
-/// 12 November 2026.
-fn phase_name<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    let phase = Value::deserialize(deserializer)?;
-    phase
-        .as_str()
-        .or_else(|| phase["type"].as_str())
-        .map(String::from)
-        .ok_or_else(|| serde::de::Error::custom(format!("{phase} is not a table phase")))
-}
-
-impl Table {
-    pub fn is_playing(&self) -> bool {
-        self.phase == "playing"
-    }
-
-    pub fn is_pregame(&self) -> bool {
-        self.phase == "pregame"
-    }
-
-    pub fn is_shared_replay(&self) -> bool {
-        self.phase == "sharedReplay"
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct InitMessage {
-    table_id: usize,
-    player_names: Vec<String>,
-    /// How we take part: `{type: "playing", ourPlayerIndex}`, or `{type: "spectating"}` for someone who only watches.
-    mode: Value,
-    /// (Where `ourPlayerIndex` was before it moved into `mode`.)
-    our_player_index: Option<usize>,
-    seed: Option<String>,
-    options: TableOptions,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct SelfData {
-    pub username: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+/// Our notes, to restore the settings from (the first card has the bot's note).
+#[derive(Clone, Debug, Default)]
 struct NoteListPlayerMessage {
     table_id: usize,
     notes: Vec<String>,
@@ -246,7 +111,7 @@ impl BotConfig {
 pub struct BotClient {
     out: Sender<Out>,
     config: BotConfig,
-    info: Option<SelfData>,
+    info: Option<UserInfo>,
     table_id: Option<usize>,
     game_started: bool,
     restored_settings: bool,
@@ -360,108 +225,73 @@ impl BotClient {
     fn handle_msg_inner(&mut self, data: &str) {
         let (command, args) = data.split_once(' ').unwrap_or((data, ""));
 
-        let json = || -> Result<Value, String> {
-            serde_json::from_str(args).map_err(|e| format!("bad json for {command}: {e}"))
+        let incoming = match wire::receive(command, args) {
+            Ok(Some(incoming)) => incoming,
+            Ok(None) => return,
+            Err(e) => {
+                log_error!("{e}");
+                return;
+            }
         };
-        let parse =
-            |what: &str| -> Result<Value, String> { json().map_err(|e| format!("{what}: {e}")) };
 
         let res: Result<(), String> = (|| {
-            match command {
-                "chat" => {
-                    let msg: ChatMessage =
-                        serde_json::from_value(parse("chat")?).map_err(|e| e.to_string())?;
-                    self.handle_chat(&msg);
-                }
+            match incoming {
+                Incoming::Chat(msg) => self.handle_chat(&msg),
 
-                "chatList" => {
-                    let list: ChatList =
-                        serde_json::from_value(parse("chatList")?).map_err(|e| e.to_string())?;
+                Incoming::ChatList(messages) => {
                     let help_msg = "PM /help for help.";
 
-                    let send_help = list.messages.first().is_some_and(|msg| {
+                    let send_help = messages.first().is_some_and(|msg| {
                         self.table_id.is_some_and(|id| msg.table_id == Some(id))
-                    }) && !list.messages.iter().any(|m| m.text == help_msg);
+                    }) && !messages.iter().any(|m| m.text == help_msg);
 
                     if send_help {
                         self.send_chat(help_msg);
                     }
                 }
 
-                "gameEvent" => {
-                    if self.resyncing {
-                        return Ok(());
+                Incoming::GameEvent(action) => {
+                    if !self.resyncing
+                        && let Some(action) = action
+                    {
+                        self.handle_action(&action);
                     }
-                    let json = parse("gameEvent")?;
-                    match wire::game_event(&json["event"]) {
-                        Ok(Some(action)) => self.handle_action(&action),
-                        Ok(None) => {}
-                        Err(e) => println!(
-                            "{RED}failed to read gameEvent {args}: {e}{}",
-                            crate::logger::RESET
-                        ),
-                    }
-                }
-
-                "noteListPlayer" => {
-                    let msg: NoteListPlayerMessage =
-                        serde_json::from_value(parse("noteListPlayer")?)
-                            .map_err(|e| e.to_string())?;
-                    self.handle_note_list(msg);
                 }
 
                 // Received at the beginning of the game: all events that have happened so far, and the notes.
-                "gameState" => {
-                    let json = parse("gameState")?;
+                Incoming::GameState(state) => {
                     if self.restored_settings {
-                        self.handle_event_list(&json);
+                        self.handle_event_list(state.table_id, &state.events);
                     } else {
                         // The settings have not been (attempted to be) restored so far. That happens with the notes, and
                         // then the state is requested again.
                         let msg = NoteListPlayerMessage {
-                            table_id: json["tableId"].as_u64().unwrap_or_default() as usize,
-                            notes: self.own_notes(&json),
+                            table_id: state.table_id,
+                            notes: self.own_notes(&state.notes),
                         };
                         self.handle_note_list(msg);
                     }
                 }
 
-                // (Before November 2026 the notes came as `noteListPlayer`, then the events as `gameEventList`.)
-                "gameEventList" => {
-                    if self.restored_settings {
-                        let json = parse("gameEventList")?;
-                        self.handle_event_list(&json);
-                    }
-                }
-
-                "tableJoined" | "joined" => {
-                    let id = parse(command)?["tableId"].as_i64().unwrap_or_default();
-                    self.table_id = Some(id as usize);
+                Incoming::TableJoined(id) => {
+                    self.table_id = Some(id);
                     self.game_started = false;
                     self.last_requester = None;
                     self.leave_pregame_if_only_bots = true; // reset to true on each table join
 
-                    if let Some(table) = self.tables.get(&id).cloned() {
+                    if let Some(table) = self.tables.get(&(id as i64)).cloned() {
                         self.check_supported_settings(&table);
                     }
                 }
 
-                // (`init` until November 2026.)
-                "gameInit" | "init" => {
-                    let msg: InitMessage =
-                        serde_json::from_value(parse("gameInit")?).map_err(|e| e.to_string())?;
-                    self.handle_init(msg)?;
-                }
+                Incoming::GameInit(msg) => self.handle_init(msg)?,
 
-                "tableLeft" | "left" => {
+                Incoming::TableLeft(_) => {
                     self.table_id = None;
                     self.game_started = false;
                 }
 
-                "table" => {
-                    let table: Table =
-                        serde_json::from_value(parse("table")?).map_err(|e| e.to_string())?;
-
+                Incoming::Table(table) => {
                     if self.table_id == Some(table.table_id as usize) && !self.game_started {
                         if self.config.leave_replay_if_only_bots
                             && table.is_shared_replay()
@@ -488,37 +318,23 @@ impl BotClient {
                     self.tables.insert(table.table_id, table);
                 }
 
-                // (`tableGone` before November 2026.)
-                "tableRemoved" | "tableGone" => {
-                    let id = parse("tableRemoved")?["tableId"]
-                        .as_i64()
-                        .unwrap_or_default();
+                Incoming::TableRemoved(id) => {
                     self.tables.remove(&id);
                 }
 
-                "userList" => {
-                    for user in parse("userList")?["users"].as_array().into_iter().flatten() {
+                Incoming::UserList(users) => {
+                    for user in &users {
                         self.add_user(user);
                     }
                 }
 
-                "user" => self.add_user(&parse("user")?),
+                Incoming::User(user) => self.add_user(&user),
 
-                "userRemoved" => {
-                    let id = parse("userRemoved")?["userId"].as_i64().unwrap_or_default();
+                Incoming::UserRemoved(id) => {
                     self.users.remove(&id);
                 }
 
-                "tableList" => {
-                    // An object with the tables (a bare list before November 2026).
-                    let json = parse("tableList")?;
-                    let tables = if json.is_array() {
-                        json
-                    } else {
-                        json["tables"].clone()
-                    };
-                    let list: Vec<Table> =
-                        serde_json::from_value(tables).map_err(|e| e.to_string())?;
+                Incoming::TableList(list) => {
                     for t in list {
                         self.tables.insert(t.table_id, t);
                     }
@@ -527,7 +343,7 @@ impl BotClient {
                         let my_table = self
                             .tables
                             .values()
-                            .find(|t| t.player_names.contains(&me.username) && t.is_playing())
+                            .find(|t| t.player_names.contains(&me.name) && t.is_playing())
                             .map(|t| t.table_id);
 
                         if let Some(id) = my_table {
@@ -537,37 +353,24 @@ impl BotClient {
                     }
                 }
 
-                "tableStarted" => {
-                    let id = parse("tableStarted")?["tableId"]
-                        .as_i64()
-                        .unwrap_or_default();
+                Incoming::TableStarted(id) => {
                     self.game_started = true;
                     self.last_requester = None;
-                    self.send(wire::send::game_init_load(id as usize));
+                    self.send(wire::send::game_init_load(id));
                 }
 
-                "warning" | "error" => {
-                    let msg = parse(command)?["message"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string();
-
+                Incoming::Notice { error, message } => {
                     if let Some(who) = self.last_requester.take() {
-                        self.send_pm(&who, &msg);
+                        self.send_pm(&who, &message);
                     }
-                    println!("{command}: {args}");
+                    println!("{}: {args}", if error { "error" } else { "warning" });
                 }
 
-                "welcome" => {
-                    let welcome = parse("welcome")?;
-                    let info: SelfData =
-                        serde_json::from_value(welcome.clone()).map_err(|e| e.to_string())?;
-                    self.add_user(&welcome);
-                    println!("logged in as {}", info.username);
+                Incoming::Welcome(info) => {
+                    self.add_user(&info);
+                    println!("logged in as {}", info.name);
                     self.info = Some(info);
                 }
-
-                _ => {}
             }
             Ok(())
         })();
@@ -577,10 +380,8 @@ impl BotClient {
         }
     }
 
-    fn add_user(&mut self, user: &Value) {
-        if let (Some(id), Some(name)) = (user["userId"].as_i64(), user["username"].as_str()) {
-            self.users.insert(id, name.to_string());
-        }
+    fn add_user(&mut self, user: &UserInfo) {
+        self.users.insert(user.id, user.name.clone());
     }
 
     /// The IDs of the players who sit at a table, if we know them all.
@@ -598,23 +399,7 @@ impl BotClient {
     }
 
     /// Plays through the events of the game so far.
-    fn handle_event_list(&mut self, json: &Value) {
-        let table_id = json["tableId"].as_u64().unwrap_or_default();
-        let list: Vec<Action> = json["events"]
-            .as_array()
-            .map(|l| {
-                l.iter()
-                    .filter_map(|event| match wire::game_event(event) {
-                        Ok(action) => action,
-                        Err(e) => {
-                            log_error!("failed to read the event {event} of the game state: {e}");
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
+    fn handle_event_list(&mut self, table_id: usize, list: &[Action]) {
         if let Some(game) = &mut self.game {
             game.catchup = true;
         } else {
@@ -632,35 +417,25 @@ impl BotClient {
                 game.catchup = false;
             }
             if !resync {
-                self.send(wire::send::game_loaded(table_id as usize));
+                self.send(wire::send::game_loaded(table_id));
                 self.emit(Out::Wait(Duration::from_millis(1000)));
             }
             self.handle_action(last);
         }
 
         if resync {
-            self.rewrite_notes(table_id as usize);
+            self.rewrite_notes(table_id);
         }
     }
 
-    /// Our notes in a `gameState`: one for each card, by order (the first entry that is not a spectator's, for a player).
-    fn own_notes(&self, json: &Value) -> Vec<String> {
-        let name = self.info.as_ref().map(|i| i.username.as_str());
-        let entries = json["notes"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let ours = entries
+    /// Our notes in a game state: one for each card, by order (the first entry that is not a spectator's, for a player).
+    fn own_notes(&self, notes: &[AuthorNotes]) -> Vec<String> {
+        let name = self.info.as_ref().map(|i| i.name.as_str());
+        notes
             .iter()
-            .find(|e| e["username"].as_str() == name && e["spectator"] != true)
-            .or_else(|| entries.iter().find(|e| e["spectator"] != true));
-        ours.and_then(|e| e["notes"].as_array())
-            .map(|notes| {
-                notes
-                    .iter()
-                    .map(|n| n.as_str().unwrap_or_default().to_string())
-                    .collect()
-            })
+            .find(|n| Some(n.username.as_str()) == name && !n.spectator)
+            .or_else(|| notes.iter().find(|n| !n.spectator))
+            .map(|n| n.notes.clone())
             .unwrap_or_default()
     }
 
@@ -736,18 +511,14 @@ impl BotClient {
         self.game_convention = None;
     }
 
-    fn handle_init(&mut self, msg: InitMessage) -> Result<(), String> {
+    fn handle_init(&mut self, msg: GameInit) -> Result<(), String> {
         let variant = msg.options.variant()?;
         let players = msg.player_names.clone();
         let mut options = msg.options;
         options.num_players = players.len();
         let state = State::new(
             msg.player_names,
-            msg.mode["ourPlayerIndex"]
-                .as_u64()
-                .map(|i| i as usize)
-                .or(msg.our_player_index)
-                .unwrap_or_default(),
+            msg.our_player_index.unwrap_or_default(),
             variant,
             options,
         );
@@ -761,7 +532,7 @@ impl BotClient {
 
         if self.config.feedback_intro
             && self.feedback.is_enabled()
-            && let Some(name) = self.info.as_ref().map(|i| i.username.clone())
+            && let Some(name) = self.info.as_ref().map(|i| i.name.clone())
         {
             // (Not every game: after "play again" the chat carries over and the same people already saw it.)
             if self.intro.should_announce(&players, &name, Instant::now()) {
@@ -952,7 +723,7 @@ impl BotClient {
             return;
         }
 
-        let Some(username) = self.info.as_ref().map(|i| i.username.clone()) else {
+        let Some(username) = self.info.as_ref().map(|i| i.name.clone()) else {
             return;
         };
         if recipient.as_deref() != Some(username.as_str()) {
@@ -1090,7 +861,7 @@ impl BotClient {
             bot: self
                 .info
                 .as_ref()
-                .map(|i| i.username.clone())
+                .map(|i| i.name.clone())
                 .unwrap_or_default(),
             version: BOT_VERSION.to_string(),
             // The game's own convention if there is one: the setting may have been changed during it.
@@ -1320,7 +1091,7 @@ impl BotClient {
 
     /// Our username, once the server has welcomed us.
     pub fn username(&self) -> Option<&str> {
-        self.info.as_ref().map(|i| i.username.as_str())
+        self.info.as_ref().map(|i| i.name.as_str())
     }
 }
 
@@ -1421,31 +1192,7 @@ mod variant_support_tests {
 
 #[cfg(test)]
 mod wire_format_tests {
-    use super::{MAX_CHAT_LENGTH, Table, split_chat};
-    use serde_json::json;
-
-    #[test]
-    fn reads_a_table() {
-        let table: Table = serde_json::from_value(json!({
-            "tableId": 3, "joined": true, "ownerId": 9, "passwordProtected": false,
-            "settings": {"name": "t", "maxPlayers": 5,
-                "options": {"variantName": "No Variant", "emptyClues": true, "deckPlays": false}},
-            "playerNames": ["bot"], "progress": 0, "phase": "sharedReplay",
-            "spectators": [{"username": "alice", "shadowingPlayerIndex": 1}, {"username": "bob"}]
-        }))
-        .unwrap();
-        assert_eq!(table.table_id, 3);
-        assert!(table.settings.options.empty_clues);
-        assert!(table.is_shared_replay() && !table.is_playing() && !table.is_pregame());
-        assert_eq!(
-            table
-                .spectators
-                .iter()
-                .map(|s| s.username.as_str())
-                .collect::<Vec<_>>(),
-            ["alice", "bob"]
-        );
-    }
+    use super::{MAX_CHAT_LENGTH, split_chat};
 
     #[test]
     fn short_chat_is_sent_as_it_is() {

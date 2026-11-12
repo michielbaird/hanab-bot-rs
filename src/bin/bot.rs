@@ -59,7 +59,14 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
         .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("login failed: {}", response.status()));
+        let status = response.status();
+        let why = response
+            .text()
+            .ok()
+            .and_then(|body| wire::login_refusal(&body))
+            .map(|message| format!(": {message}"))
+            .unwrap_or_default();
+        return Err(format!("login failed: {status}{why}"));
     }
 
     // (There is a cookie for the account, and one for the browser's most recent sign-in: the websocket gets them all.)
@@ -75,13 +82,7 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
         return Err("No cookie found in the login response".to_string());
     }
 
-    // The body is `{"userId": n}` (older servers: no JSON).
-    let user_id = response
-        .text()
-        .ok()
-        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
-        .and_then(|json| json["userId"].as_i64())
-        .unwrap_or_default();
+    let user_id = wire::login_response(&response.text().map_err(|e| e.to_string())?)?;
 
     Ok(Session { cookie, user_id })
 }
@@ -96,9 +97,9 @@ async fn run_connection(
     console: &ConsoleSink,
 ) -> Result<(), String> {
     // A bot says so (and which account it is, since a session can hold several): the server then wants no client version.
-    let account = (session.user_id > 0).then_some(session.user_id);
-    let url = reqwest::Url::parse_with_params(ws_url, wire::websocket_query(account)?)
-        .map_err(|e| format!("{ws_url}: {e}"))?;
+    let url =
+        reqwest::Url::parse_with_params(ws_url, wire::websocket_query(Some(session.user_id))?)
+            .map_err(|e| format!("{ws_url}: {e}"))?;
     let mut request = url
         .as_str()
         .into_client_request()
