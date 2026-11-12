@@ -315,10 +315,10 @@ impl Player {
         };
 
         for suit_index in 0..state.variant.suits.len() {
-            for rank in 0..state.discard_stacks[suit_index].len() {
+            for (rank, discards) in state.discard_stacks[suit_index].iter().enumerate() {
                 let ord = Identity::new(suit_index, rank + 1).to_ord();
 
-                for &discarded in &state.discard_stacks[suit_index][rank] {
+                for &discarded in discards {
                     used_orders.insert(discarded);
                     certain_map[ord].update(discarded, None);
                 }

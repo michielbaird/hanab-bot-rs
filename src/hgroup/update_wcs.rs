@@ -326,8 +326,8 @@ pub fn refresh_wcs_changed(
             // Demonstrating a hidden connection means they must play all the hidden cards + the actual one
             let non_hidden_index = wc.connections.iter().position(|c| !c.hidden());
             if let Some(nhi) = non_hidden_index {
-                for i in 1..=nhi {
-                    g.xmeta_mut(wc.connections[i].order()).f_status = Vec::new();
+                for conn in &wc.connections[1..=nhi] {
+                    g.xmeta_mut(conn.order()).f_status = Vec::new();
                 }
             }
         }

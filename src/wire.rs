@@ -49,7 +49,7 @@ fn table_ref(table: usize) -> Result<TableRef, String> {
 pub mod send {
     use super::{
         ChatPmRequest, ChatRequest, ClientMessage, NoteRequest, PerformAction, PlayerActionRequest,
-        TableJoinRequest, TableStartRequest, card_order, table_id, table_ref, turn,
+        TableJoinRequest, TableStartRequest, UserId, card_order, table_id, table_ref, turn,
     };
 
     /// Chat in the lobby, or at a table.
@@ -87,10 +87,15 @@ pub mod send {
         Ok(ClientMessage::TableReattend(table_ref(table)?))
     }
 
-    pub fn table_start(table: usize) -> Result<ClientMessage, String> {
+    /// Starts a table, for the players who sit at it. The server ignores a start whose players are not the ones sitting there
+    /// (the owner's view of the table was out of date).
+    pub fn table_start(table: usize, players: &[i64]) -> Result<ClientMessage, String> {
         Ok(ClientMessage::TableStart(TableStartRequest {
             table_id: table_id(table)?,
-            intended_player_names: None,
+            intended_player_ids: players
+                .iter()
+                .map(|&id| UserId::new(id).ok_or_else(|| format!("{id} is not an account")))
+                .collect::<Result<_, _>>()?,
         }))
     }
 
@@ -324,7 +329,8 @@ mod tests {
             send::table_leave(7).unwrap(),
             send::table_unattend(7).unwrap(),
             send::table_reattend(7).unwrap(),
-            send::table_start(7).unwrap(),
+            send::table_start(7, &[1, 12]).unwrap(),
+            send::table_start(7, &[]).unwrap(),
             send::table_terminate(7).unwrap(),
             send::game_init_load(7).unwrap(),
             send::game_state_load(7).unwrap(),
@@ -533,14 +539,14 @@ mod tests {
                 })),
             ),
             (
-                json!({"type": "gameOver", "endCondition": "terminatedByVote", "playerIndex": 1, "votes": [0, 1]}),
+                json!({"type": "gameOver", "endCondition": "terminatedByVote", "playerIndex": 1, "voters": [0, 1]}),
                 Some(Action::GameOver(GameOverAction {
                     end_condition: 10,
                     player_index: Some(1),
                 })),
             ),
             (
-                json!({"type": "gameOver", "endCondition": "normal", "votes": []}),
+                json!({"type": "gameOver", "endCondition": "normal", "voters": []}),
                 Some(Action::GameOver(GameOverAction {
                     end_condition: 1,
                     player_index: None,
