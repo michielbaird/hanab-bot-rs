@@ -612,7 +612,7 @@ impl BotClient {
                 game.catchup = false;
             }
             if !resync {
-                self.send_cmd("loaded", &json!({"tableId": table_id}));
+                self.send_cmd("gameLoaded", &json!({"tableId": table_id}));
                 self.emit(Out::Wait(Duration::from_millis(1000)));
             }
             self.handle_action(last);

@@ -94,7 +94,7 @@ fn it_plays_through_the_game_start_handshake() {
     let outs = drain(&mut rx);
     let s = sends(&outs);
 
-    assert_eq!(s[0], r#"loaded {"tableId":7}"#);
+    assert_eq!(s[0], r#"gameLoaded {"tableId":7}"#);
     assert!(
         outs.iter()
             .any(|o| *o == Out::Wait(std::time::Duration::from_millis(1000)))
@@ -877,7 +877,7 @@ fn it_still_reads_the_older_game_load() {
         json!({"tableId": 7, "events": list})
     ));
     let outs = drain(&mut rx);
-    assert_eq!(sends(&outs)[0], r#"loaded {"tableId":7}"#);
+    assert_eq!(sends(&outs)[0], r#"gameLoaded {"tableId":7}"#);
 }
 
 fn chat(json: Value) -> hanab_bot::client::ChatMessage {

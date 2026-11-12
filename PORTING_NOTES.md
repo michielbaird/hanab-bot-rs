@@ -205,7 +205,7 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `18bff9f` of 12 November, 03:49), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `a92f791` of 12 November, 10:35), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
@@ -217,7 +217,7 @@ has examples; this follows upstream `18bff9f` of 12 November, 03:49), and the se
   the bot may see (its own are the entry with its `username`); it was `noteListPlayer` followed by `gameEventList`. A clue
   names its receiver as `receiverIndex` and its value as `color` or `rank` (it was `value`), and a failed play is a `misplay` event (a `discard` has no `failed` field any more).
 - **Sent:** `chatPm`, `chat` (with `tableId`), `tableJoin`, `tableLeave`, `tableUnattend`, `tableReattend`, `tableStart`, `tableTerminate`,
-  `gameInitLoad`, `gameStateLoad`, `loaded`, `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`, a clue with `receiverIndex` and `clue: {type: "color", color: n}` or `{type: "rank", rank: n}`). Chat longer than
+  `gameInitLoad`, `gameStateLoad`, `gameLoaded` (it was `loaded`), `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`, a clue with `receiverIndex` and `clue: {type: "color", color: n}` or `{type: "rank", rank: n}`). Chat longer than
   300 characters is rejected, so `split_chat` cuts it.
 - **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`, a clue `{"type": "clue", "receiverIndex": n, "clue": {...}}`),
   `options.variantId` (the variant's number in `variants.json`, found by `TableOptions::variant`; it was `variantName`), `seed`; the game's ID is not in the export any more. The readers (`GameData`, `Action::from_json`, `PerformAction::from_json`) also take the older shapes,
