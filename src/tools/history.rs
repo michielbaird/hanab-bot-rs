@@ -267,6 +267,7 @@ fn analyze_into(
     let mut data = GameData::parse(&value)?;
 
     // The export doesn't say which variant was played.
+    data.options.variant_id = None;
     data.options.variant_name = options
         .variant_names
         .get(&row.variant_id)

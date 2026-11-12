@@ -1,7 +1,8 @@
 // The game that `/export/<id>` returns. Since November 2026 the site writes `playerNames`, turns named by `type`
 // (`{type: "play", order}`) and `options.variantName`; the bot's WebAssembly package of before that reads `players`,
 // numbered actions and `options.variant`. This turns the new shape into the old one (and leaves an old export alone), so the
-// package works with both.
+// package works with both. A clue names its value as `color` or `rank` (it was `value`), and the options name the variant by
+// `variantId` (it was `variantName`), which the page tells the name of.
 
 const END_CONDITIONS: Record<string, number> = {
   normal: 1,
@@ -22,7 +23,7 @@ interface Turn {
   receiverIndex?: number;
   target?: number;
   value?: number;
-  clue?: { type: string; value: number };
+  clue?: { type: string; value?: number; color?: number; rank?: number };
   endCondition?: string | number;
   playerIndex?: number;
 }
@@ -41,7 +42,7 @@ function oldTurn(turn: Turn): unknown {
         type: turn.clue?.type === "rank" ? 3 : 2,
         // (The receiver of a clue was `target` until November 2026 too.)
         target: turn.receiverIndex ?? turn.target,
-        value: turn.clue?.value,
+        value: turn.clue?.value ?? turn.clue?.color ?? turn.clue?.rank,
       };
     case "gameOver":
       return {
@@ -57,7 +58,11 @@ function oldTurn(turn: Turn): unknown {
   }
 }
 
-export function toOldExport(game: Record<string, unknown>): unknown {
+export function toOldExport(
+  game: Record<string, unknown>,
+  /** The name of the variant, for an export that gives only its number. */
+  variant?: string,
+): unknown {
   if (!("playerNames" in game)) {
     return game;
   }
@@ -68,19 +73,22 @@ export function toOldExport(game: Record<string, unknown>): unknown {
     options?: Record<string, unknown>;
     gameId?: number;
   };
-  const { variantName, ...flags } = options ?? {};
+  const { variantName, variantId: _variantId, ...flags } = options ?? {};
   return {
     ...rest,
     players: playerNames,
     actions: (actions ?? []).map(oldTurn),
-    options: { variant: variantName ?? "No Variant", ...flags },
+    options: {
+      variant: variantName ?? variant ?? "No Variant",
+      ...flags,
+    },
     id: gameId,
   };
 }
 
 /** The export as text, in the shape that the bot's package reads. */
-export function normalizeExport(text: string): string {
+export function normalizeExport(text: string, variant?: string): string {
   return JSON.stringify(
-    toOldExport(JSON.parse(text) as Record<string, unknown>),
+    toOldExport(JSON.parse(text) as Record<string, unknown>, variant),
   );
 }

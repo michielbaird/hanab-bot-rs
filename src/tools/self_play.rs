@@ -252,7 +252,7 @@ pub fn summary_json(
         "deck": deck.iter().map(|id| json!({"suitIndex": id.suit_index, "rank": id.rank})).collect::<Vec<_>>(),
         "actions": summary.actions.iter().map(PerformAction::turn_json).collect::<Vec<_>>(),
         "notes": summary.notes,
-        "options": {"variantName": variant.name},
+        "options": {"variantId": variant.id},
     })
 }
 

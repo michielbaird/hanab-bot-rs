@@ -9,23 +9,30 @@ import { getSiteLayout } from "./site-layout.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const GAME_ID = 1_970_135;
-/** A saved game of before November 2026, in the shape that the site now exports: named turns, `playerNames`, `variantName`. */
+/** A saved game of before November 2026, in the shape that the site now exports: named turns, `playerNames`, `variantId`. */
 function newExport(old) {
   const turn = (a) =>
     ({
       0: { type: "play", order: a.target },
       1: { type: "discard", order: a.target },
-      2: { type: "clue", receiverIndex: a.target, clue: { type: "color", value: a.value } },
-      3: { type: "clue", receiverIndex: a.target, clue: { type: "rank", value: a.value } },
+      2: {
+        type: "clue",
+        receiverIndex: a.target,
+        clue: { type: "color", color: a.value },
+      },
+      3: {
+        type: "clue",
+        receiverIndex: a.target,
+        clue: { type: "rank", rank: a.value },
+      },
     })[a.type];
-  const { variant, ...flags } = old.options ?? {};
+  const { variant: _variant, ...flags } = old.options ?? {};
   return {
-    gameId: GAME_ID,
     seed: old.seed,
     playerNames: old.players,
     deck: old.deck,
     actions: old.actions.map(turn),
-    options: { variantName: variant ?? "No Variant", ...flags },
+    options: { variantId: 99, ...flags },
   };
 }
 
@@ -54,10 +61,11 @@ const PAGE = (variant, nodes, boxes) => `<!doctype html>
     // (The site's state since November 2026: no "active", a "gameId", and "undefined" for what is not there.)
     replay: { segment: 0, gameId: ${GAME_ID}, hypothetical: undefined, shared: undefined },
     ongoingGame: { turn: { segment: 72 } },
-    metadata: { options: { variantName: ${JSON.stringify(variant)}, emptyClues: false, detrimentalCharacters: false, oneExtraCard: false, oneLessCard: false } },
+    metadata: { options: { variantId: 99, emptyClues: false, detrimentalCharacters: false, oneExtraCard: false, oneLessCard: false } },
   };
   window.actions = [];
   window.globals = {
+    variant: { name: ${JSON.stringify(variant)} },
     store: {
       getState: () => state,
       dispatch: (action) => {

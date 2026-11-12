@@ -1,6 +1,7 @@
 //! The messages of hanab.live's wire protocol (the November 2026 contract, and the older one where we still read it).
 
 use hanab_bot::basics::action::{Action, EndCondition};
+use hanab_bot::basics::clue::ClueKind;
 use hanab_bot::basics::{Identity, PerformAction};
 use hanab_bot::tools::game_data::GameData;
 use serde_json::{Value, json};
@@ -71,10 +72,13 @@ fn reads_the_game_events() {
 
 #[test]
 fn reads_a_clue_event() {
-    // (The receiver was `target` until November 2026.)
-    for receiver in ["receiverIndex", "target"] {
+    // (The receiver was `target`, and the clue's value `value`, until November 2026.)
+    for (receiver, clue) in [
+        ("receiverIndex", json!({"type": "color", "color": 2})),
+        ("target", json!({"type": "color", "value": 2})),
+    ] {
         let clue = event(
-            json!({"type": "clue", "clue": {"type": "color", "value": 2}, "playerIndex": 0, receiver: 1, "orders": [3, 4]}),
+            json!({"type": "clue", "clue": clue, "playerIndex": 0, receiver: 1, "orders": [3, 4]}),
         );
         match clue {
             Action::Clue(c) => {
@@ -83,6 +87,14 @@ fn reads_a_clue_event() {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    // A rank clue names its rank.
+    match event(
+        json!({"type": "clue", "clue": {"type": "rank", "rank": 4}, "playerIndex": 2, "receiverIndex": 0, "orders": [1]}),
+    ) {
+        Action::Clue(c) => assert_eq!((c.clue.kind, c.clue.value), (ClueKind::Rank, 4)),
+        other => panic!("{other:?}"),
     }
 
     // (Before November 2026 the giver was `giver`, the cards `list`, and the clue was numbered.)
@@ -141,7 +153,7 @@ fn sends_player_actions_in_the_new_shape() {
             value: 2
         }
         .json(7),
-        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "value": 2}}})
+        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "color": 2}}})
     );
     assert_eq!(
         PerformAction::Rank {
@@ -149,7 +161,7 @@ fn sends_player_actions_in_the_new_shape() {
             value: 4
         }
         .json(7),
-        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "value": 4}}})
+        json!({"tableId": 7, "action": {"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "rank": 4}}})
     );
 }
 
@@ -167,7 +179,7 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
             PerformAction::Discard { target: 6 },
         ),
         (
-            json!({"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "value": 3}}),
+            json!({"type": "clue", "receiverIndex": 1, "clue": {"type": "color", "color": 3}}),
             json!({"type": 2, "target": 1, "value": 3}),
             PerformAction::Colour {
                 target: 1,
@@ -175,7 +187,7 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
             },
         ),
         (
-            json!({"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "value": 5}}),
+            json!({"type": "clue", "receiverIndex": 2, "clue": {"type": "rank", "rank": 5}}),
             json!({"type": 3, "target": 2, "value": 5}),
             PerformAction::Rank {
                 target: 2,
@@ -187,7 +199,7 @@ fn reads_the_turns_of_an_export_by_name_or_number() {
         assert_eq!(PerformAction::from_json(&new).unwrap(), expected, "{new}");
         assert_eq!(PerformAction::from_json(&old).unwrap(), expected, "{old}");
     }
-    // (The receiver of a clue was `target` until November 2026.)
+    // (The receiver of a clue was `target`, and its value `value`, until November 2026.)
     assert_eq!(
         PerformAction::from_json(
             &json!({"type": "clue", "target": 1, "clue": {"type": "color", "value": 3}})
@@ -214,10 +226,10 @@ fn as_new_export(old: &Value) -> Value {
         Some(0) => json!({"type": "play", "order": a["target"]}),
         Some(1) => json!({"type": "discard", "order": a["target"]}),
         Some(2) => {
-            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "color", "value": a["value"]}})
+            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "color", "color": a["value"]}})
         }
         Some(3) => {
-            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "rank", "value": a["value"]}})
+            json!({"type": "clue", "receiverIndex": a["target"], "clue": {"type": "rank", "rank": a["value"]}})
         }
         other => panic!("{other:?}"),
     };

@@ -4,6 +4,7 @@
 mod common;
 
 use hanab_bot::basics::Variant;
+use hanab_bot::basics::state::TableOptions;
 use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::logger::{self, LogLevel};
 use hanab_bot::settings::ConventionKind;
@@ -18,6 +19,7 @@ fn init_variants() {
     ]);
     let variants = json!([
         {"id": 0, "name": "No Variant", "suits": ["Red", "Yellow", "Green", "Blue", "Purple"]},
+        {"id": 7, "name": "Five Again", "suits": ["Red", "Yellow", "Green", "Blue", "Purple"]},
     ]);
     Variant::init(&variants.to_string(), &colours.to_string()).unwrap();
 }
@@ -58,7 +60,7 @@ fn it_plays_through_the_game_start_handshake() {
         "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("gameInit {init}"));
     assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
 
     // The first card has no note yet, so the bot writes its settings there.
@@ -149,7 +151,7 @@ fn first_action(name: &str, table_id: usize) -> String {
         "tableId": table_id, "playerNames": [name, "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("gameInit {init}"));
     client.handle_msg(&format!(
         r#"gameState {{"tableId": {table_id}, "events": [], "notes": [{{"username": "{name}", "notes": ["", "", "", "", ""], "spectator": false}}]}}"#
     ));
@@ -245,8 +247,8 @@ fn it_announces_how_to_send_feedback_once_per_game() {
         "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
-    client.handle_msg(&format!("init {init}")); // e.g. after a rejoin
+    client.handle_msg(&format!("gameInit {init}"));
+    client.handle_msg(&format!("gameInit {init}")); // e.g. after a rejoin
     let outs = drain(&mut rx);
     let chats: Vec<&str> = sends(&outs)
         .into_iter()
@@ -284,7 +286,7 @@ fn it_saves_feedback_with_the_game_context() {
         "tableId": 7, "playerNames": ["bot", "alice"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("gameInit {init}"));
 
     client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
     client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
@@ -379,7 +381,7 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
         "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "p2v0s5", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("gameInit {init}"));
     client.handle_msg(r#"gameState {"tableId": 7, "events": [], "notes": [{"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#);
 
     // A convention whose `take_action` panics.
@@ -435,7 +437,7 @@ fn init_for(table_id: usize, players: &[&str]) -> String {
         "tableId": table_id, "playerNames": players, "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": players.len(), "variantName": "No Variant"}
     });
-    format!("init {init}")
+    format!("gameInit {init}")
 }
 
 fn announcements(outs: &[Out]) -> usize {
@@ -822,7 +824,7 @@ fn init_for_notes(client: &mut BotClient) {
         "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
         "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
     });
-    client.handle_msg(&format!("init {init}"));
+    client.handle_msg(&format!("gameInit {init}"));
 }
 
 #[test]
@@ -876,6 +878,103 @@ fn it_still_reads_the_older_game_load() {
     ));
     let outs = drain(&mut rx);
     assert_eq!(sends(&outs)[0], r#"loaded {"tableId":7}"#);
+}
+
+fn chat(json: Value) -> hanab_bot::client::ChatMessage {
+    serde_json::from_value(json).unwrap()
+}
+
+#[test]
+fn it_reads_the_kind_of_a_chat_message() {
+    // Public, with the author a user.
+    let public = chat(json!({
+        "text": "hi", "sentAt": 1, "tableId": 3,
+        "kind": {"type": "public", "author": {"type": "user", "username": "alice"}}
+    }));
+    assert_eq!(
+        (
+            public.source.as_str(),
+            public.username.as_str(),
+            public.recipient,
+            public.table_id
+        ),
+        ("user", "alice", None, Some(3))
+    );
+
+    // Private, to us.
+    let private = chat(json!({
+        "text": "/help", "sentAt": 1,
+        "kind": {"type": "private", "author": {"type": "user", "username": "alice"}, "recipient": "bot"}
+    }));
+    assert_eq!(
+        (
+            private.source.as_str(),
+            private.username.as_str(),
+            private.recipient.as_deref()
+        ),
+        ("user", "alice", Some("bot"))
+    );
+
+    // From the server (no author name), and a suggestion to the owner of a table.
+    let server = chat(
+        json!({"text": "x", "sentAt": 1, "kind": {"type": "public", "author": {"type": "server"}}}),
+    );
+    assert_eq!(
+        (server.source.as_str(), server.username.as_str()),
+        ("server", "")
+    );
+    let suggestion = chat(json!({
+        "text": "x", "sentAt": 1,
+        "kind": {"type": "suggestion", "recipient": "bot", "settings": {"name": "t", "options": {}}}
+    }));
+    assert_eq!(
+        (suggestion.source.as_str(), suggestion.recipient.as_deref()),
+        ("server", Some("bot"))
+    );
+
+    // (Until November 2026 the message itself had `source`, `username` and `recipient`.)
+    let old =
+        chat(json!({"text": "hi", "source": "user", "username": "alice", "recipient": "bot"}));
+    assert_eq!(
+        (
+            old.source.as_str(),
+            old.username.as_str(),
+            old.recipient.as_deref()
+        ),
+        ("user", "alice", Some("bot"))
+    );
+}
+
+#[test]
+fn it_finds_a_variant_by_its_number() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+
+    // (The options name the variant by `variantId` since November 2026.)
+    let options = TableOptions {
+        variant_id: Some(7),
+        ..TableOptions::default()
+    };
+    assert_eq!(options.variant().unwrap().name, "Five Again");
+    assert_eq!(options.variant_label(), "Five Again");
+    assert_eq!(
+        TableOptions::default().variant().unwrap().name,
+        "No Variant"
+    );
+
+    let init = json!({
+        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
+        "seed": "x", "options": {"variantId": 7}
+    });
+    client.handle_msg(&format!("gameInit {init}"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
 }
 
 #[test]
