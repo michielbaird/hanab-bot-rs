@@ -122,7 +122,7 @@ pub struct BotClient {
     old_note_orders: Vec<usize>,
     tables: HashMap<i64, Table>,
     /// The users in the lobby, by their ID: a table lists its players by name, and starting one needs their IDs.
-    users: HashMap<i64, String>,
+    users: HashMap<i64, UserInfo>,
     /// The convention for the next game (what `/settings` sets).
     convention: ConventionKind,
     /// The convention the current game was created with. Changing the setting does not change a game in progress.
@@ -301,10 +301,7 @@ impl BotClient {
                         // ends, everyone at the table is a spectator of it.)
                         if self.config.leave_replay_if_only_bots
                             && table.is_shared_replay()
-                            && table
-                                .spectators
-                                .iter()
-                                .all(|s| self.config.is_bot_name(&s.username))
+                            && table.spectators.iter().all(|s| self.is_bot(&s.username))
                         {
                             println!(
                                 "Leaving table {}: only bots are left watching the replay.",
@@ -314,10 +311,7 @@ impl BotClient {
                         } else if !self.game_started {
                             if self.leave_pregame_if_only_bots
                                 && table.is_pregame()
-                                && table
-                                    .player_names
-                                    .iter()
-                                    .all(|p| self.config.is_bot_name(p))
+                                && table.player_names.iter().all(|p| self.is_bot(p))
                             {
                                 println!(
                                     "Leaving table {}: only bots are left at it.",
@@ -387,7 +381,8 @@ impl BotClient {
                 }
 
                 Incoming::Welcome(info) => {
-                    self.add_user(&info);
+                    // (The welcome has no mark, so it is not allowed to take one away that the lobby gave.)
+                    self.users.entry(info.id).or_insert_with(|| info.clone());
                     println!("logged in as {}", info.name);
                     self.info = Some(info);
                 }
@@ -400,8 +395,21 @@ impl BotClient {
         }
     }
 
+    /// A user of the lobby, as the server says now (a user who is no longer marked as a bot, because a person logged in to the
+    /// account, stops being one).
     fn add_user(&mut self, user: &UserInfo) {
-        self.users.insert(user.id, user.name.clone());
+        self.users.insert(user.id, user.clone());
+    }
+
+    /// Whether a player is a bot: the server marks the account as one, or the name starts with a prefix that is set in
+    /// `HANABI_BOT_NAME_PREFIXES` (for a bot that the server does not mark). A name that is not known is a person.
+    fn is_bot(&self, name: &str) -> bool {
+        self.config.is_bot_name(name)
+            || self
+                .users
+                .values()
+                .any(|user| user.name == name && user.bot)
+            || self.info.as_ref().is_some_and(|me| me.name == name)
     }
 
     /// The IDs of the players who sit at a table, if we know them all.
@@ -413,7 +421,7 @@ impl BotClient {
             .map(|name| {
                 self.users
                     .iter()
-                    .find_map(|(id, user)| (user == name).then_some(*id))
+                    .find_map(|(id, user)| (user.name == *name).then_some(*id))
             })
             .collect()
     }

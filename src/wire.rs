@@ -380,11 +380,13 @@ impl Table {
     }
 }
 
-/// A user, by ID and by name.
+/// A user, by ID and by name, and whether the server marks the account as a bot (the lobby's `user` and `userList` say so:
+/// a connection that logged in as a bot, until a person logs in to the account).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserInfo {
     pub id: i64,
     pub name: String,
+    pub bot: bool,
 }
 
 /// The start of a game: who plays, how we take part, and the options.
@@ -467,6 +469,7 @@ fn user(user: &UserRef) -> UserInfo {
     UserInfo {
         id: i64::from(user.user_id.get()),
         name: user.username.to_string(),
+        bot: false,
     }
 }
 
@@ -686,9 +689,11 @@ fn payload<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
     lenient(value)
 }
 
-/// The user of a message about one (a welcome, a user of the lobby), by ID and name, whatever else the message says.
+/// The user of a message about one (a welcome, a user of the lobby), by ID and name and whether they are a bot, whatever else
+/// the message says. (`bot` is read as it is, so that a message without it, such as a welcome, is a user who is not marked.)
 fn user_of(value: &Value) -> Result<UserInfo, String> {
-    lenient::<UserRef>(value).map(|u| user(&u))
+    let bot = value["bot"].as_bool().unwrap_or(false);
+    lenient::<UserRef>(value).map(|u| UserInfo { bot, ..user(&u) })
 }
 
 /// Reads a message that the server sent on its own (an event: its name and its payload). `None` for one that the bot does
@@ -986,6 +991,27 @@ mod tests {
             received("userRemoved", json!({"userId": 7})),
             Incoming::UserRemoved(7)
         ));
+
+        // The server marks the account of a bot; a message without the mark (a welcome) says nothing, so it is not one.
+        let marked = |bot: bool| {
+            json!({"userId": 8, "username": "Robot", "activity": {"type": "lobby"},
+            "hGroupConventions": false, "bot": bot, "inactive": false})
+        };
+        for bot in [true, false] {
+            match received("user", marked(bot)) {
+                Incoming::User(u) => assert_eq!((u.id, u.bot), (8, bot)),
+                other => panic!("{other:?}"),
+            }
+        }
+        match received("userList", json!({"users": [marked(true), marked(false)]})) {
+            Incoming::UserList(users) => {
+                assert_eq!(
+                    users.iter().map(|u| u.bot).collect::<Vec<_>>(),
+                    [true, false]
+                );
+            }
+            other => panic!("{other:?}"),
+        }
         match received(
             "welcome",
             json!({"userId": 7, "username": "Alice", "muted": false, "firstTimeUser": false, "friends": [],
