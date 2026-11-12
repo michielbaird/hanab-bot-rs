@@ -15,3 +15,5 @@ pub mod settings;
 pub mod stats;
 pub mod tools;
 pub mod util;
+#[cfg(feature = "protocol")]
+pub mod wire;

@@ -223,6 +223,17 @@ has examples; this follows upstream `f6f7d51` of 11 November, 14:13), and the se
   and the older names of a few messages (`joined`, `left`, `tableGone`, a bare `tableList`, `giver`, a clue's `target`), so old exports and fixtures keep working. The bot does
   not speak the old protocol when sending.
 
+### Following the protocol with the compiler (`wire`)
+
+The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the
+hanabi-live repository. `src/wire.rs` builds what the bot sends from its types (`ClientMessage`, `LoginRequest`, `WebSocketQuery`) and reads
+`GameEvent` into the game model's `Action` with a `match` that has no catch-all. Its tests pass what the bot sends through the server's own
+schema (`ClientMessage::decode`). To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles; pinning an older
+commit shows what that looks like (renamed fields, a new event). The library without `protocol` does not depend on the crate, so the
+WebAssembly package does not either. Not yet moved to it: the receiving side of `BotClient` (tables, chat, `gameInit`, `gameState`) and
+`bot.rs` still read the JSON by hand. The crate is `GPL-3.0-only`; this one is `GPL-3.0-or-later`, so a build with `protocol` is
+GPL-3.0.
+
 ## Referential Sieve (M5)
 
 - **State.** `Ext::RefSieve(RefSieveData { waiting, zcs_turn, locked_shifts })`. `waiting` is only ever appended to (nothing reads it yet,
