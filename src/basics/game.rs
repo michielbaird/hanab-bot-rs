@@ -204,8 +204,8 @@ pub struct Game {
     pub last_actions: Vec<Option<Action>>,
     /// The interpretation of each move so far.
     pub move_history: Vec<Interp>,
-    /// Commands that are queued to be sent to hanab.live (e.g. to write a note).
-    pub queued_cmds: Vec<(String, String)>,
+    /// Notes to write on cards, as (card order, text): the client sends them to hanab.live.
+    pub queued_notes: Vec<(usize, String)>,
     /// What the next clue should be interpreted as. Used when rewinding after a particular interpretation is demonstrated.
     pub next_interp: Option<Interp>,
     /// Whether to disallow recursing into hypothetical states, like seeing if a stall was available.
@@ -248,7 +248,7 @@ impl Game {
             notes: Arc::new(HashMap::new()),
             last_actions: vec![None; state.num_players],
             move_history: Vec::new(),
-            queued_cmds: Vec::new(),
+            queued_notes: Vec::new(),
             next_interp: None,
             no_recurse: false,
             hypothetical: false,
@@ -288,7 +288,7 @@ impl Game {
             notes: Arc::new(HashMap::new()),
             last_actions: vec![None; self.state.num_players],
             move_history: Vec::new(),
-            queued_cmds: Vec::new(),
+            queued_notes: Vec::new(),
             next_interp: None,
             no_recurse: false,
             hypothetical: false,
@@ -328,7 +328,7 @@ impl Game {
             notes: Arc::clone(&self.notes),
             last_actions: self.last_actions.clone(),
             move_history: self.move_history.clone(),
-            queued_cmds: self.queued_cmds.clone(),
+            queued_notes: self.queued_notes.clone(),
             next_interp: self.next_interp,
             no_recurse: self.no_recurse,
             hypothetical: self.hypothetical,
