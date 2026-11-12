@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "hanab-bot-rs"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "futures-util",
  "hanabi_protocol",
@@ -425,7 +425,7 @@ dependencies = [
 [[package]]
 name = "hanabi_protocol"
 version = "0.1.0"
-source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=87a5e3a72a56e10a2e685297108aa9eb1fa01ea7#87a5e3a72a56e10a2e685297108aa9eb1fa01ea7"
+source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=e035c6faaa77e142a5263d8510ba605e86d77122#e035c6faaa77e142a5263d8510ba605e86d77122"
 dependencies = [
  "anyhow",
  "chrono",

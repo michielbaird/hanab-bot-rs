@@ -202,11 +202,10 @@ pub fn websocket_query(account: Option<i64>) -> Result<Vec<(String, String)>, St
         .collect())
 }
 
-/// The account that a successful login is for: the body of the answer is `{"userId": n}`.
+/// The account that a successful login is for: the answer is the user (`{"userId": n, "username": ...}`).
 pub fn login_response(body: &str) -> Result<i64, String> {
     let value: Value = serde_json::from_str(body).map_err(|e| format!("the login answer: {e}"))?;
-    let response: hanabi_protocol::LoginResponse =
-        lenient(&value).map_err(|e| format!("the login answer: {e}"))?;
+    let response: UserRef = lenient(&value).map_err(|e| format!("the login answer: {e}"))?;
     Ok(i64::from(response.user_id.get()))
 }
 
@@ -1122,11 +1121,17 @@ mod tests {
 
     #[test]
     fn reads_what_the_server_answers_to_a_login() {
-        assert_eq!(login_response(r#"{"userId": 12}"#), Ok(12));
+        assert_eq!(
+            login_response(r#"{"userId": 12, "username": "bot"}"#),
+            Ok(12)
+        );
         assert!(login_response("").is_err());
-        assert!(login_response(r#"{"userId": 0}"#).is_err());
+        assert!(login_response(r#"{"userId": 0, "username": "bot"}"#).is_err());
         // A field the server added does not matter.
-        assert_eq!(login_response(r#"{"userId": 12, "extra": 1}"#), Ok(12));
+        assert_eq!(
+            login_response(r#"{"userId": 12, "username": "bot", "extra": 1}"#),
+            Ok(12)
+        );
 
         assert_eq!(
             login_refusal(r#"{"message": "Wrong password."}"#).as_deref(),
@@ -1197,7 +1202,7 @@ mod tests {
             Incoming::GameInit(_)
         ));
         assert_eq!(
-            login_response(r#"{"userId": 12, "newCookie": "x"}"#),
+            login_response(r#"{"userId": 12, "username": "bot", "newCookie": "x"}"#),
             Ok(12)
         );
     }

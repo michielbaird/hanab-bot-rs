@@ -205,7 +205,7 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `87a5e3a` of 12 November, 13:10), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `e035c6f` of 12 November, 15:39), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
@@ -237,7 +237,7 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   to bump the pin) and reads the rest. A field that is missing or of another type, a kind of something the bot does not know (a phase,
   an event) or a value out of range is an error, because the bot cannot follow the game without it. Users and the welcome are read only
   for who they are. `to_action` turns a `GameEvent` into the game model's
-  `Action` with a `match` that has no catch-all; `login_response` and `login_refusal` read the answer to a login.
+  `Action` with a `match` that has no catch-all; `login_response` and `login_refusal` read the answer to a login (the user, since upstream `b2565a94`).
 - **`BotClient`** matches on `Incoming` and sends through `wire::send`; `bot.rs` logs in and connects through `wire`. The older names of messages
   (`init`, `tableGone`, `noteListPlayer`, `gameEventList`, ...) are not read any more: the bot speaks the current protocol only. The readers
   of exports (`GameData`, `PerformAction::from_json`, `Action::from_json`) still take the older shapes, so saved games keep working.
