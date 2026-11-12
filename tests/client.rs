@@ -36,8 +36,13 @@ fn welcome(name: &str) -> String {
 }
 
 fn user_json(id: i64, name: &str) -> Value {
+    marked_user(id, name, false)
+}
+
+/// A user of the lobby, with the mark that the server gives an account that logged in as a bot.
+fn marked_user(id: i64, name: &str, bot: bool) -> Value {
     json!({"userId": id, "username": name, "activity": {"type": "lobby"}, "hGroupConventions": false,
-        "bot": false, "inactive": false})
+        "bot": bot, "inactive": false})
 }
 
 /// The start of a game of No Variant in which the bot sits first.
@@ -845,7 +850,7 @@ fn it_warns_about_table_options_in_chat_without_a_recipient() {
 
     let table = table_json(
         3,
-        &["bot"],
+        &["alice", "bot"],
         json!({"type": "pregame"}),
         json!({"variantId": 0, "emptyClues": true}),
     );
@@ -1072,6 +1077,201 @@ fn it_ignores_what_is_not_a_frame() {
     client.handle_frame(r#"{"nothing": true}"#);
     assert!(drain(&mut rx).is_empty());
     assert_eq!(client.username(), None);
+}
+
+/// The bot leaves a pregame once only bots are left at the table (what `HANABI_BOT_NAME_PREFIXES` is for).
+#[test]
+fn it_leaves_a_pregame_when_only_bots_are_left() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        bot_name_prefixes: vec!["michiel-bot-".to_string()],
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("michiel-bot-1"));
+    joined_table(
+        &mut client,
+        &["alice", "michiel-bot-1"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
+    drain(&mut rx);
+
+    // A person is still there: the bot stays.
+    let table = |players: &[&str]| {
+        format!(
+            "table {}",
+            table_json(3, players, json!({"type": "pregame"}), json!({}))
+        )
+    };
+    client.handle_msg(&table(&["alice", "michiel-bot-1", "michiel-bot-2"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // The person leaves.
+    client.handle_msg(&table(&["michiel-bot-1", "michiel-bot-2"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+}
+
+/// A game ends and everyone is a spectator of its shared replay; once only bots are left watching, the bot leaves.
+#[test]
+fn it_leaves_the_replay_of_its_game_when_only_bots_are_left() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        bot_name_prefixes: vec!["michiel-bot-".to_string()],
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("michiel-bot-1"));
+    // The bot is at a table whose game has started (and then ended).
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "justStarted"}"#);
+    drain(&mut rx);
+
+    let replay = |spectators: &[&str]| {
+        let mut table = table_json(
+            3,
+            &["alice", "michiel-bot-1"],
+            json!({"type": "sharedReplay", "gameId": 5, "progress": 100}),
+            json!({}),
+        );
+        table["spectators"] = spectators
+            .iter()
+            .enumerate()
+            .map(|(i, name)| json!({"userId": 20 + i, "username": name}))
+            .collect();
+        format!("table {table}")
+    };
+
+    // A person is watching the replay: the bot stays.
+    client.handle_msg(&replay(&["alice", "michiel-bot-1"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // They go, and only bots are left: the bot leaves (it has played, so it unattends).
+    client.handle_msg(&replay(&["michiel-bot-1", "michiel-bot-2"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableUnattend {"tableId":3}"#]);
+}
+
+/// A client with no name prefixes set, at a pregame table with a person, a bot that the server marks and itself.
+fn at_a_table_with(people: &[(i64, &str, bool)]) -> (BotClient, Receiver<Out>) {
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("me"));
+    let users: Vec<Value> = people
+        .iter()
+        .map(|&(id, name, bot)| marked_user(id, name, bot))
+        .collect();
+    client.handle_msg(&format!("userList {}", json!({"users": users})));
+    let names: Vec<&str> = people
+        .iter()
+        .map(|&(_, name, _)| name)
+        .chain(["me"])
+        .collect();
+    joined_table(&mut client, &names, json!({"type": "pregame"}), json!({}));
+    drain(&mut rx);
+    (client, rx)
+}
+
+fn pregame_of(players: &[&str]) -> String {
+    format!(
+        "table {}",
+        table_json(3, players, json!({"type": "pregame"}), json!({}))
+    )
+}
+
+/// What the server marks as a bot is a bot, without any name prefix being set.
+#[test]
+fn it_leaves_when_the_server_marks_everyone_left_as_a_bot() {
+    logger::set_level(LogLevel::Off);
+    let (mut client, mut rx) = at_a_table_with(&[(12, "alice", false), (13, "some-bot", true)]);
+
+    // A person is still there.
+    client.handle_msg(&pregame_of(&["alice", "some-bot", "me"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // They leave: the others are marked as bots (and so is the bot itself).
+    client.handle_msg(&pregame_of(&["some-bot", "me"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+}
+
+#[test]
+fn it_stays_with_someone_the_server_does_not_mark_or_does_not_know() {
+    logger::set_level(LogLevel::Off);
+    // Not marked: a person.
+    let (mut client, mut rx) = at_a_table_with(&[(12, "alice", false)]);
+    client.handle_msg(&pregame_of(&["alice", "me"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // Not known (they have not shown up in the lobby): also treated as a person.
+    client.handle_msg(&pregame_of(&["stranger", "me"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // A mark that the server takes away (a person logged in to the account) is gone.
+    let (mut client, mut rx) = at_a_table_with(&[(13, "some-bot", true)]);
+    client.handle_msg(&format!("user {}", marked_user(13, "some-bot", false)));
+    client.handle_msg(&pregame_of(&["some-bot", "me"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+}
+
+/// A name prefix still works for an account that the server does not mark.
+#[test]
+fn it_leaves_for_a_name_prefix_as_well_as_for_a_mark() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        bot_name_prefixes: vec!["our-bot-".to_string()],
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("me"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice"), marked_user(13, "some-bot", true), user_json(14, "our-bot-1")]})
+    ));
+    joined_table(
+        &mut client,
+        &["alice", "me"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
+    drain(&mut rx);
+
+    // A bot of ours that the server does not mark, and one that it does: both are bots.
+    client.handle_msg(&pregame_of(&["our-bot-1", "some-bot", "me"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+}
+
+/// The replay of a game: the marks count for the spectators too.
+#[test]
+fn it_leaves_a_replay_when_the_server_marks_everyone_watching_as_a_bot() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("me"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice"), marked_user(13, "some-bot", true)]})
+    ));
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "justStarted"}"#);
+    drain(&mut rx);
+
+    let replay = |spectators: &[(i64, &str)]| {
+        let mut table = table_json(
+            3,
+            &["alice", "me"],
+            json!({"type": "sharedReplay", "gameId": 5, "progress": 100}),
+            json!({}),
+        );
+        table["spectators"] = spectators
+            .iter()
+            .map(|&(id, name)| json!({"userId": id, "username": name}))
+            .collect();
+        format!("table {table}")
+    };
+    client.handle_msg(&replay(&[(12, "alice"), (13, "some-bot")]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+    client.handle_msg(&replay(&[(13, "some-bot")]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableUnattend {"tableId":3}"#]);
 }
 
 #[test]

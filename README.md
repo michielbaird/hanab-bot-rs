@@ -153,6 +153,8 @@ convention and version, the table, variant, players, turn and the game's seed. `
 | `HANABI_ENDGAME_THREADS` | how many threads one endgame search may use (default `1`). The move chosen is the same for any number, as long as the search finishes in time; more threads make that likelier. Several bots in one process share the cores, so keep it low there |
 | `HANABI_ENDGAME_TIMEOUT_MS` | how long the endgame solver may search per move (default `3000`; self-play often hits the limit, so raise it if you have time to spare) |
 | `HANABI_FEEDBACK_INTRO` | `0` stops the announcement at the start of each game (default `1`) |
+| `HANABI_LEAVE_REPLAY_IF_ONLY_BOTS` | `0` keeps a bot in a replay (of a game it played, or one it was invited to) when only bots are left watching it (default `1`: it leaves). A bot also leaves a pregame once only bots are left at the table; `/stay` (by PM) keeps it there |
+| `HANABI_BOT_NAME_PREFIXES` | comma-separated name prefixes (for example `my-bot-`) of accounts that count as bots in the two rules above. The accounts that hanab.live marks as bots (those that logged in with `client=bot`, which is what this bot does) count as well, so this is only for a bot that the server does not mark. Someone who has not shown up in the lobby yet counts as a person |
 
 ## Analyzing the bots' games
 
