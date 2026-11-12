@@ -91,9 +91,30 @@ impl Feed for BotClient {
     }
 }
 
+/// A command the way the server takes it: a command it knows, with a payload that passes the schema of its type. Everything
+/// the client sends in these tests goes through this, so a command built by hand with a name or a field that is out of date
+/// fails the test of whatever made the client send it.
+fn assert_accepted(sent: &str) {
+    let (name, args) = sent.split_once(' ').unwrap_or((sent, ""));
+    let value: Value = serde_json::from_str(args).unwrap_or_else(|e| panic!("{sent}: {e}"));
+    hanab_protocol_decode(name, &value)
+        .unwrap_or_else(|e| panic!("the server would not take `{sent}`: {e}"));
+}
+
+fn hanab_protocol_decode(name: &str, value: &Value) -> Result<(), String> {
+    match hanabi_protocol::ClientMessage::decode(name, value) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(format!("{name} is not a command")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn drain(rx: &mut Receiver<Out>) -> Vec<Out> {
     let mut out = Vec::new();
     while let Ok(o) = rx.try_recv() {
+        if let Out::Send(sent) = &o {
+            assert_accepted(sent);
+        }
         out.push(o);
     }
     out
@@ -166,6 +187,56 @@ fn it_plays_through_the_game_start_handshake() {
         "expected an action, got {action}"
     );
     assert!(action.contains(r#""tableId":7"#));
+}
+
+/// The notes the bot writes on cards as the game goes: they are commands like any other, and the server checks them.
+#[test]
+fn it_writes_notes_on_cards_the_server_takes() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&game_init(7, &["bot", "human"], "x"));
+    client.handle_msg(&game_notes(7, "bot"));
+
+    // The deal; then it is the bot's turn.
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
+    }
+    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&game_state(7, &list));
+    drain(&mut rx);
+
+    // The human's turn, and a clue from them that touches the bot's first card.
+    let event = |event: Value| format!("gameEvent {}", json!({"tableId": 7, "event": event}));
+    client.handle_msg(&event(
+        json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
+    ));
+    client.handle_msg(&event(
+        json!({"type": "clue", "clue": {"type": "rank", "rank": 1},
+        "playerIndex": 1, "receiverIndex": 0, "orders": [4]}),
+    ));
+
+    // (`drain` checks that the server takes each command.)
+    let outs = drain(&mut rx);
+    let notes: Vec<&str> = sends(&outs)
+        .into_iter()
+        .filter(|s| s.starts_with("note "))
+        .collect();
+    assert!(!notes.is_empty(), "no note was written: {outs:?}");
+    // The game's own note on a card (the settings note is on the first card): the turn, and what the bot thinks of it.
+    assert!(
+        notes.iter().any(|n| n.contains(r#""text":"t"#)),
+        "{notes:?}"
+    );
 }
 
 #[test]
@@ -945,6 +1016,62 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
     let outs = drain(&mut rx);
     assert!(sends(&outs).iter().all(|s| !s.starts_with("tableStart")));
     assert!(pm_replies(&outs)[0].contains("do not know who is sitting"));
+}
+
+#[test]
+fn it_tells_who_asked_when_the_server_refuses_a_request() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice")]})
+    ));
+    joined_table(
+        &mut client,
+        &["alice", "bot"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
+    drain(&mut rx);
+
+    // A refusal is the reply to a request (it was a warning before JSON frames), and the one who asked hears why.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_frame(r#"{"reply": 1, "error": {"message": "Only the owner can start."}}"#);
+    let outs = drain(&mut rx);
+    assert_eq!(pm_replies(&outs), ["Only the owner can start."]);
+
+    // One that is not worth showing is not passed on, and neither is a success.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_frame(r#"{"reply": 2, "error": {"message": "Over.", "code": "commandIgnored"}}"#);
+    client.handle_frame(r#"{"reply": 3}"#);
+    assert!(pm_replies(&drain(&mut rx)).is_empty());
+
+    // A warning that no request caused is still passed on.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_msg(r#"warning {"message": "Slow down."}"#);
+    assert_eq!(pm_replies(&drain(&mut rx)), ["Slow down."]);
+}
+
+#[test]
+fn it_ignores_what_is_not_a_frame() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    // The form from before JSON frames, and things that are not messages at all: logged, and nothing is done.
+    client.handle_frame(&format!(
+        "{} {}",
+        "welcome", r#"{"userId": 1, "username": "bot"}"#
+    ));
+    client.handle_frame("");
+    client.handle_frame("{");
+    client.handle_frame(r#"{"nothing": true}"#);
+    assert!(drain(&mut rx).is_empty());
+    assert_eq!(client.username(), None);
 }
 
 #[test]

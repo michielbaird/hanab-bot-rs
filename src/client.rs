@@ -1040,13 +1040,13 @@ impl BotClient {
                 _ => false,
             };
 
-        let queued: Vec<(String, String)> = std::mem::take(&mut new_game.queued_cmds);
+        let notes = std::mem::take(&mut new_game.queued_notes);
+        let table_id = new_game.table_id;
         let in_progress = new_game.in_progress;
         self.game = Some(new_game);
 
-        for (cmd, args) in queued {
-            println!("{RED}Sending command: {cmd} {args}{}", crate::logger::RESET);
-            self.emit(Out::Send(format!("{cmd} {args}")));
+        for (order, note) in notes {
+            self.send(wire::send::note(table_id, order, &note));
         }
 
         if perform {

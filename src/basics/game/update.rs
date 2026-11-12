@@ -559,14 +559,7 @@ impl Game {
             );
 
             if !self.catchup && self.in_progress {
-                cmds.insert(
-                    0,
-                    (
-                        "note".to_string(),
-                        serde_json::json!({"tableID": self.table_id, "order": order, "note": full})
-                            .to_string(),
-                    ),
-                );
+                cmds.insert(0, (order, full.clone()));
             }
             Arc::make_mut(&mut self.notes).insert(
                 order,
@@ -578,7 +571,7 @@ impl Game {
             );
         }
 
-        self.queued_cmds.extend(cmds);
+        self.queued_notes.extend(cmds);
     }
 
     /// A hypothetical game after the clue is given and interpreted.
