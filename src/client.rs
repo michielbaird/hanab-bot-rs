@@ -123,14 +123,25 @@ pub struct TableSettings {
 #[serde(default, rename_all = "camelCase")]
 pub struct Table {
     pub table_id: i64,
-    pub joined: bool,
     pub settings: TableSettings,
     pub password_protected: bool,
     pub player_names: Vec<String>,
     pub progress: i64,
     /// "pregame", "playing", "replay" or "sharedReplay".
+    #[serde(deserialize_with = "phase_name")]
     pub phase: String,
     pub spectators: Vec<Spectator>,
+}
+
+/// The phase of a table: `{"type": "pregame"}` (a shared replay has its `gameId` there too), or just the name before
+/// 12 November 2026.
+fn phase_name<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let phase = Value::deserialize(deserializer)?;
+    phase
+        .as_str()
+        .or_else(|| phase["type"].as_str())
+        .map(String::from)
+        .ok_or_else(|| serde::de::Error::custom(format!("{phase} is not a table phase")))
 }
 
 impl Table {
@@ -245,6 +256,8 @@ pub struct BotClient {
     /// The cards the old convention had written notes on, for a forced switch to clear or rewrite.
     old_note_orders: Vec<usize>,
     tables: HashMap<i64, Table>,
+    /// The users in the lobby, by their ID: a table lists its players by name, and starting one needs their IDs.
+    users: HashMap<i64, String>,
     /// The convention for the next game (what `/settings` sets).
     convention: ConventionKind,
     /// The convention the current game was created with. Changing the setting does not change a game in progress.
@@ -273,6 +286,7 @@ impl BotClient {
             resyncing: false,
             old_note_orders: Vec::new(),
             tables: HashMap::new(),
+            users: HashMap::new(),
             convention: ConventionKind::Reactor,
             game_convention: None,
             fast_mode: false,
@@ -482,6 +496,19 @@ impl BotClient {
                     self.tables.remove(&id);
                 }
 
+                "userList" => {
+                    for user in parse("userList")?["users"].as_array().into_iter().flatten() {
+                        self.add_user(user);
+                    }
+                }
+
+                "user" => self.add_user(&parse("user")?),
+
+                "userRemoved" => {
+                    let id = parse("userRemoved")?["userId"].as_i64().unwrap_or_default();
+                    self.users.remove(&id);
+                }
+
                 "tableList" => {
                     // An object with the tables (a bare list before November 2026).
                     let json = parse("tableList")?;
@@ -532,8 +559,10 @@ impl BotClient {
                 }
 
                 "welcome" => {
+                    let welcome = parse("welcome")?;
                     let info: SelfData =
-                        serde_json::from_value(parse("welcome")?).map_err(|e| e.to_string())?;
+                        serde_json::from_value(welcome.clone()).map_err(|e| e.to_string())?;
+                    self.add_user(&welcome);
                     println!("logged in as {}", info.username);
                     self.info = Some(info);
                 }
@@ -546,6 +575,26 @@ impl BotClient {
         if let Err(e) = res {
             log_error!("{e}");
         }
+    }
+
+    fn add_user(&mut self, user: &Value) {
+        if let (Some(id), Some(name)) = (user["userId"].as_i64(), user["username"].as_str()) {
+            self.users.insert(id, name.to_string());
+        }
+    }
+
+    /// The IDs of the players who sit at a table, if we know them all.
+    fn player_ids(&self, table: i64) -> Option<Vec<i64>> {
+        self.tables
+            .get(&table)?
+            .player_names
+            .iter()
+            .map(|name| {
+                self.users
+                    .iter()
+                    .find_map(|(id, user)| (user == name).then_some(*id))
+            })
+            .collect()
     }
 
     /// Plays through the events of the game so far.
@@ -956,10 +1005,16 @@ impl BotClient {
             }
         } else if starts("/start") {
             match self.table_id {
-                Some(id) => {
-                    self.last_requester = Some(who.clone());
-                    self.send(wire::send::table_start(id));
-                }
+                Some(id) => match self.player_ids(id as i64) {
+                    Some(players) => {
+                        self.last_requester = Some(who.clone());
+                        self.send(wire::send::table_start(id, &players));
+                    }
+                    None => self.send_pm(
+                        who,
+                        "Cannot start table, as I do not know who is sitting at it.",
+                    ),
+                },
                 None => self.send_pm(who, "Cannot start table, as the bot is not in a table."),
             }
         } else if starts("/leave") {

@@ -56,7 +56,7 @@ futures-util = { version = "0.3", optional = true, default-features = false, fea
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
 # The server's protocol crate, pinned to a commit of the hanabi-live repository. To follow the protocol, change `rev` and fix what
 # no longer compiles in `wire`.
-hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "226b7a97e7912c0568083c3a653c7be14f38f9a4", optional = true }
+hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "87a5e3a72a56e10a2e685297108aa9eb1fa01ea7", optional = true }
 
 # `Instant::now()` panics on `wasm32-unknown-unknown`; `web-time` reads the browser's clock instead (see `clock`).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

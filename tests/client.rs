@@ -977,6 +977,74 @@ fn it_finds_a_variant_by_its_number() {
     assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
 }
 
+fn pregame_table(client: &mut BotClient, players: &[&str], phase: Value) {
+    let table = json!({
+        "tableId": 3, "ownerId": 9, "passwordProtected": false,
+        "settings": {"name": "t", "options": {"variantName": "No Variant"}},
+        "playerNames": players, "progress": 0, "phase": phase, "spectators": []
+    });
+    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+}
+
+#[test]
+fn it_starts_a_table_for_the_players_who_sit_at_it() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    // (The server lists the users in the lobby, and tells of one more.)
+    client.handle_msg(r#"userList {"users": [{"userId": 12, "username": "alice"}]}"#);
+    client.handle_msg(r#"user {"userId": 13, "username": "carol"}"#);
+    pregame_table(&mut client, &["alice", "bot"], json!({"type": "pregame"}));
+    drain(&mut rx);
+
+    // The start names who sits there: the server ignores one that does not match the table.
+    client.handle_msg(&pm("alice", "/start"));
+    let outs = drain(&mut rx);
+    assert_eq!(
+        sends(&outs),
+        [r#"tableStart {"intendedPlayerIds":[12,1],"tableId":3}"#]
+    );
+
+    // Someone who left the lobby is not known any more.
+    client.handle_msg(r#"userRemoved {"userId": 12}"#);
+    client.handle_msg(&pm("alice", "/start"));
+    let outs = drain(&mut rx);
+    assert!(sends(&outs).iter().all(|s| !s.starts_with("tableStart")));
+    assert!(pm_replies(&outs)[0].contains("do not know who is sitting"));
+}
+
+#[test]
+fn it_reads_the_phase_of_a_table_as_an_object_or_a_name() {
+    logger::set_level(LogLevel::Off);
+    for phase in [json!({"type": "pregame"}), json!("pregame")] {
+        let (tx, mut rx) = unbounded_channel();
+        let mut client = BotClient::new(BotConfig::default(), tx);
+        client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+        // A pregame table with an option the bot cannot play: it says so when it joins, which it only does for a pregame.
+        let table = json!({
+            "tableId": 3, "ownerId": 9, "passwordProtected": false,
+            "settings": {"name": "t", "options": {"variantName": "No Variant", "emptyClues": true}},
+            "playerNames": ["alice"], "progress": 0, "phase": phase, "spectators": []
+        });
+        client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+        client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+        assert_eq!(chats(&drain(&mut rx)).len(), 1, "{phase}");
+    }
+
+    // A shared replay names its game in the phase.
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    pregame_table(
+        &mut client,
+        &["alice"],
+        json!({"type": "sharedReplay", "gameId": 5}),
+    );
+    assert!(chats(&drain(&mut rx)).is_empty());
+}
+
 #[test]
 fn it_still_reads_the_older_names_of_messages() {
     logger::set_level(LogLevel::Off);
