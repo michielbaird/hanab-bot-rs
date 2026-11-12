@@ -11,16 +11,22 @@ name = "hanab_bot"
 [features]
 default = ["net"]
 # Everything that talks to the network: the `bot` and `analyze_history` binaries, downloading games by replay id.
-# Without it the library (conventions, game model, endgame solver, `BotClient`) depends on nothing but serde,
+# Without it the library (conventions, game model, endgame solver) depends on nothing but serde,
 # which is what to use when embedding the bot in another program: `default-features = false`.
 net = ["protocol", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:reqwest"]
 # The messages of hanab.live's protocol, typed by the server's own `hanabi_protocol` crate (see `wire`), so that a change of the
-# protocol is a compile error. Not in the library by default: it brings in schemars, jsonschema and chrono.
+# protocol is a compile error, and `BotClient`, which speaks it. Not in the library by default: it brings in schemars, jsonschema
+# and chrono.
 protocol = ["dep:hanabi_protocol"]
 # Counts the work the bot does (see `stats`), for the benchmark. Compiles to nothing without it.
 stats = []
 # Compiles in the bot's debug logging (the Scala bot elides it at compile time by default).
 verbose-logs = []
+
+[[test]]
+name = "client"
+path = "tests/client.rs"
+required-features = ["protocol"]
 
 [[bin]]
 name = "bot"
@@ -65,3 +71,4 @@ debug = false
 
 [dev-dependencies]
 regex = "1.13.1"
+serde_urlencoded = "0.7"

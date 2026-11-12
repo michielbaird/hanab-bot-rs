@@ -229,11 +229,13 @@ has examples; this follows upstream `a92f791` of 12 November, 10:35), and the se
 The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the
 hanabi-live repository. `src/wire.rs` builds what the bot sends from its types (`ClientMessage`, `LoginRequest`, `WebSocketQuery`) and reads
 `GameEvent` into the game model's `Action` with a `match` that has no catch-all. Its tests pass what the bot sends through the server's own
-schema (`ClientMessage::decode`). To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles; pinning an older
-commit shows what that looks like (renamed fields, a new event). The library without `protocol` does not depend on the crate, so the
-WebAssembly package does not either. Not yet moved to it: the receiving side of `BotClient` (tables, chat, `gameInit`, `gameState`) and
-`bot.rs` still read the JSON by hand. The crate is `GPL-3.0-only`; this one is `GPL-3.0-or-later`, so a build with `protocol` is
-GPL-3.0.
+schema (`ClientMessage::decode`). `BotClient` sends everything through `wire::send`, reads every game event (`gameEvent` and the events of
+`gameState`) through `wire::game_event`, and `bot.rs` logs in with `wire::login_request` and connects with `wire::websocket_query`.
+To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles (bumping it by an hour of upstream commits found
+`loaded` becoming `gameLoaded`, and `LoginRequest.version` becoming optional). `BotClient` (the `client` module) needs the feature; the library
+without it does not depend on the crate, so the WebAssembly package does not either. Still read by hand in `BotClient`: `welcome`, `table`,
+`tableList`, `chat`, `chatList`, `gameInit` and the notes of `gameState`. The crate is `GPL-3.0-only`; this one is `GPL-3.0-or-later`, so a
+build with `protocol` is GPL-3.0.
 
 ## Referential Sieve (M5)
 

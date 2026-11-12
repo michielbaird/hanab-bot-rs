@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
+use hanabi_protocol::ClientMessage;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::basics::action::Action;
 use crate::basics::game::Note;
@@ -21,10 +22,13 @@ use crate::basics::{Game, PerformAction, State};
 use crate::feedback::{
     Context as FeedbackContext, FeedbackError, FeedbackStore, IntroTracker, MAX_LENGTH,
 };
-use crate::settings::{BOT_VERSION, ConventionKind, info_note, parse_convention_from_note};
+use crate::settings::{
+    BOT_VERSION, ConventionKind, info_note, is_unsupported_variant, parse_convention_from_note,
+    unsupported_table_options,
+};
 use crate::tools::console::{ConsoleCmd, run_command};
 use crate::tools::game_data::{GameData, build_game};
-use crate::{log_error, log_highlight, log_info};
+use crate::{log_error, log_highlight, log_info, wire};
 
 const RED: &str = "\x1b[31m";
 const BLUE: &str = "\x1b[34m";
@@ -258,49 +262,6 @@ pub struct BotClient {
     pub game: Option<Game>,
 }
 
-/// Variants the bot knows it cannot play.
-const UNSUPPORTED_VARIANTS: [&str; 17] = [
-    "Blind",
-    "Mute",
-    "Ambiguous",
-    "Dual-Color",
-    "Synesthesia",
-    "Mix",
-    "Funnels",
-    "Chimneys",
-    "Matryoshka",
-    "Alternating",
-    "Odds",
-    "Cow",
-    "Duck",
-    "Reversed",
-    "Throw",
-    "Up or Down",
-    "Sudoku",
-];
-
-pub fn unsupported_table_options(
-    empty_clues: bool,
-    detrimental_characters: bool,
-    one_extra_card: bool,
-    one_less_card: bool,
-) -> Vec<&'static str> {
-    [
-        (empty_clues, "emptyClues"),
-        (detrimental_characters, "detrimentalChars"),
-        (one_extra_card, "oneExtraCard"),
-        (one_less_card, "oneLessCard"),
-    ]
-    .into_iter()
-    .filter_map(|(set, name)| set.then_some(name))
-    .collect()
-}
-
-/// Whether the bot knows that it cannot play the variant (and so can't analyse games of it either).
-pub fn is_unsupported_variant(name: &str) -> bool {
-    UNSUPPORTED_VARIANTS.iter().any(|v| name.contains(v))
-}
-
 impl BotClient {
     pub fn new(config: BotConfig, out: Sender<Out>) -> Self {
         Self {
@@ -334,24 +295,28 @@ impl BotClient {
         let _ = self.out.send(out);
     }
 
-    fn send_cmd(&self, cmd: &str, args: &Value) {
-        let args = args.to_string();
-        println!("{RED}Sending command: {cmd} {args}{}", crate::logger::RESET);
-        self.emit(Out::Send(format!("{cmd} {args}")));
+    /// Sends a command, built with [`wire::send`] (one that the wire does not take is logged, not sent).
+    fn send(&self, message: Result<ClientMessage, String>) {
+        match message {
+            Ok(message) => {
+                let (cmd, args) = wire::command(&message);
+                println!("{RED}Sending command: {cmd} {args}{}", crate::logger::RESET);
+                self.emit(Out::Send(format!("{cmd} {args}")));
+            }
+            Err(e) => log_error!("couldn't send a command: {e}"),
+        }
     }
 
     fn send_pm(&self, recipient: &str, msg: &str) {
         for text in split_chat(msg) {
-            let args = json!({"text": text, "recipient": recipient});
-            self.emit(Out::Send(format!("chatPm {args}")));
+            self.send(Ok(wire::send::chat_pm(&text, recipient)));
         }
     }
 
     fn send_chat(&self, msg: &str) {
         let Some(id) = self.table_id else { return };
         for text in split_chat(msg) {
-            let args = json!({"text": text, "tableId": id});
-            self.emit(Out::Send(format!("chat {args}")));
+            self.send(wire::send::chat(&text, Some(id)));
         }
     }
 
@@ -414,7 +379,7 @@ impl BotClient {
                         return Ok(());
                     }
                     let json = parse("gameEvent")?;
-                    match Action::from_json(&json["event"]) {
+                    match wire::game_event(&json["event"]) {
                         Ok(Some(action)) => self.handle_action(&action),
                         Ok(None) => {}
                         Err(e) => println!(
@@ -540,7 +505,7 @@ impl BotClient {
 
                         if let Some(id) = my_table {
                             log_info!("automatically reattending table with id {id}");
-                            self.send_cmd("tableReattend", &json!({"tableId": id}));
+                            self.send(wire::send::table_reattend(id as usize));
                         }
                     }
                 }
@@ -551,7 +516,7 @@ impl BotClient {
                         .unwrap_or_default();
                     self.game_started = true;
                     self.last_requester = None;
-                    self.send_cmd("gameInitLoad", &json!({"tableId": id}));
+                    self.send(wire::send::game_init_load(id as usize));
                 }
 
                 "warning" | "error" => {
@@ -590,7 +555,13 @@ impl BotClient {
             .as_array()
             .map(|l| {
                 l.iter()
-                    .filter_map(|a| Action::from_json(a).ok().flatten())
+                    .filter_map(|event| match wire::game_event(event) {
+                        Ok(action) => action,
+                        Err(e) => {
+                            log_error!("failed to read the event {event} of the game state: {e}");
+                            None
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -612,7 +583,7 @@ impl BotClient {
                 game.catchup = false;
             }
             if !resync {
-                self.send_cmd("gameLoaded", &json!({"tableId": table_id}));
+                self.send(wire::send::game_loaded(table_id as usize));
                 self.emit(Out::Wait(Duration::from_millis(1000)));
             }
             self.handle_action(last);
@@ -692,27 +663,22 @@ impl BotClient {
                     full: note_str.clone(),
                 },
             );
-            self.send_cmd(
-                "note",
-                &json!({"tableId": msg.table_id, "order": 0, "text": note_str}),
-            );
+            self.send(wire::send::note(msg.table_id, 0, &note_str));
         }
 
         self.restored_settings = true;
         // This causes 'gameActionList' to be sent again and 'noteListPlayer'.
         // This time around we can properly catch up with the game using the correct settings.
-        self.send_cmd("gameStateLoad", &json!({"tableId": msg.table_id}));
+        self.send(wire::send::game_state_load(msg.table_id));
     }
 
     fn leave_room(&mut self) {
-        let cmd = if self.game_started {
-            "tableUnattend"
-        } else {
-            "tableLeave"
-        };
-
         if let Some(id) = self.table_id {
-            self.send_cmd(cmd, &json!({"tableId": id}));
+            self.send(if self.game_started {
+                wire::send::table_unattend(id)
+            } else {
+                wire::send::table_leave(id)
+            });
         }
         self.table_id = None;
         self.game_started = false;
@@ -756,8 +722,8 @@ impl BotClient {
             }
         }
 
-        // We will receive the 'noteListPlayer' next. This is when we can restore the settings.
-        self.send_cmd("gameStateLoad", &json!({"tableId": msg.table_id}));
+        // We will receive the notes next. This is when we can restore the settings.
+        self.send(wire::send::game_state_load(msg.table_id));
         Ok(())
     }
 
@@ -874,12 +840,9 @@ impl BotClient {
         self.send_chat(&format!(
             "Switching to {c} conventions for the rest of this game, as {who} asked. Replaying the game to catch up; my earlier moves were made with {previous}."
         ));
-        self.send_cmd(
-            "note",
-            &json!({"tableId": table_id, "order": 0, "text": note}),
-        );
-        // This sends 'gameEventList' again, which is replayed into the new game.
-        self.send_cmd("gameStateLoad", &json!({"tableId": table_id}));
+        self.send(wire::send::note(table_id, 0, &note));
+        // This sends the game state again, which is replayed into the new game.
+        self.send(wire::send::game_state_load(table_id));
         Ok(())
     }
 
@@ -962,17 +925,14 @@ impl BotClient {
                 Some(t) if t.password_protected => match msg.split(' ').nth(1) {
                     Some(password) => {
                         self.last_requester = Some(who.clone());
-                        self.send_cmd(
-                            "tableJoin",
-                            &json!({"tableId": t.table_id, "password": password}),
-                        );
+                        self.send(wire::send::table_join(t.table_id as usize, Some(password)));
                     }
                     None => self.send_pm(
                         who,
                         "Room is password protected, please provide a password.",
                     ),
                 },
-                Some(t) => self.send_cmd("tableJoin", &json!({"tableId": t.table_id})),
+                Some(t) => self.send(wire::send::table_join(t.table_id as usize, None)),
                 None => self.send_pm(who, "Could not join, as you are not in a room."),
             }
         } else if starts("/rejoin") {
@@ -987,7 +947,7 @@ impl BotClient {
                     .map(|t| t.table_id);
 
                 match table {
-                    Some(id) => self.send_cmd("tableReattend", &json!({"tableId": id})),
+                    Some(id) => self.send(wire::send::table_reattend(id as usize)),
                     None => self.send_pm(
                         who,
                         "Could not rejoin, as the bot is not a player in any open room.",
@@ -998,7 +958,7 @@ impl BotClient {
             match self.table_id {
                 Some(id) => {
                     self.last_requester = Some(who.clone());
-                    self.send_cmd("tableStart", &json!({"tableId": id}));
+                    self.send(wire::send::table_start(id));
                 }
                 None => self.send_pm(who, "Cannot start table, as the bot is not in a table."),
             }
@@ -1008,7 +968,7 @@ impl BotClient {
             match &self.game {
                 Some(game) if game.in_progress => {
                     if game.state.names.contains(who) {
-                        self.send_cmd("tableTerminate", &json!({"tableId": game.table_id}));
+                        self.send(wire::send::table_terminate(game.table_id));
                     } else {
                         self.send_pm(
                             who,
@@ -1129,10 +1089,7 @@ impl BotClient {
         self.old_note_orders.clear();
 
         for (order, note) in notes {
-            self.send_cmd(
-                "note",
-                &json!({"tableId": table_id, "order": order, "text": note}),
-            );
+            self.send(wire::send::note(table_id, order, &note));
         }
     }
 
@@ -1195,8 +1152,8 @@ impl BotClient {
         std::thread::spawn(move || {
             let pm = |msg: &str| {
                 for text in split_chat(msg) {
-                    let args = json!({"text": text, "recipient": who});
-                    let _ = out.send(Out::Send(format!("chatPm {args}")));
+                    let (cmd, args) = wire::command(&wire::send::chat_pm(&text, &who));
+                    let _ = out.send(Out::Send(format!("{cmd} {args}")));
                 }
             };
 
@@ -1295,7 +1252,7 @@ impl BotClient {
                 Duration::from_secs(2).saturating_sub(started.elapsed()),
             ));
         }
-        self.send_cmd("playerAction", &action.json(table_id));
+        self.send(wire::send::player_action(table_id, &action));
     }
 
     /// Runs a console command against the current game.

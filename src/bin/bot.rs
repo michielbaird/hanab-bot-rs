@@ -24,6 +24,7 @@ use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::settings::BOT_VERSION;
 use hanab_bot::tools::args::{full_env, parse_args};
 use hanab_bot::tools::console::{ConsoleCmd, parse_command};
+use hanab_bot::wire;
 
 const MAX_RETRIES: u32 = 5;
 
@@ -53,11 +54,7 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(format!("{base}/login"))
-        .form(&[
-            ("username", username),
-            ("password", password),
-            ("client", "bot"),
-        ])
+        .form(&wire::login_request(username, password))
         .send()
         .map_err(|e| e.to_string())?;
 
@@ -99,11 +96,13 @@ async fn run_connection(
     console: &ConsoleSink,
 ) -> Result<(), String> {
     // A bot says so (and which account it is, since a session can hold several): the server then wants no client version.
-    let mut url = format!("{ws_url}?client=bot");
-    if session.user_id > 0 {
-        url.push_str(&format!("&account={}", session.user_id));
-    }
-    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
+    let account = (session.user_id > 0).then_some(session.user_id);
+    let url = reqwest::Url::parse_with_params(ws_url, wire::websocket_query(account)?)
+        .map_err(|e| format!("{ws_url}: {e}"))?;
+    let mut request = url
+        .as_str()
+        .into_client_request()
+        .map_err(|e| e.to_string())?;
     request.headers_mut().insert(
         "Cookie",
         HeaderValue::from_str(&session.cookie).map_err(|e| e.to_string())?,

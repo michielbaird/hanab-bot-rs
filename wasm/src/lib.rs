@@ -104,8 +104,8 @@ pub fn is_game_supported(
     one_extra_card: bool,
     one_less_card: bool,
 ) -> bool {
-    !hanab_bot::client::is_unsupported_variant(variant)
-        && hanab_bot::client::unsupported_table_options(
+    !hanab_bot::settings::is_unsupported_variant(variant)
+        && hanab_bot::settings::unsupported_table_options(
             empty_clues,
             detrimental_characters,
             one_extra_card,
