@@ -24,6 +24,59 @@ fn init_variants() {
     Variant::init(&variants.to_string(), &colours.to_string()).unwrap();
 }
 
+/// The messages of the server, as it sends them (complete: the client checks them against the server's schema).
+const WHEN: &str = "2026-01-01T12:00:00.000Z";
+
+fn welcome(name: &str) -> String {
+    format!(
+        "welcome {}",
+        json!({"userId": 1, "username": name, "muted": false, "firstTimeUser": false, "friends": [],
+            "blocked": [], "playingAtTables": [], "spectatingAtTables": [], "settings": {}})
+    )
+}
+
+fn user_json(id: i64, name: &str) -> Value {
+    json!({"userId": id, "username": name, "activity": {"type": "lobby"}, "hGroupConventions": false,
+        "bot": false, "inactive": false})
+}
+
+/// The start of a game of No Variant in which the bot sits first.
+fn game_init(table_id: usize, players: &[&str], seed: &str) -> String {
+    format!(
+        "gameInit {}",
+        json!({"tableId": table_id, "playerNames": players,
+            "mode": {"type": "playing", "ourPlayerIndex": 0}, "customSeed": false, "seed": seed,
+            "startedAt": WHEN, "options": {"variantId": 0}, "characters": []})
+    )
+}
+
+fn game_state_of(table_id: usize, events: &[Value], notes: Value) -> String {
+    format!(
+        "gameState {}",
+        json!({"tableId": table_id, "events": events, "notes": notes, "connected": [true, true],
+            "spectators": []})
+    )
+}
+
+fn game_state(table_id: usize, events: &[Value]) -> String {
+    game_state_of(table_id, events, json!([]))
+}
+
+/// A game state with no events and the bot's notes, which is when the bot writes its settings on the first card.
+fn game_notes(table_id: usize, name: &str) -> String {
+    game_state_of(
+        table_id,
+        &[],
+        json!([{"username": name, "notes": ["", "", "", "", ""], "spectator": false}]),
+    )
+}
+
+fn table_json(table_id: usize, players: &[&str], phase: Value, options: Value) -> Value {
+    json!({"tableId": table_id, "owner": {"userId": 9, "username": "owner"}, "passwordProtected": false,
+        "settings": {"name": "t", "maxPlayers": 5, "options": options}, "playerNames": players,
+        "progress": 0, "phase": phase, "spectators": []})
+}
+
 fn drain(rx: &mut Receiver<Out>) -> Vec<Out> {
     let mut out = Vec::new();
     while let Ok(o) = rx.try_recv() {
@@ -53,18 +106,15 @@ fn it_plays_through_the_game_start_handshake() {
     };
     let mut client = BotClient::new(config, tx);
 
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
     assert_eq!(client.username(), Some("bot"));
 
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
+    let init = game_init(7, &["bot", "human"], "x");
+    client.handle_msg(&init);
     assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
 
     // The first card has no note yet, so the bot writes its settings there.
-    client.handle_msg(r#"gameState {"tableId": 7, "events": [], "notes": [{"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#);
+    client.handle_msg(&game_notes(7, "bot"));
     let outs = drain(&mut rx);
     let s = sends(&outs);
     assert_eq!(s.len(), 2);
@@ -87,10 +137,7 @@ fn it_plays_through_the_game_start_handshake() {
     }
     list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
 
-    client.handle_msg(&format!(
-        "gameState {}",
-        json!({"tableId": 7, "events": list})
-    ));
+    client.handle_msg(&game_state(7, &list));
     let outs = drain(&mut rx);
     let s = sends(&outs);
 
@@ -113,18 +160,12 @@ fn it_answers_chat_commands() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
 
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
-    let pm = |msg: &str| {
-        format!(
-            "chat {}",
-            json!({"text": msg, "username": "friend", "source": "user", "recipient": "bot"})
-        )
-    };
+    client.handle_msg(&welcome("bot"));
 
-    client.handle_msg(&pm("/version"));
-    client.handle_msg(&pm("/settings"));
-    client.handle_msg(&pm("/settings HGroup5"));
-    client.handle_msg(&pm("/fastmode"));
+    client.handle_msg(&pm("friend", "/version"));
+    client.handle_msg(&pm("friend", "/settings"));
+    client.handle_msg(&pm("friend", "/settings HGroup5"));
+    client.handle_msg(&pm("friend", "/fastmode"));
 
     let outs = drain(&mut rx);
     let s = sends(&outs);
@@ -144,17 +185,10 @@ fn first_action(name: &str, table_id: usize) -> String {
     };
     let mut client = BotClient::new(config, tx);
 
-    client.handle_msg(&format!(
-        r#"welcome {{"userId": 1, "username": "{name}", "playingAtTables": []}}"#
-    ));
-    let init = json!({
-        "tableId": table_id, "playerNames": [name, "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
-    client.handle_msg(&format!(
-        r#"gameState {{"tableId": {table_id}, "events": [], "notes": [{{"username": "{name}", "notes": ["", "", "", "", ""], "spectator": false}}]}}"#
-    ));
+    client.handle_msg(&welcome(name));
+    let init = game_init(table_id, &[name, "human"], "x");
+    client.handle_msg(&init);
+    client.handle_msg(&game_notes(table_id, name));
 
     let mut list: Vec<Value> = (0..5)
         .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
@@ -163,10 +197,7 @@ fn first_action(name: &str, table_id: usize) -> String {
         list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
     }
     list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
-    client.handle_msg(&format!(
-        "gameState {}",
-        json!({"tableId": table_id, "events": list})
-    ));
+    client.handle_msg(&game_state(table_id, &list));
 
     drain(&mut rx)
         .iter()
@@ -212,7 +243,8 @@ fn feedback_file(name: &str) -> std::path::PathBuf {
 fn pm(who: &str, msg: &str) -> String {
     format!(
         "chat {}",
-        json!({"text": msg, "username": who, "source": "user", "recipient": "bot"})
+        json!({"text": msg, "sentAt": WHEN,
+            "kind": {"type": "private", "author": {"type": "user", "username": who}, "recipient": "bot"}})
     )
 }
 
@@ -241,14 +273,11 @@ fn it_announces_how_to_send_feedback_once_per_game() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
-    client.handle_msg(&format!("gameInit {init}")); // e.g. after a rejoin
+    let init = game_init(7, &["bot", "human"], "x");
+    client.handle_msg(&init);
+    client.handle_msg(&init); // e.g. after a rejoin
     let outs = drain(&mut rx);
     let chats: Vec<&str> = sends(&outs)
         .into_iter()
@@ -274,7 +303,7 @@ fn it_saves_feedback_with_the_game_context() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // No feedback text: usage.
     client.handle_msg(&pm("alice", "/feedback"));
@@ -282,11 +311,8 @@ fn it_saves_feedback_with_the_game_context() {
     client.handle_msg(&pm("alice", "/feedback hello there"));
     let mut replies = pm_replies(&drain(&mut rx));
 
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "alice"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
+    let init = game_init(7, &["bot", "alice"], "x");
+    client.handle_msg(&init);
 
     client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
     client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
@@ -329,7 +355,7 @@ fn it_saves_feedback_unescaped() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // hanab.live escapes chat text before it reaches the bot.
     client.handle_msg(&pm(
@@ -356,7 +382,7 @@ fn it_can_have_feedback_turned_off() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
     client.handle_msg(&pm("alice", "/feedback hello"));
 
     let outs = drain(&mut rx);
@@ -376,13 +402,10 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "p2v0s5", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
-    client.handle_msg(r#"gameState {"tableId": 7, "events": [], "notes": [{"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#);
+    client.handle_msg(&welcome("bot"));
+    let init = game_init(7, &["bot", "human"], "p2v0s5");
+    client.handle_msg(&init);
+    client.handle_msg(&game_notes(7, "bot"));
 
     // A convention whose `take_action` panics.
     client.game.as_mut().unwrap().conv = std::sync::Arc::new(common::Neutral { good_touch: false });
@@ -394,10 +417,7 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
         list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
     }
     list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
-    client.handle_msg(&format!(
-        "gameState {}",
-        json!({"tableId": 7, "events": list})
-    ));
+    client.handle_msg(&game_state(7, &list));
 
     let outs = drain(&mut rx);
     let s = sends(&outs);
@@ -433,11 +453,7 @@ fn it_makes_a_fallback_move_when_choosing_a_move_panics() {
 }
 
 fn init_for(table_id: usize, players: &[&str]) -> String {
-    let init = json!({
-        "tableId": table_id, "playerNames": players, "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": players.len(), "variantName": "No Variant"}
-    });
-    format!("gameInit {init}")
+    game_init(table_id, players, "x")
 }
 
 fn announcements(outs: &[Out]) -> usize {
@@ -458,7 +474,7 @@ fn it_does_not_repeat_the_announcement_after_play_again() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // The first game: announced.
     client.handle_msg(&init_for(7, &["bot", "alice"]));
@@ -492,7 +508,7 @@ fn a_new_setting_applies_from_the_next_game() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // No game yet: the setting is simply what it will play.
     client.handle_msg(&pm("alice", "/settings HGroup3"));
@@ -553,7 +569,7 @@ fn deal_for(table_id: usize, bot_cards: &[(i64, i64)], current_player: usize) ->
         list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
     }
     list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": current_player}));
-    format!("gameState {}", json!({"tableId": table_id, "events": list}))
+    game_state(table_id, &list)
 }
 
 #[test]
@@ -568,7 +584,7 @@ fn a_convention_can_be_forced_during_a_game() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // Without a game, "force" is just a setting.
     client.handle_msg(&pm("alice", "/settings HGroup5 force"));
@@ -579,7 +595,7 @@ fn a_convention_can_be_forced_during_a_game() {
 
     // A game starts with HGroup5.
     client.handle_msg(&init_for(7, &["bot", "alice"]));
-    client.handle_msg(r#"gameState {"tableId": 7, "events": [], "notes": [{"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#);
+    client.handle_msg(&game_notes(7, "bot"));
     let deal = deal_for(7, &[(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)], 1);
     client.handle_msg(&deal);
     drain(&mut rx);
@@ -698,11 +714,11 @@ fn after_a_forced_switch_the_bot_plays_its_turn_with_the_new_convention() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
     // It is the bot's own turn when the table decides to switch.
     client.handle_msg(&init_for(7, &["bot", "alice"]));
-    client.handle_msg(r#"gameState {"tableId": 7, "events": [], "notes": [{"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#);
+    client.handle_msg(&game_notes(7, "bot"));
     let deal = deal_for(7, &[(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)], 0);
     client.handle_msg(&deal);
     let first = drain(&mut rx);
@@ -738,15 +754,16 @@ fn it_warns_about_table_options_in_chat_without_a_recipient() {
     logger::set_level(LogLevel::Off);
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    client.handle_msg(&welcome("bot"));
     client.handle_msg(r#"tableJoined {"tableId": 3}"#);
     drain(&mut rx);
 
-    let table = json!({
-        "tableId": 3, "joined": true, "ownerId": 9, "passwordProtected": false,
-        "settings": {"name": "t", "maxPlayers": 5, "options": {"variantName": "No Variant", "emptyClues": true}},
-        "playerNames": ["bot"], "progress": 0, "phase": "pregame", "spectators": []
-    });
+    let table = table_json(
+        3,
+        &["bot"],
+        json!({"type": "pregame"}),
+        json!({"variantId": 0, "emptyClues": true}),
+    );
     client.handle_msg(&format!("table {table}"));
 
     let outs = drain(&mut rx);
@@ -761,26 +778,24 @@ fn it_ignores_tables_after_the_start_and_reads_the_table_list() {
     logger::set_level(LogLevel::Off);
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    client.handle_msg(&welcome("bot"));
     client.handle_msg(r#"tableJoined {"tableId": 3}"#);
     drain(&mut rx);
 
     // A table without a convention-breaking option, in the list of tables.
-    client.handle_msg(
-        r#"tableList {"tables": [{"tableId": 3, "joined": true, "ownerId": 9, "passwordProtected": false,
-        "settings": {"name": "t", "options": {"variantName": "No Variant"}},
-        "playerNames": ["bot"], "progress": 0, "phase": "pregame", "spectators": [{"username": "alice"}]}]}"#,
-    );
+    let table = table_json(3, &["bot"], json!({"type": "pregame"}), json!({}));
+    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
     assert!(chats(&drain(&mut rx)).is_empty());
 
     // Once the game has started, a table update is not looked at (it could make the bot leave the game).
     client.handle_msg(r#"tableStarted {"tableId": 3, "stage": "justStarted"}"#);
     drain(&mut rx);
-    let unsupported = json!({
-        "tableId": 3, "joined": true, "ownerId": 9, "passwordProtected": false,
-        "settings": {"name": "t", "maxPlayers": 5, "options": {"variantName": "No Variant", "oneLessCard": true}},
-        "playerNames": ["bot"], "progress": 0, "phase": "playing", "spectators": []
-    });
+    let unsupported = table_json(
+        3,
+        &["bot"],
+        json!({"type": "playing"}),
+        json!({"oneLessCard": true}),
+    );
     client.handle_msg(&format!("table {unsupported}"));
     assert!(chats(&drain(&mut rx)).is_empty());
 }
@@ -790,41 +805,43 @@ fn it_asks_for_the_game_when_the_table_starts() {
     logger::set_level(LogLevel::Off);
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    client.handle_msg(&welcome("bot"));
     drain(&mut rx);
 
     client.handle_msg(r#"tableStarted {"tableId": 7, "stage": "justStarted"}"#);
     assert_eq!(sends(&drain(&mut rx)), [r#"gameInitLoad {"tableId":7}"#]);
 }
 
+/// A table of the lobby that the bot has joined.
+fn joined_table(client: &mut BotClient, players: &[&str], phase: Value, options: Value) {
+    let table = table_json(3, players, phase, options);
+    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+}
+
 #[test]
 fn it_forgets_a_table_that_is_removed() {
-    // (`tableRemoved` was `tableGone` until November 2026.)
-    for removed in ["tableRemoved", "tableGone"] {
-        logger::set_level(LogLevel::Off);
-        let (tx, mut rx) = unbounded_channel();
-        let mut client = BotClient::new(BotConfig::default(), tx);
-        client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
-        client.handle_msg(
-            r#"tableList {"tables": [{"tableId": 3, "joined": false, "ownerId": 9, "passwordProtected": false,
-            "settings": {"name": "t", "options": {"variantName": "No Variant", "emptyClues": true}},
-            "playerNames": ["alice"], "progress": 0, "phase": "pregame", "spectators": []}]}"#,
-        );
-        client.handle_msg(&format!(r#"{removed} {{"tableId": 3}}"#));
-        client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    let table = table_json(
+        3,
+        &["alice"],
+        json!({"type": "pregame"}),
+        json!({"emptyClues": true}),
+    );
+    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(r#"tableRemoved {"tableId": 3}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
 
-        // The table is not known any more, so there are no settings to complain about.
-        assert!(chats(&drain(&mut rx)).is_empty(), "{removed}");
-    }
+    // The table is not known any more, so there are no settings to complain about.
+    assert!(chats(&drain(&mut rx)).is_empty());
 }
 
 fn init_for_notes(client: &mut BotClient) {
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"numPlayers": 2, "variantName": "No Variant"}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&game_init(7, &["bot", "human"], "x"));
 }
 
 #[test]
@@ -837,112 +854,17 @@ fn it_reads_its_own_notes_and_not_a_spectators() {
     drain(&mut rx);
 
     // A spectator wrote a note on the first card; the bot has none there, so it writes its settings.
-    client.handle_msg(
-        r#"gameState {"tableId": 7, "events": [], "notes": [
-        {"username": "alice", "notes": ["watching", "", "", "", ""], "spectator": true},
-        {"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]}"#,
-    );
+    client.handle_msg(&game_state_of(
+        7,
+        &[],
+        json!([
+            {"username": "alice", "notes": ["watching", "", "", "", ""], "spectator": true},
+            {"username": "bot", "notes": ["", "", "", "", ""], "spectator": false}]),
+    ));
     let outs = drain(&mut rx);
     let s = sends(&outs);
     assert!(s[0].starts_with("note ") && s[0].contains("INFO"), "{s:?}");
     assert_eq!(s[1], r#"gameStateLoad {"tableId":7}"#);
-}
-
-#[test]
-fn it_still_reads_the_older_game_load() {
-    // Until November 2026 the notes came as `noteListPlayer`, and the events after them as `gameEventList`.
-    logger::set_level(LogLevel::Off);
-    init_variants();
-    let (tx, mut rx) = unbounded_channel();
-    let mut client = BotClient::new(BotConfig::default(), tx);
-    init_for_notes(&mut client);
-    drain(&mut rx);
-
-    client.handle_msg(r#"noteListPlayer {"tableId": 7, "notes": ["", "", "", "", ""]}"#);
-    let outs = drain(&mut rx);
-    assert_eq!(
-        *sends(&outs).last().unwrap(),
-        r#"gameStateLoad {"tableId":7}"#
-    );
-
-    let mut list: Vec<Value> = (0..5)
-        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
-        .collect();
-    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
-        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
-    }
-    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
-    client.handle_msg(&format!(
-        "gameEventList {}",
-        json!({"tableId": 7, "events": list})
-    ));
-    let outs = drain(&mut rx);
-    assert_eq!(sends(&outs)[0], r#"gameLoaded {"tableId":7}"#);
-}
-
-fn chat(json: Value) -> hanab_bot::client::ChatMessage {
-    serde_json::from_value(json).unwrap()
-}
-
-#[test]
-fn it_reads_the_kind_of_a_chat_message() {
-    // Public, with the author a user.
-    let public = chat(json!({
-        "text": "hi", "sentAt": 1, "tableId": 3,
-        "kind": {"type": "public", "author": {"type": "user", "username": "alice"}}
-    }));
-    assert_eq!(
-        (
-            public.source.as_str(),
-            public.username.as_str(),
-            public.recipient,
-            public.table_id
-        ),
-        ("user", "alice", None, Some(3))
-    );
-
-    // Private, to us.
-    let private = chat(json!({
-        "text": "/help", "sentAt": 1,
-        "kind": {"type": "private", "author": {"type": "user", "username": "alice"}, "recipient": "bot"}
-    }));
-    assert_eq!(
-        (
-            private.source.as_str(),
-            private.username.as_str(),
-            private.recipient.as_deref()
-        ),
-        ("user", "alice", Some("bot"))
-    );
-
-    // From the server (no author name), and a suggestion to the owner of a table.
-    let server = chat(
-        json!({"text": "x", "sentAt": 1, "kind": {"type": "public", "author": {"type": "server"}}}),
-    );
-    assert_eq!(
-        (server.source.as_str(), server.username.as_str()),
-        ("server", "")
-    );
-    let suggestion = chat(json!({
-        "text": "x", "sentAt": 1,
-        "kind": {"type": "suggestion", "recipient": "bot", "settings": {"name": "t", "options": {}}}
-    }));
-    assert_eq!(
-        (suggestion.source.as_str(), suggestion.recipient.as_deref()),
-        ("server", Some("bot"))
-    );
-
-    // (Until November 2026 the message itself had `source`, `username` and `recipient`.)
-    let old =
-        chat(json!({"text": "hi", "source": "user", "username": "alice", "recipient": "bot"}));
-    assert_eq!(
-        (
-            old.source.as_str(),
-            old.username.as_str(),
-            old.recipient.as_deref()
-        ),
-        ("user", "alice", Some("bot"))
-    );
 }
 
 #[test]
@@ -955,9 +877,9 @@ fn it_finds_a_variant_by_its_number() {
         ..BotConfig::default()
     };
     let mut client = BotClient::new(config, tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot", "playingAtTables": []}"#);
+    client.handle_msg(&welcome("bot"));
 
-    // (The options name the variant by `variantId` since November 2026.)
+    // (The options name the variant by `variantId`.)
     let options = TableOptions {
         variant_id: Some(7),
         ..TableOptions::default()
@@ -969,22 +891,10 @@ fn it_finds_a_variant_by_its_number() {
         "No Variant"
     );
 
-    let init = json!({
-        "tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "seed": "x", "options": {"variantId": 7}
-    });
-    client.handle_msg(&format!("gameInit {init}"));
+    // A game of that variant starts.
+    let init = game_init(7, &["bot", "human"], "x").replace(r#""variantId":0"#, r#""variantId":7"#);
+    client.handle_msg(&init);
     assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
-}
-
-fn pregame_table(client: &mut BotClient, players: &[&str], phase: Value) {
-    let table = json!({
-        "tableId": 3, "ownerId": 9, "passwordProtected": false,
-        "settings": {"name": "t", "options": {"variantName": "No Variant"}},
-        "playerNames": players, "progress": 0, "phase": phase, "spectators": []
-    });
-    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
-    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
 }
 
 #[test]
@@ -992,11 +902,19 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
     logger::set_level(LogLevel::Off);
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
+    client.handle_msg(&welcome("bot"));
     // (The server lists the users in the lobby, and tells of one more.)
-    client.handle_msg(r#"userList {"users": [{"userId": 12, "username": "alice"}]}"#);
-    client.handle_msg(r#"user {"userId": 13, "username": "carol"}"#);
-    pregame_table(&mut client, &["alice", "bot"], json!({"type": "pregame"}));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice")]})
+    ));
+    client.handle_msg(&format!("user {}", user_json(13, "carol")));
+    joined_table(
+        &mut client,
+        &["alice", "bot"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
     drain(&mut rx);
 
     // The start names who sits there: the server ignores one that does not match the table.
@@ -1016,53 +934,38 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
 }
 
 #[test]
-fn it_reads_the_phase_of_a_table_as_an_object_or_a_name() {
+fn it_reads_the_phase_of_a_table() {
     logger::set_level(LogLevel::Off);
-    for phase in [json!({"type": "pregame"}), json!("pregame")] {
-        let (tx, mut rx) = unbounded_channel();
-        let mut client = BotClient::new(BotConfig::default(), tx);
-        client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
-        // A pregame table with an option the bot cannot play: it says so when it joins, which it only does for a pregame.
-        let table = json!({
-            "tableId": 3, "ownerId": 9, "passwordProtected": false,
-            "settings": {"name": "t", "options": {"variantName": "No Variant", "emptyClues": true}},
-            "playerNames": ["alice"], "progress": 0, "phase": phase, "spectators": []
-        });
-        client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
-        client.handle_msg(r#"tableJoined {"tableId": 3}"#);
-        assert_eq!(chats(&drain(&mut rx)).len(), 1, "{phase}");
-    }
+    // A pregame table with an option the bot cannot play: it says so when it joins, which it only does for a pregame.
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    joined_table(
+        &mut client,
+        &["alice"],
+        json!({"type": "pregame"}),
+        json!({"emptyClues": true}),
+    );
+    assert_eq!(chats(&drain(&mut rx)).len(), 1);
 
     // A shared replay names its game in the phase.
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
-    pregame_table(
+    client.handle_msg(&welcome("bot"));
+    joined_table(
         &mut client,
         &["alice"],
         json!({"type": "sharedReplay", "gameId": 5}),
+        json!({}),
     );
     assert!(chats(&drain(&mut rx)).is_empty());
-}
-
-#[test]
-fn it_still_reads_the_older_names_of_messages() {
-    logger::set_level(LogLevel::Off);
-    let (tx, mut rx) = unbounded_channel();
-    let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(r#"welcome {"userId": 1, "username": "bot"}"#);
-
-    // The list of tables was a bare list, and joining a table was `joined`.
-    client.handle_msg(
-        r#"tableList [{"tableId": 3, "joined": true, "passwordProtected": false,
-        "settings": {"name": "t", "options": {"variantName": "No Variant", "emptyClues": true}},
-        "playerNames": ["bot"], "progress": 0, "phase": "pregame", "spectators": []}]"#,
+    // It is known as a shared replay: with no one watching but bots, the bot leaves.
+    let table = table_json(
+        3,
+        &["alice"],
+        json!({"type": "sharedReplay", "gameId": 5}),
+        json!({}),
     );
-    client.handle_msg(r#"joined {"tableId": 3}"#);
-
-    // Joining a table whose options are not supported is noticed through the list the table was in.
-    let outs = drain(&mut rx);
-    let chat = chats(&outs);
-    assert_eq!(chat.len(), 1, "{outs:?}");
-    assert!(chat[0].contains("emptyClues") && chat[0].contains(r#""tableId":3"#));
+    client.handle_msg(&format!("table {table}"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
 }

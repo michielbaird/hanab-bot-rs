@@ -221,21 +221,33 @@ has examples; this follows upstream `87a5e3a` of 12 November, 13:10), and the se
   300 characters is rejected, so `split_chat` cuts it.
 - **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`, a clue `{"type": "clue", "receiverIndex": n, "clue": {...}}`),
   `options.variantId` (the variant's number in `variants.json`, found by `TableOptions::variant`; it was `variantName`), `seed`; the game's ID is not in the export any more. The readers (`GameData`, `Action::from_json`, `PerformAction::from_json`) also take the older shapes,
-  and the older names of a few messages (`joined`, `left`, `tableGone`, `noteListPlayer` and `gameEventList`, a bare `tableList`, `giver`, a clue's `target`), so old exports and fixtures keep working. The bot does
+  and the older names of a few fields (`giver`, a clue's `target`), so old exports and fixtures keep working. The bot does
   not speak the old protocol when sending.
 
 ### Following the protocol with the compiler (`wire`)
 
 The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the
-hanabi-live repository. `src/wire.rs` builds what the bot sends from its types (`ClientMessage`, `LoginRequest`, `WebSocketQuery`) and reads
-`GameEvent` into the game model's `Action` with a `match` that has no catch-all. Its tests pass what the bot sends through the server's own
-schema (`ClientMessage::decode`). `BotClient` sends everything through `wire::send`, reads every game event (`gameEvent` and the events of
-`gameState`) through `wire::game_event`, and `bot.rs` logs in with `wire::login_request` and connects with `wire::websocket_query`.
-To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles (bumping it by an hour of upstream commits found
-`loaded` becoming `gameLoaded`, and `LoginRequest.version` becoming optional). `BotClient` (the `client` module) needs the feature; the library
-without it does not depend on the crate, so the WebAssembly package does not either. Still read by hand in `BotClient`: `welcome`, `table`,
-`tableList`, `chat`, `chatList`, `gameInit` and the notes of `gameState`. The crate is `GPL-3.0-only`; this one is `GPL-3.0-or-later`, so a
-build with `protocol` is GPL-3.0.
+hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
+
+- **Sending:** `wire::send::*` build a `ClientMessage` (an enum over every command), `login_request` and `websocket_query` the login form and
+  the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
+- **Receiving:** `wire::receive(command, args)` reads a message into an `Incoming` (the messages the bot follows, in the shape it uses).
+  Each message is named by the server's own constant (`server::TABLE`), which carries its payload type, and is checked against the
+  schema. A field that the server added does not stop a message: `lenient` leaves it out (and reports it once in the log, as a reason
+  to bump the pin) and reads the rest. A field that is missing or of another type, a kind of something the bot does not know (a phase,
+  an event) or a value out of range is an error, because the bot cannot follow the game without it. Users and the welcome are read only
+  for who they are. `to_action` turns a `GameEvent` into the game model's
+  `Action` with a `match` that has no catch-all; `login_response` and `login_refusal` read the answer to a login.
+- **`BotClient`** matches on `Incoming` and sends through `wire::send`; `bot.rs` logs in and connects through `wire`. The older names of messages
+  (`init`, `tableGone`, `noteListPlayer`, `gameEventList`, ...) are not read any more: the bot speaks the current protocol only. The readers
+  of exports (`GameData`, `PerformAction::from_json`, `Action::from_json`) still take the older shapes, so saved games keep working.
+
+To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles. Bumping the pin by an hour of upstream commits has
+found `loaded` becoming `gameLoaded`, `LoginRequest.version` becoming optional, `tableStart` needing the players' user IDs and the
+`ViewMode::SharedReplay` of `gameInit`. Pinning an older commit shows what that looks like. The test payloads in `tests/client.rs` are
+complete messages for the same reason: the schema rejects a partial one. `BotClient` (the `client` module) needs the feature; the library
+without it does not depend on the crate, so the WebAssembly package does not either. The crate is `GPL-3.0-only`; this one is
+`GPL-3.0-or-later`, so a build with `protocol` is GPL-3.0.
 
 ## Referential Sieve (M5)
 
