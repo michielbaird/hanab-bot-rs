@@ -57,7 +57,7 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
 # The server's protocol crate, pinned to a commit of the hanabi-live repository. To follow the protocol, change `rev` and fix what
 # no longer compiles in `wire`.
 serde_path_to_error = { version = "0.1", optional = true }
-hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "e035c6faaa77e142a5263d8510ba605e86d77122", optional = true }
+hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "28988be5782fcdaa630c24da621b9c4e58e47136", optional = true }
 
 # `Instant::now()` panics on `wasm32-unknown-unknown`; `web-time` reads the browser's clock instead (see `clock`).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

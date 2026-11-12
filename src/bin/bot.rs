@@ -134,7 +134,7 @@ async fn run_connection(
         let mut client = BotClient::new(config, out_tx);
         while let Ok(input) = in_rx.recv() {
             match input {
-                ClientIn::Msg(msg) => client.handle_msg(&msg),
+                ClientIn::Msg(frame) => client.handle_frame(&frame),
                 ClientIn::Console(cmd) => println!("{}", client.debug(&cmd, &name)),
             }
         }
@@ -143,11 +143,21 @@ async fn run_connection(
     // Sends one message at a time, with a pause between them.
     let (ws_tx, mut ws_rx) = unbounded_channel::<Message>();
     let sender = tokio::spawn(async move {
+        // Each request has an ID of its own, which the server's reply repeats.
+        let mut next_id: u64 = 1;
         loop {
             tokio::select! {
                 out = out_rx.recv() => match out {
-                    Some(Out::Send(text)) => {
-                        if write.send(Message::text(text)).await.is_err() {
+                    Some(Out::Send(line)) => {
+                        let frame = match wire::request(next_id, &line) {
+                            Ok(frame) => frame,
+                            Err(e) => {
+                                eprintln!("not sending `{line}`: {e}");
+                                continue;
+                            }
+                        };
+                        next_id += 1;
+                        if write.send(Message::text(frame)).await.is_err() {
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(500)).await;
