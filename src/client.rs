@@ -296,7 +296,9 @@ impl BotClient {
                 }
 
                 Incoming::Table(table) => {
-                    if self.table_id == Some(table.table_id as usize) && !self.game_started {
+                    if self.table_id == Some(table.table_id as usize) {
+                        // (A finished game's replay, which is also where the bot is after its own game: when the game
+                        // ends, everyone at the table is a spectator of it.)
                         if self.config.leave_replay_if_only_bots
                             && table.is_shared_replay()
                             && table
@@ -304,19 +306,27 @@ impl BotClient {
                                 .iter()
                                 .all(|s| self.config.is_bot_name(&s.username))
                         {
-                            log_info!("Leaving game. Only bots left spectating.");
+                            println!(
+                                "Leaving table {}: only bots are left watching the replay.",
+                                table.table_id
+                            );
                             self.leave_room();
-                        } else if self.leave_pregame_if_only_bots
-                            && table.is_pregame()
-                            && table
-                                .player_names
-                                .iter()
-                                .all(|p| self.config.is_bot_name(p))
-                        {
-                            log_info!("Leaving game. Only bots left in lobby.");
-                            self.leave_room();
-                        } else {
-                            self.check_supported_settings(&table);
+                        } else if !self.game_started {
+                            if self.leave_pregame_if_only_bots
+                                && table.is_pregame()
+                                && table
+                                    .player_names
+                                    .iter()
+                                    .all(|p| self.config.is_bot_name(p))
+                            {
+                                println!(
+                                    "Leaving table {}: only bots are left at it.",
+                                    table.table_id
+                                );
+                                self.leave_room();
+                            } else {
+                                self.check_supported_settings(&table);
+                            }
                         }
                     }
                     self.tables.insert(table.table_id, table);

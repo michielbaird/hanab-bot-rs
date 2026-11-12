@@ -1074,6 +1074,79 @@ fn it_ignores_what_is_not_a_frame() {
     assert_eq!(client.username(), None);
 }
 
+/// The bot leaves a pregame once only bots are left at the table (what `HANABI_BOT_NAME_PREFIXES` is for).
+#[test]
+fn it_leaves_a_pregame_when_only_bots_are_left() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        bot_name_prefixes: vec!["michiel-bot-".to_string()],
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("michiel-bot-1"));
+    joined_table(
+        &mut client,
+        &["alice", "michiel-bot-1"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
+    drain(&mut rx);
+
+    // A person is still there: the bot stays.
+    let table = |players: &[&str]| {
+        format!(
+            "table {}",
+            table_json(3, players, json!({"type": "pregame"}), json!({}))
+        )
+    };
+    client.handle_msg(&table(&["alice", "michiel-bot-1", "michiel-bot-2"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // The person leaves.
+    client.handle_msg(&table(&["michiel-bot-1", "michiel-bot-2"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+}
+
+/// A game ends and everyone is a spectator of its shared replay; once only bots are left watching, the bot leaves.
+#[test]
+fn it_leaves_the_replay_of_its_game_when_only_bots_are_left() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        bot_name_prefixes: vec!["michiel-bot-".to_string()],
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("michiel-bot-1"));
+    // The bot is at a table whose game has started (and then ended).
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "justStarted"}"#);
+    drain(&mut rx);
+
+    let replay = |spectators: &[&str]| {
+        let mut table = table_json(
+            3,
+            &["alice", "michiel-bot-1"],
+            json!({"type": "sharedReplay", "gameId": 5, "progress": 100}),
+            json!({}),
+        );
+        table["spectators"] = spectators
+            .iter()
+            .enumerate()
+            .map(|(i, name)| json!({"userId": 20 + i, "username": name}))
+            .collect();
+        format!("table {table}")
+    };
+
+    // A person is watching the replay: the bot stays.
+    client.handle_msg(&replay(&["alice", "michiel-bot-1"]));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // They go, and only bots are left: the bot leaves (it has played, so it unattends).
+    client.handle_msg(&replay(&["michiel-bot-1", "michiel-bot-2"]));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableUnattend {"tableId":3}"#]);
+}
+
 #[test]
 fn it_reads_the_phase_of_a_table() {
     logger::set_level(LogLevel::Off);
