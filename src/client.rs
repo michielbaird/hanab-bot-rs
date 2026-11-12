@@ -1,6 +1,6 @@
 //! The hanab.live client: reacts to server messages and chat commands.
 //!
-//! This is sans-IO. [`BotClient::handle_msg`] consumes one message from the server and everything the
+//! This is sans-IO. [`BotClient::handle_frame`] consumes one frame from the server and everything the
 //! client wants to do in response is pushed onto a channel as [`Out`]. The transport (`bin/bot.rs`)
 //! owns the websocket, spaces out the sends, and runs the client on its own thread, because
 //! choosing an action can take seconds.
@@ -25,7 +25,7 @@ use crate::settings::{
 };
 use crate::tools::console::{ConsoleCmd, run_command};
 use crate::tools::game_data::{GameData, build_game};
-use crate::wire::{self, AuthorNotes, GameInit, Incoming, UserInfo};
+use crate::wire::{self, AuthorNotes, GameInit, Incoming, Stage, UserInfo};
 use crate::{log_error, log_highlight, log_info};
 
 const RED: &str = "\x1b[31m";
@@ -208,9 +208,10 @@ impl BotClient {
         Ok(Game::new(table_id, state, true, convention.build()?))
     }
 
-    /// Handles one message from the server. Panics from game logic are caught and logged.
-    pub fn handle_msg(&mut self, data: &str) {
-        let result = catch_unwind(AssertUnwindSafe(|| self.handle_msg_inner(data)));
+    /// Handles one frame from the server (a JSON object: an event, or the reply to a request). Panics from game logic are
+    /// caught and logged.
+    pub fn handle_frame(&mut self, frame: &str) {
+        let result = catch_unwind(AssertUnwindSafe(|| self.handle_frame_inner(frame)));
 
         if let Err(payload) = result {
             let msg = payload
@@ -222,10 +223,8 @@ impl BotClient {
         }
     }
 
-    fn handle_msg_inner(&mut self, data: &str) {
-        let (command, args) = data.split_once(' ').unwrap_or((data, ""));
-
-        let incoming = match wire::receive(command, args) {
+    fn handle_frame_inner(&mut self, frame: &str) {
+        let incoming = match wire::receive(frame) {
             Ok(Some(incoming)) => incoming,
             Ok(None) => return,
             Err(e) => {
@@ -273,14 +272,19 @@ impl BotClient {
                     }
                 }
 
-                Incoming::TableJoined(id) => {
+                Incoming::TableJoined(id, stage) => {
                     self.table_id = Some(id);
-                    self.game_started = false;
+                    self.game_started = stage != Stage::Pregame;
                     self.last_requester = None;
                     self.leave_pregame_if_only_bots = true; // reset to true on each table join
 
-                    if let Some(table) = self.tables.get(&(id as i64)).cloned() {
-                        self.check_supported_settings(&table);
+                    if stage == Stage::Pregame {
+                        if let Some(table) = self.tables.get(&(id as i64)).cloned() {
+                            self.check_supported_settings(&table);
+                        }
+                    } else {
+                        // A game (or a replay) to load.
+                        self.send(wire::send::game_init_load(id));
                     }
                 }
 
@@ -353,17 +357,23 @@ impl BotClient {
                     }
                 }
 
-                Incoming::TableStarted(id) => {
-                    self.game_started = true;
-                    self.last_requester = None;
-                    self.send(wire::send::game_init_load(id));
+                // A refused request is answered with an error reply (it was a `warning` before JSON frames).
+                Incoming::Reply { id, refusal } => {
+                    if let Some(refusal) = refusal {
+                        if !refusal.ignored
+                            && let Some(who) = self.last_requester.take()
+                        {
+                            self.send_pm(&who, &refusal.message);
+                        }
+                        println!("request {id} refused: {}", refusal.message);
+                    }
                 }
 
                 Incoming::Notice { error, message } => {
                     if let Some(who) = self.last_requester.take() {
                         self.send_pm(&who, &message);
                     }
-                    println!("{}: {args}", if error { "error" } else { "warning" });
+                    println!("{}: {message}", if error { "error" } else { "warning" });
                 }
 
                 Incoming::Welcome(info) => {

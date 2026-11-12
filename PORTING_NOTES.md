@@ -205,7 +205,7 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `e035c6f` of 12 November, 15:39), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `28988be` of 12 November, 17:31), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
@@ -229,6 +229,12 @@ has examples; this follows upstream `e035c6f` of 12 November, 15:39), and the se
 The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the
 hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
 
+- **Frames:** since 12 November (17:16 EST) every websocket frame is one JSON object. A request is `{"id": n, "type": command, "data": payload}`
+  with an ID the client chooses (`wire::request`, from the line `command JSON` that the client emits; the transport in `bot.rs` counts the IDs
+  per connection). The server answers each with `{"reply": n}` (with `data`, or an `error` notice, which `Incoming::Reply` carries as a
+  `Refusal`; the code `commandIgnored` marks one not worth showing), and sends the rest as `{"event": name, "data": payload}`. `warning` is
+  left for problems that no request caused. A bot that still sent `command JSON` was logged in (the server lists it) but nothing it said was
+  understood, and it could not read a single message: `connected!` was the last thing it printed.
 - **Sending:** `wire::send::*` build a `ClientMessage` (an enum over every command), `login_request` and `websocket_query` the login form and
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
 - **Receiving:** `wire::receive(command, args)` reads a message into an `Incoming` (the messages the bot follows, in the shape it uses).
@@ -243,7 +249,7 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   of exports (`GameData`, `PerformAction::from_json`, `Action::from_json`) still take the older shapes, so saved games keep working.
 
 To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles. Bumping the pin by an hour of upstream commits has
-found `loaded` becoming `gameLoaded`, `LoginRequest.version` becoming optional, `tableStart` needing the players' user IDs and the
+found `tableStarted` merged into `tableJoined` (with a `stage`), a table's `progress` moving into its phase, `loaded` becoming `gameLoaded`, `LoginRequest.version` becoming optional, `tableStart` needing the players' user IDs and the
 `ViewMode::SharedReplay` of `gameInit`. Pinning an older commit shows what that looks like. The test payloads in `tests/client.rs` are
 complete messages for the same reason: the schema rejects a partial one. `BotClient` (the `client` module) needs the feature; the library
 without it does not depend on the crate, so the WebAssembly package does not either. The crate is `GPL-3.0-only`; this one is

@@ -14,8 +14,8 @@ use hanabi_protocol::{
     CardEvent, CardIdentity, CardOrder, Chat, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
     ClientKind, ClientMessage, Clue, ClueRank, ClueTurn, ColorIndex, EndCondition, GameEvent,
     GameOptions, LoginRequest, NoteRequest, PlayerAction, PlayerActionRequest, PlayerIndex,
-    ServerMessage, TableId, TableJoinRequest, TablePhase, TableRef, TableStartRequest, TargetCard,
-    UserId, UserRef, WebSocketQuery, server,
+    RequestId, ServerMessage, TableId, TableJoinRequest, TablePhase, TableRef, TableStage,
+    TableStartRequest, TargetCard, UserId, UserRef, WebSocketQuery, server,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -414,6 +414,24 @@ pub struct GameState {
     pub notes: Vec<AuthorNotes>,
 }
 
+/// What we enter at a table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    Pregame,
+    /// A game that started just now.
+    JustStarted,
+    Playing,
+    Replay,
+}
+
+/// Why the server refused a request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub message: String,
+    /// A refusal that is not worth showing, such as a move for a table that has ended.
+    pub ignored: bool,
+}
+
 /// A message of the server that the bot follows.
 #[derive(Clone, Debug)]
 pub enum Incoming {
@@ -426,14 +444,19 @@ pub enum Incoming {
     Table(Table),
     TableList(Vec<Table>),
     TableRemoved(i64),
-    TableJoined(usize),
+    /// We entered a table: its pregame, or a game (that started just now, is going on, or is over).
+    TableJoined(usize, Stage),
     TableLeft(usize),
-    TableStarted(usize),
     GameInit(GameInit),
     GameState(GameState),
     /// An event of the game in progress (`None` for one that the game model does not follow).
     GameEvent(Option<Action>),
-    /// A refused command or a warning, with what the server says.
+    /// The server's answer to a request of ours (by its ID). `refusal` is set if the request was refused.
+    Reply {
+        id: u64,
+        refusal: Option<Refusal>,
+    },
+    /// A warning or an error that no request caused, with what the server says.
     Notice {
         error: bool,
         message: String,
@@ -475,7 +498,7 @@ fn chat(chat: &Chat) -> ChatMessage {
             (source, username, Some(recipient.to_string()))
         }
         // (A suggestion to the owner of a table is from the server.)
-        ChatKind::Suggestion { recipient, .. } => {
+        ChatKind::SettingsSuggestion { recipient, .. } => {
             ("server", String::new(), Some(recipient.to_string()))
         }
     };
@@ -510,10 +533,15 @@ fn table(table: &hanabi_protocol::Table) -> Table {
         },
         password_protected: table.password_protected,
         player_names: table.player_names.iter().map(ToString::to_string).collect(),
-        progress: i64::from(table.progress.get()),
+        progress: match table.phase {
+            TablePhase::Pregame {} => 0,
+            TablePhase::Playing { progress } | TablePhase::SharedReplay { progress, .. } => {
+                i64::from(progress.get())
+            }
+        },
         phase: match table.phase {
             TablePhase::Pregame {} => Phase::Pregame,
-            TablePhase::Playing {} => Phase::Playing,
+            TablePhase::Playing { .. } => Phase::Playing,
             TablePhase::SharedReplay { .. } => Phase::SharedReplay,
         },
         spectators: table
@@ -663,11 +691,10 @@ fn user_of(value: &Value) -> Result<UserInfo, String> {
     lenient::<UserRef>(value).map(|u| user(&u))
 }
 
-/// Reads a message of the server (`command` and its JSON `args`). `None` for one that the bot does not follow.
-pub fn receive(command: &str, args: &str) -> Result<Option<Incoming>, String> {
-    let value = || -> Result<Value, String> {
-        serde_json::from_str(args).map_err(|e| format!("bad json for {command}: {e}"))
-    };
+/// Reads a message that the server sent on its own (an event: its name and its payload). `None` for one that the bot does
+/// not follow.
+fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
+    let value = || -> Result<Value, String> { Ok(data.clone()) };
     let read = |e: String| format!("{command}: {e}");
 
     // (A chain and not a `match`: the names are the constants of the server, which a pattern cannot be.)
@@ -706,13 +733,18 @@ pub fn receive(command: &str, args: &str) -> Result<Option<Incoming>, String> {
         Incoming::TableRemoved(removed.table_id.get() as i64)
     } else if command == server::TABLE_JOINED.name() {
         let joined = payload(server::TABLE_JOINED, &value()?).map_err(read)?;
-        Incoming::TableJoined(joined.table_id.get() as usize)
+        Incoming::TableJoined(
+            joined.table_id.get() as usize,
+            match joined.stage {
+                TableStage::Pregame => Stage::Pregame,
+                TableStage::JustStarted => Stage::JustStarted,
+                TableStage::Playing => Stage::Playing,
+                TableStage::Replay => Stage::Replay,
+            },
+        )
     } else if command == server::TABLE_LEFT.name() {
         let left = payload(server::TABLE_LEFT, &value()?).map_err(read)?;
         Incoming::TableLeft(left.table_id.get() as usize)
-    } else if command == server::TABLE_STARTED.name() {
-        let started = payload(server::TABLE_STARTED, &value()?).map_err(read)?;
-        Incoming::TableStarted(started.table_id.get() as usize)
     } else if command == server::GAME_INIT.name() {
         Incoming::GameInit(game_init(
             &payload(server::GAME_INIT, &value()?).map_err(read)?,
@@ -738,6 +770,71 @@ pub fn receive(command: &str, args: &str) -> Result<Option<Incoming>, String> {
     } else {
         return Ok(None);
     }))
+}
+
+/// The start of a frame, for a message about one that cannot be read.
+fn abbreviated(frame: &str) -> String {
+    let start: String = frame.chars().take(200).collect();
+    if start.len() < frame.len() {
+        format!("{start}...")
+    } else {
+        start
+    }
+}
+
+/// Reads a frame of the server: one JSON object, `{"event": name, "data": payload}` for a message that the server sends on its
+/// own, or `{"reply": id}` (with `data` or an `error`) for its answer to a request of ours. `None` for an event that the bot
+/// does not follow.
+pub fn receive(frame: &str) -> Result<Option<Incoming>, String> {
+    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(frame) else {
+        return Err(format!(
+            "not a frame (a JSON object): {}",
+            abbreviated(frame)
+        ));
+    };
+
+    if let Some(name) = fields.remove("event") {
+        let name = name
+            .as_str()
+            .ok_or_else(|| format!("an event without a name: {}", abbreviated(frame)))?;
+        let data = fields.remove("data").unwrap_or(Value::Null);
+        return event(name, &data);
+    }
+
+    if let Some(id) = fields.remove("reply") {
+        let id = id
+            .as_u64()
+            .ok_or_else(|| format!("a reply without an ID: {}", abbreviated(frame)))?;
+        let refusal = fields
+            .remove("error")
+            .map(|error| {
+                let notice: hanabi_protocol::Notice =
+                    lenient(&error).map_err(|e| format!("the error of reply {id}: {e}"))?;
+                Ok::<_, String>(Refusal {
+                    ignored: notice.code == Some(hanabi_protocol::NoticeCode::CommandIgnored),
+                    message: notice.message,
+                })
+            })
+            .transpose()?;
+        return Ok(Some(Incoming::Reply { id, refusal }));
+    }
+
+    Err(format!(
+        "a frame that is neither an event nor a reply: {}",
+        abbreviated(frame)
+    ))
+}
+
+/// The frame of a request, `{"id": n, "type": command, "data": payload}`, from a line `command JSON` (what the client
+/// emits). The server answers it with a reply that repeats the ID. A command that the server would not take is an error here.
+pub fn request(id: u64, line: &str) -> Result<String, String> {
+    let (command, args) = line.split_once(' ').unwrap_or((line, ""));
+    let data: Value = serde_json::from_str(args).map_err(|e| format!("{command}: {e}"))?;
+    ClientMessage::decode(command, &data)
+        .map_err(|e| format!("{command}: {e}"))?
+        .ok_or_else(|| format!("{command} is not a command"))?;
+    let id = RequestId::new(id).ok_or_else(|| format!("{id} is not a request ID"))?;
+    Ok(serde_json::json!({"id": id.get(), "type": command, "data": data}).to_string())
 }
 
 #[cfg(test)]
@@ -858,8 +955,17 @@ mod tests {
         );
     }
 
+    /// The frame of an event: `{"event": command, "data": json}`.
+    fn event_frame(command: &str, data: Value) -> String {
+        json!({"event": command, "data": data}).to_string()
+    }
+
+    fn read(command: &str, data: Value) -> Result<Option<Incoming>, String> {
+        receive(&event_frame(command, data))
+    }
+
     fn received(command: &str, json: Value) -> Incoming {
-        receive(command, &json.to_string())
+        read(command, json)
             .unwrap_or_else(|e| panic!("{command}: {e}"))
             .unwrap_or_else(|| panic!("{command} is not followed"))
     }
@@ -920,16 +1026,19 @@ mod tests {
             Incoming::Table(table) => table.phase,
             other => panic!("{other:?}"),
         };
-        assert_eq!(phase(json!({"type": "playing"})), Phase::Playing);
+        assert_eq!(
+            phase(json!({"type": "playing", "progress": 40})),
+            Phase::Playing
+        );
         // A shared replay names its game.
         assert_eq!(
-            phase(json!({"type": "sharedReplay", "gameId": 5})),
+            phase(json!({"type": "sharedReplay", "gameId": 5, "progress": 100})),
             Phase::SharedReplay
         );
 
         let Incoming::TableList(tables) = received(
             "tableList",
-            json!({"tables": [table_json(json!({"type": "playing"}))]}),
+            json!({"tables": [table_json(json!({"type": "playing", "progress": 40}))]}),
         ) else {
             panic!("a table list");
         };
@@ -938,10 +1047,21 @@ mod tests {
 
     #[test]
     fn reads_the_moves_between_tables() {
-        assert!(matches!(
-            received("tableJoined", json!({"tableId": 3})),
-            Incoming::TableJoined(3)
-        ));
+        // Entering a table says what we enter: its pregame, or a game (just started, going on, or a replay).
+        for (stage, expected) in [
+            ("pregame", Stage::Pregame),
+            ("justStarted", Stage::JustStarted),
+            ("playing", Stage::Playing),
+            ("replay", Stage::Replay),
+        ] {
+            assert!(
+                matches!(
+                    received("tableJoined", json!({"tableId": 3, "stage": stage})),
+                    Incoming::TableJoined(3, s) if s == expected
+                ),
+                "{stage}"
+            );
+        }
         assert!(matches!(
             received("tableLeft", json!({"tableId": 3})),
             Incoming::TableLeft(3)
@@ -949,13 +1069,6 @@ mod tests {
         assert!(matches!(
             received("tableRemoved", json!({"tableId": 3})),
             Incoming::TableRemoved(3)
-        ));
-        assert!(matches!(
-            received(
-                "tableStarted",
-                json!({"tableId": 3, "stage": "justStarted"})
-            ),
-            Incoming::TableStarted(3)
         ));
     }
 
@@ -1018,7 +1131,7 @@ mod tests {
         );
 
         let suggestion = chat(
-            json!({"type": "suggestion", "recipient": "bot",
+            json!({"type": "settingsSuggestion", "recipient": "bot",
                 "settings": {"name": "t", "maxPlayers": 5, "options": {}}}),
             None,
         );
@@ -1041,7 +1154,7 @@ mod tests {
     fn reads_the_start_and_the_state_of_a_game() {
         let init = |mode: Value| match received(
             "gameInit",
-            json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": mode, "customSeed": false,
+            json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": mode, "customDeal": false,
                     "seed": "p2v0s1", "startedAt": "2026-01-01T12:00:00.000Z",
                     "options": {"variantId": 7, "deckPlays": true}, "characters": []}),
         ) {
@@ -1059,7 +1172,7 @@ mod tests {
 
         let Incoming::GameState(state) = received(
             "gameState",
-            json!({"tableId": 7, "connected": [true, true], "spectators": [],
+            json!({"tableId": 7, "connections": [true, true], "spectators": [],
                 "events": [
                     {"type": "draw", "playerIndex": 0, "order": 0},
                     {"type": "turn", "turn": 0, "currentPlayerIndex": 0}],
@@ -1108,15 +1221,81 @@ mod tests {
     #[test]
     fn a_message_that_is_not_followed_or_is_wrong_is_told_apart() {
         // Not followed: nothing to do. Unknown: the same.
-        assert!(receive("clock", "{}").unwrap().is_none());
-        assert!(receive("nope", "{}").unwrap().is_none());
-        // Followed, but not what the schema says (a missing field, one of another type, not JSON).
-        assert!(receive("tableJoined", "{}").is_err());
-        assert!(receive("tableJoined", r#"{"tableId": "3"}"#).is_err());
-        assert!(receive("tableJoined", "not json").is_err());
+        assert!(read("clock", json!({})).unwrap().is_none());
+        assert!(read("nope", json!({})).unwrap().is_none());
+        // Followed, but not what the schema says (a missing field, one of another type).
+        assert!(read("tableJoined", json!({})).is_err());
+        assert!(read("tableJoined", json!({"tableId": "3", "stage": "pregame"})).is_err());
+        assert!(read("tableJoined", json!({"tableId": 3, "stage": "later"})).is_err());
         // The names of before 12 November are not the server's any more.
-        assert!(receive("tableGone", r#"{"tableId": 3}"#).unwrap().is_none());
-        assert!(receive("init", "{}").unwrap().is_none());
+        assert!(read("tableGone", json!({"tableId": 3})).unwrap().is_none());
+        assert!(
+            read(
+                "tableStarted",
+                json!({"tableId": 3, "stage": "justStarted"})
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(read("init", json!({})).unwrap().is_none());
+    }
+
+    #[test]
+    fn reads_the_frames_of_the_server() {
+        // Not a frame: not JSON, not an object, neither an event nor a reply, or the old `command JSON` form.
+        for frame in [
+            "not json",
+            "[1, 2]",
+            r#"{"data": {}}"#,
+            r#"{"event": 3, "data": {}}"#,
+            r#"{"reply": "one"}"#,
+            r#"table {"tableId": 3}"#,
+        ] {
+            assert!(receive(frame).is_err(), "{frame}");
+        }
+
+        // The answer to a request: it repeats the request's ID, and says if the request was refused.
+        match receive(r#"{"reply": 7}"#).unwrap() {
+            Some(Incoming::Reply {
+                id: 7,
+                refusal: None,
+            }) => {}
+            other => panic!("{other:?}"),
+        }
+        match receive(r#"{"reply": 8, "error": {"message": "No."}}"#).unwrap() {
+            Some(Incoming::Reply {
+                id: 8,
+                refusal: Some(refusal),
+            }) => {
+                assert_eq!((refusal.message.as_str(), refusal.ignored), ("No.", false));
+            }
+            other => panic!("{other:?}"),
+        }
+        // A refusal that is not worth showing.
+        match receive(r#"{"reply": 9, "error": {"message": "Over.", "code": "commandIgnored"}}"#)
+            .unwrap()
+        {
+            Some(Incoming::Reply {
+                refusal: Some(refusal),
+                ..
+            }) => assert!(refusal.ignored),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_request_is_a_frame_with_an_id() {
+        let frame = request(5, r#"gameStateLoad {"tableId":7}"#).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap(),
+            json!({"id": 5, "type": "gameStateLoad", "data": {"tableId": 7}})
+        );
+
+        // What the server would not take is not sent: an unknown command, a payload of the old shape, an ID out of range.
+        assert!(request(1, r#"loaded {"tableId":7}"#).is_err());
+        assert!(request(1, r#"note {"tableID":7,"order":0,"note":"x"}"#).is_err());
+        assert!(request(1, "gameStateLoad not json").is_err());
+        assert!(request(0, r#"gameStateLoad {"tableId":7}"#).is_err());
     }
 
     #[test]
@@ -1156,7 +1335,7 @@ mod tests {
         assert_eq!(table.spectators.len(), 2);
 
         // A list of them.
-        let mut one = table_json(json!({"type": "playing"}));
+        let mut one = table_json(json!({"type": "playing", "progress": 40}));
         one["added"] = json!([1, 2]);
         assert!(matches!(
             received("tableList", json!({"tables": [one], "total": 1})),
@@ -1175,7 +1354,7 @@ mod tests {
         ));
         let Incoming::GameState(state) = received(
             "gameState",
-            json!({"tableId": 7, "connected": [true, true], "spectators": [], "latency": 3,
+            json!({"tableId": 7, "connections": [true, true], "spectators": [], "latency": 3,
                 "events": [clue, {"type": "turn", "turn": 0, "currentPlayerIndex": 0, "more": true}],
                 "notes": [{"username": "bot", "notes": ["x"], "spectator": false, "color": "red"}]}),
         ) else {
@@ -1196,7 +1375,7 @@ mod tests {
             received(
                 "gameInit",
                 json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "spectating", "x": 1},
-                    "customSeed": false, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
+                    "customDeal": false, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
                     "characters": [], "rated": true})
             ),
             Incoming::GameInit(_)
@@ -1227,7 +1406,7 @@ mod tests {
             Incoming::Welcome(u) if u.name == "Alice"
         ));
         // ... but who they are is needed.
-        assert!(receive("user", r#"{"username": "Alice"}"#).is_err());
+        assert!(read("user", json!({"username": "Alice"})).is_err());
     }
 
     /// What the bot cannot do without stays an error: a missing field, one of another type, a kind it does not know, or
@@ -1236,21 +1415,21 @@ mod tests {
     fn a_change_that_is_not_an_addition_is_still_an_error() {
         let mut missing = table_json(json!({"type": "pregame"}));
         missing.as_object_mut().unwrap().remove("playerNames");
-        assert!(receive("table", &missing.to_string()).is_err());
+        assert!(read("table", missing).is_err());
 
         let mut retyped = table_json(json!({"type": "pregame"}));
-        retyped["progress"] = json!("half");
-        assert!(receive("table", &retyped.to_string()).is_err());
+        retyped["playerNames"] = json!("Alice");
+        assert!(read("table", retyped).is_err());
 
         // A phase that is not known (and one in the old form, a name).
-        assert!(receive("table", &table_json(json!({"type": "paused"})).to_string()).is_err());
-        assert!(receive("table", &table_json(json!("pregame")).to_string()).is_err());
+        assert!(read("table", table_json(json!({"type": "paused"}))).is_err());
+        assert!(read("table", table_json(json!("pregame"))).is_err());
 
         // An addition together with a change: the change is reported.
         let mut both = table_json(json!({"type": "pregame"}));
         both["added"] = json!(1);
         both["tableId"] = json!(-4);
-        assert!(receive("table", &both.to_string()).is_err());
+        assert!(read("table", both).is_err());
         let range = json!({"type": "play", "playerIndex": 9, "order": 1, "added": 1});
         assert!(game_event(&range).is_err());
     }

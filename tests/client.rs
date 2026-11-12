@@ -45,7 +45,7 @@ fn game_init(table_id: usize, players: &[&str], seed: &str) -> String {
     format!(
         "gameInit {}",
         json!({"tableId": table_id, "playerNames": players,
-            "mode": {"type": "playing", "ourPlayerIndex": 0}, "customSeed": false, "seed": seed,
+            "mode": {"type": "playing", "ourPlayerIndex": 0}, "customDeal": false, "seed": seed,
             "startedAt": WHEN, "options": {"variantId": 0}, "characters": []})
     )
 }
@@ -53,7 +53,7 @@ fn game_init(table_id: usize, players: &[&str], seed: &str) -> String {
 fn game_state_of(table_id: usize, events: &[Value], notes: Value) -> String {
     format!(
         "gameState {}",
-        json!({"tableId": table_id, "events": events, "notes": notes, "connected": [true, true],
+        json!({"tableId": table_id, "events": events, "notes": notes, "connections": [true, true],
             "spectators": []})
     )
 }
@@ -75,6 +75,20 @@ fn table_json(table_id: usize, players: &[&str], phase: Value, options: Value) -
     json!({"tableId": table_id, "owner": {"userId": 9, "username": "owner"}, "passwordProtected": false,
         "settings": {"name": "t", "maxPlayers": 5, "options": options}, "playerNames": players,
         "progress": 0, "phase": phase, "spectators": []})
+}
+
+/// Feeds the client a message written as `command JSON`, in the frame that the server sends it in:
+/// `{"event": command, "data": JSON}`.
+trait Feed {
+    fn handle_msg(&mut self, line: &str);
+}
+
+impl Feed for BotClient {
+    fn handle_msg(&mut self, line: &str) {
+        let (command, data) = line.split_once(' ').unwrap_or((line, "{}"));
+        let data: Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{line}: {e}"));
+        self.handle_frame(&json!({"event": command, "data": data}).to_string());
+    }
 }
 
 /// A command the way the server takes it: a command it knows, with a payload that passes the schema of its type. Everything
@@ -826,7 +840,7 @@ fn it_warns_about_table_options_in_chat_without_a_recipient() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("bot"));
-    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
     drain(&mut rx);
 
     let table = table_json(
@@ -850,7 +864,7 @@ fn it_ignores_tables_after_the_start_and_reads_the_table_list() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("bot"));
-    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
     drain(&mut rx);
 
     // A table without a convention-breaking option, in the list of tables.
@@ -859,12 +873,12 @@ fn it_ignores_tables_after_the_start_and_reads_the_table_list() {
     assert!(chats(&drain(&mut rx)).is_empty());
 
     // Once the game has started, a table update is not looked at (it could make the bot leave the game).
-    client.handle_msg(r#"tableStarted {"tableId": 3, "stage": "justStarted"}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "justStarted"}"#);
     drain(&mut rx);
     let unsupported = table_json(
         3,
         &["bot"],
-        json!({"type": "playing"}),
+        json!({"type": "playing", "progress": 40}),
         json!({"oneLessCard": true}),
     );
     client.handle_msg(&format!("table {unsupported}"));
@@ -879,7 +893,7 @@ fn it_asks_for_the_game_when_the_table_starts() {
     client.handle_msg(&welcome("bot"));
     drain(&mut rx);
 
-    client.handle_msg(r#"tableStarted {"tableId": 7, "stage": "justStarted"}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 7, "stage": "justStarted"}"#);
     assert_eq!(sends(&drain(&mut rx)), [r#"gameInitLoad {"tableId":7}"#]);
 }
 
@@ -887,7 +901,7 @@ fn it_asks_for_the_game_when_the_table_starts() {
 fn joined_table(client: &mut BotClient, players: &[&str], phase: Value, options: Value) {
     let table = table_json(3, players, phase, options);
     client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
-    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
 }
 
 #[test]
@@ -904,7 +918,7 @@ fn it_forgets_a_table_that_is_removed() {
     );
     client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
     client.handle_msg(r#"tableRemoved {"tableId": 3}"#);
-    client.handle_msg(r#"tableJoined {"tableId": 3}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
 
     // The table is not known any more, so there are no settings to complain about.
     assert!(chats(&drain(&mut rx)).is_empty());
@@ -1005,6 +1019,62 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
 }
 
 #[test]
+fn it_tells_who_asked_when_the_server_refuses_a_request() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice")]})
+    ));
+    joined_table(
+        &mut client,
+        &["alice", "bot"],
+        json!({"type": "pregame"}),
+        json!({}),
+    );
+    drain(&mut rx);
+
+    // A refusal is the reply to a request (it was a warning before JSON frames), and the one who asked hears why.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_frame(r#"{"reply": 1, "error": {"message": "Only the owner can start."}}"#);
+    let outs = drain(&mut rx);
+    assert_eq!(pm_replies(&outs), ["Only the owner can start."]);
+
+    // One that is not worth showing is not passed on, and neither is a success.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_frame(r#"{"reply": 2, "error": {"message": "Over.", "code": "commandIgnored"}}"#);
+    client.handle_frame(r#"{"reply": 3}"#);
+    assert!(pm_replies(&drain(&mut rx)).is_empty());
+
+    // A warning that no request caused is still passed on.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_msg(r#"warning {"message": "Slow down."}"#);
+    assert_eq!(pm_replies(&drain(&mut rx)), ["Slow down."]);
+}
+
+#[test]
+fn it_ignores_what_is_not_a_frame() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    // The form from before JSON frames, and things that are not messages at all: logged, and nothing is done.
+    client.handle_frame(&format!(
+        "{} {}",
+        "welcome", r#"{"userId": 1, "username": "bot"}"#
+    ));
+    client.handle_frame("");
+    client.handle_frame("{");
+    client.handle_frame(r#"{"nothing": true}"#);
+    assert!(drain(&mut rx).is_empty());
+    assert_eq!(client.username(), None);
+}
+
+#[test]
 fn it_reads_the_phase_of_a_table() {
     logger::set_level(LogLevel::Off);
     // A pregame table with an option the bot cannot play: it says so when it joins, which it only does for a pregame.
@@ -1026,7 +1096,7 @@ fn it_reads_the_phase_of_a_table() {
     joined_table(
         &mut client,
         &["alice"],
-        json!({"type": "sharedReplay", "gameId": 5}),
+        json!({"type": "sharedReplay", "gameId": 5, "progress": 100}),
         json!({}),
     );
     assert!(chats(&drain(&mut rx)).is_empty());
@@ -1034,7 +1104,7 @@ fn it_reads_the_phase_of_a_table() {
     let table = table_json(
         3,
         &["alice"],
-        json!({"type": "sharedReplay", "gameId": 5}),
+        json!({"type": "sharedReplay", "gameId": 5, "progress": 100}),
         json!({}),
     );
     client.handle_msg(&format!("table {table}"));
