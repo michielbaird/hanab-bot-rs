@@ -13,7 +13,7 @@ use hanabi_protocol::{
     CardEvent, CardIdentity, CardOrder, ChatPmRequest, ChatRequest, ClientKind, ClientMessage,
     Clue, ClueRank, ClueTurn, ColorIndex, EndCondition, GameEvent, LoginRequest, NoteRequest,
     PlayerAction, PlayerActionRequest, PlayerIndex, TableId, TableJoinRequest, TableRef,
-    TableStartRequest, TargetCard, WebSocketQuery,
+    TableStartRequest, TargetCard, UserId, WebSocketQuery,
 };
 use serde_json::Value;
 
@@ -105,8 +105,9 @@ pub mod send {
         Ok(ClientMessage::GameStateLoad(table_ref(table)?))
     }
 
-    pub fn loaded(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::Loaded(table_ref(table)?))
+    /// We have caught up with the game: it is ready for us to play.
+    pub fn game_loaded(table: usize) -> Result<ClientMessage, String> {
+        Ok(ClientMessage::GameLoaded(table_ref(table)?))
     }
 
     /// Our note on a card.
@@ -166,16 +167,19 @@ pub fn login_request(username: &str, password: &str) -> LoginRequest {
 
 /// The query of the `/ws` URL of a bot, as pairs: the account to connect as (a session can hold several), and what kind of
 /// client it is.
-pub fn websocket_query(account: Option<i64>) -> Vec<(String, String)> {
+pub fn websocket_query(account: Option<i64>) -> Result<Vec<(String, String)>, String> {
+    let account = account
+        .map(|id| UserId::new(id).ok_or_else(|| format!("{id} is not an account")))
+        .transpose()?;
     let query = WebSocketQuery {
-        account: account.map(|id| id.to_string()),
+        account,
         version: None,
         client: ClientKind::Bot,
     };
     let Value::Object(fields) = serde_json::to_value(query).expect("a query is JSON") else {
         unreachable!("a query is an object");
     };
-    fields
+    Ok(fields
         .into_iter()
         .map(|(name, value)| {
             let text = match value {
@@ -184,7 +188,7 @@ pub fn websocket_query(account: Option<i64>) -> Vec<(String, String)> {
             };
             (name, text)
         })
-        .collect()
+        .collect())
 }
 
 fn identity(id: CardIdentity) -> Identity {
@@ -322,7 +326,7 @@ mod tests {
             send::table_terminate(7).unwrap(),
             send::game_init_load(7).unwrap(),
             send::game_state_load(7).unwrap(),
-            send::loaded(7).unwrap(),
+            send::game_loaded(7).unwrap(),
             send::note(7, 0, "[INFO: v1, HGroup4]").unwrap(),
             send::player_action(7, &PerformAction::Play { target: 3 }).unwrap(),
             send::player_action(7, &PerformAction::Discard { target: 3 }).unwrap(),
@@ -415,7 +419,7 @@ mod tests {
         assert_eq!(form["username"], "bot");
         assert!(form.get("bot").is_none() && form.get("api").is_none());
 
-        let mut query = websocket_query(Some(12));
+        let mut query = websocket_query(Some(12)).unwrap();
         query.sort();
         assert_eq!(
             query,
@@ -425,9 +429,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            websocket_query(None),
+            websocket_query(None).unwrap(),
             [("client".to_string(), "bot".to_string())]
         );
+        assert!(websocket_query(Some(0)).is_err());
     }
 
     #[test]
