@@ -156,7 +156,7 @@ fn sends(outs: &[Out]) -> Vec<&str> {
     outs.iter()
         .filter_map(|o| match o {
             Out::Send(_, s) => Some(s.as_str()),
-            Out::Wait(_) => None,
+            Out::Wait(..) => None,
         })
         .collect()
 }
@@ -218,7 +218,7 @@ fn it_plays_through_the_game_start_handshake() {
     assert_eq!(s[0], r#"gameLoaded {"tableId":7}"#);
     assert!(
         outs.iter()
-            .any(|o| *o == Out::Wait(std::time::Duration::from_millis(1000)))
+            .any(|o| matches!(o, Out::Wait(_, d) if *d == std::time::Duration::from_millis(1000)))
     );
     let action = s.last().unwrap();
     assert!(
@@ -226,6 +226,61 @@ fn it_plays_through_the_game_start_handshake() {
         "expected an action, got {action}"
     );
     assert!(action.contains(r#""tableId":7"#));
+}
+
+/// With searches on threads of their own, the client goes on while one runs, and queues the move when the result is handed back.
+#[test]
+fn it_searches_on_a_thread_and_plays_the_result_when_handed_back() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    let (found_tx, found_rx) = unbounded_channel();
+    let found_tx = std::sync::Mutex::new(found_tx);
+    client.search_in_threads(move |searched| {
+        let _ = found_tx.lock().unwrap().send(searched);
+    });
+
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&game_init(7, &["bot", "human"], "x"));
+    client.handle_msg(&game_notes(7, "bot"));
+    drain(&mut rx);
+
+    let ids = [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)];
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
+        .collect();
+    for (i, (suit, rank)) in ids.iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
+    }
+    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&game_state(7, &list));
+
+    let outs = drain(&mut rx);
+    assert!(
+        !sends(&outs).iter().any(|s| s.starts_with("playerAction ")),
+        "the move waits for the search: {outs:?}"
+    );
+
+    let searched = found_rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the search hands its result back");
+    client.finish_search(searched);
+    let outs = drain(&mut rx);
+    let s = sends(&outs);
+    assert!(
+        s.last()
+            .is_some_and(|a| a.starts_with("playerAction ") && a.contains(r#""tableId":7"#))
+    );
+    assert!(
+        outs.iter().any(|o| matches!(o, Out::Wait(Some(7), _))),
+        "the pause is for that table: {outs:?}"
+    );
 }
 
 /// The notes the bot writes on cards as the game goes: they are commands like any other, and the server checks them.
