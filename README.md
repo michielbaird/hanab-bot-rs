@@ -85,7 +85,18 @@ chat command needs the `net` feature and answers that it is unavailable without 
 ## Changing the convention
 
 PM the bot (or say in the table chat) `/settings <convention>` / `/setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
-game in progress is still played with the convention it started with, and the bot says so. To switch the game in progress, add `force`:
+game in progress is still played with the convention it started with, and the bot says so.
+
+A bot can be at several tables at once, each with its own convention, so a command is about **your** table (a person is at one table at a time):
+
+- A PM from someone at one of the bot's tables sets that table. The bot says in the table's chat which convention it will play there when it joins, and again
+  when you change it before the game. A rematch (the next game of the same people) keeps the table's convention.
+- `/setall <convention>` in a table's chat sets that table, for every bot at it.
+- A PM from someone at none of its tables sets the default for the tables it comes to later (Reactor until you say). With several tables, `/settings` on its own
+  tells you the setting of your table and the default.
+- `/start`, `/leave`, `/terminate` and `/stay` are likewise about your table, and the bot goes back to all its games after a reconnect.
+
+To switch the game in progress, add `force`:
 
 ```
 /settings HGroup3 force

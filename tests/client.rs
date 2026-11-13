@@ -4,6 +4,7 @@
 mod common;
 
 use hanab_bot::basics::Variant;
+use hanab_bot::basics::action::Action;
 use hanab_bot::basics::state::TableOptions;
 use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::logger::{self, LogLevel};
@@ -293,7 +294,7 @@ fn it_answers_chat_commands() {
     let outs = drain(&mut rx);
     let s = sends(&outs);
     assert!(s[0].contains("hanab-bot-rs"));
-    assert!(s[1].contains("Currently playing with Reactor1 conventions."));
+    assert!(s[1].contains("At a new table I play Reactor1 conventions."));
     // H-Group is supported, so the setting is accepted.
     assert!(s[2].contains("HGroup5"), "got {}", s[2]);
     assert!(s[3].contains("Fast mode is now on."));
@@ -637,8 +638,8 @@ fn a_new_setting_applies_from_the_next_game() {
     client.handle_msg(&pm("alice", "/settings HGroup3"));
     client.handle_msg(&pm("alice", "/settings"));
     let replies = pm_replies(&drain(&mut rx));
-    assert_eq!(replies[0], "Currently playing with HGroup3 conventions.");
-    assert_eq!(replies[1], "Currently playing with HGroup3 conventions.");
+    assert_eq!(replies[0], "At a new table I play HGroup3 conventions.");
+    assert_eq!(replies[1], "At a new table I play HGroup3 conventions.");
 
     // A game starts with HGroup3. Changing the setting must not claim to change this game.
     client.handle_msg(&init_for(7, &["bot", "alice"]));
@@ -713,7 +714,7 @@ fn a_convention_can_be_forced_during_a_game() {
     client.handle_msg(&pm("alice", "/settings HGroup5 force"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
-        ["Currently playing with HGroup5 conventions."]
+        ["At a new table I play HGroup5 conventions."]
     );
 
     // A game starts with HGroup5.
@@ -865,10 +866,28 @@ fn after_a_forced_switch_the_bot_plays_its_turn_with_the_new_convention() {
     assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
 }
 
+/// The chat the client sent to a table, except what it says on joining about the convention it will play (see `announcements`).
 fn chats(outs: &[Out]) -> Vec<&str> {
     sends(outs)
         .into_iter()
-        .filter(|s| s.starts_with("chat "))
+        .filter(|s| s.starts_with("chat ") && !s.contains("I'll play"))
+        .collect()
+}
+
+/// What the client said about the convention it will play, in the chat of a table.
+fn convention_announcements(outs: &[Out]) -> Vec<String> {
+    sends(outs)
+        .into_iter()
+        .filter_map(|s| s.strip_prefix("chat "))
+        .map(|args| serde_json::from_str::<Value>(args).unwrap())
+        .filter(|chat| chat["text"].as_str().unwrap().starts_with("I'll play"))
+        .map(|chat| {
+            format!(
+                "table {}: {}",
+                chat["tableId"],
+                chat["text"].as_str().unwrap()
+            )
+        })
         .collect()
 }
 
@@ -1169,120 +1188,6 @@ fn a_refused_or_empty_reply_to_the_request_for_a_game_starts_nothing() {
     }
 }
 
-/// A bot can be at several tables at once now, but this one plays one game at a time: what happens at another table must not
-/// reach the game it plays (a clue from the other table, in the turn of this one, was recorded as a move of this game).
-#[test]
-fn it_ignores_what_happens_at_another_table() {
-    logger::set_level(LogLevel::Off);
-    init_variants();
-    let (tx, mut rx) = unbounded_channel();
-    let config = BotConfig {
-        feedback_intro: false,
-        ..BotConfig::default()
-    };
-    let mut client = BotClient::new(config, tx);
-    client.handle_msg(&welcome("bot"));
-    client.handle_msg(&game_init(7, &["bot", "human"], "x"));
-    client.handle_msg(&game_notes(7, "bot"));
-    let mut list: Vec<Value> = (0..5)
-        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
-        .collect();
-    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
-        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
-    }
-    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
-    client.handle_msg(&game_state(7, &list));
-    drain(&mut rx);
-    let actions = |client: &BotClient| client.game.as_ref().unwrap().state.action_list.len();
-    let before = actions(&client);
-
-    // The server puts the bot at a second table, and the events of that table come in.
-    client.handle_msg(r#"tableJoined {"tableId": 8, "stage": "playing"}"#);
-    let event = |table: u64, event: Value| {
-        format!("gameEvent {}", json!({"tableId": table, "event": event}))
-    };
-    client.handle_msg(&event(
-        8,
-        json!({"type": "turn", "turn": 5, "currentPlayerIndex": 1}),
-    ));
-    client.handle_msg(&event(
-        8,
-        json!({"type": "clue", "clue": {"type": "rank", "rank": 1},
-        "playerIndex": 1, "receiverIndex": 0, "orders": [2]}),
-    ));
-    client.handle_msg(&game_state(
-        8,
-        &[json!({"type": "turn", "turn": 9, "currentPlayerIndex": 0})],
-    ));
-    client.handle_msg(r#"tableLeft {"tableId": 8}"#);
-
-    // Nothing of it is in the game at table 7, which is still the one the bot is at.
-    assert_eq!(actions(&client), before);
-    assert_eq!(client.game.as_ref().unwrap().table_id, 7);
-    let outs = drain(&mut rx);
-    assert!(
-        sends(&outs).iter().all(|s| !s.contains("note ")),
-        "a note was written from the other table: {outs:?}"
-    );
-
-    // ... and the events of table 7 still reach it.
-    let turn = |client: &BotClient| client.game.as_ref().unwrap().state.turn_count;
-    let turn_before = turn(&client);
-    client.handle_msg(&event(
-        7,
-        json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
-    ));
-    assert_eq!(turn(&client), turn_before + 1);
-}
-
-/// The other ways in which a second table could reach the game at the first.
-#[test]
-fn it_stays_at_its_table_when_asked_for_another() {
-    logger::set_level(LogLevel::Off);
-    let (tx, mut rx) = unbounded_channel();
-    let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(&welcome("bot"));
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice"), user_json(13, "carol")]})
-    ));
-    // At table 3, with a person; there is a table 4 where another person sits.
-    let here = table_json(3, &["carol", "bot"], json!({"type": "pregame"}), json!({}));
-    let there = table_json(4, &["alice"], json!({"type": "pregame"}), json!({}));
-    client.handle_msg(&format!("tableList {}", json!({"tables": [here, there]})));
-    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
-    drain(&mut rx);
-
-    // Asked to join, it says it cannot, and does not.
-    client.handle_msg(&pm("alice", "/join"));
-    let outs = drain(&mut rx);
-    assert!(sends(&outs).iter().all(|s| !s.starts_with("tableJoin")));
-    assert!(pm_replies(&outs)[0].contains("one table at a time"));
-
-    // A command typed in the chat of the other table is not for this one.
-    let chat = json!({"text": "/leaveall", "sentAt": WHEN, "tableId": 4,
-        "kind": {"type": "public", "author": {"type": "user", "username": "alice"}}});
-    client.handle_msg(&format!("chat {chat}"));
-    assert!(sends(&drain(&mut rx)).is_empty());
-
-    // Entering a second table anyway (the server allows it for a bot) leaves it, and says why to whoever asked.
-    client.handle_msg(&pm("alice", "/start"));
-    drain(&mut rx);
-    client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "pregame"}"#);
-    let outs = drain(&mut rx);
-    assert_eq!(sends(&outs)[0], r#"tableLeave {"tableId":4}"#);
-    assert_eq!(client.table(), Some(3));
-    assert!(pm_replies(&outs).iter().any(|m| m.contains("table 3")));
-
-    // Leaving the other table does not take it out of this one, and the same chat command at this table does.
-    client.handle_msg(r#"tableLeft {"tableId": 4}"#);
-    assert_eq!(client.table(), Some(3));
-    let chat = json!({"text": "/leaveall", "sentAt": WHEN, "tableId": 3,
-        "kind": {"type": "public", "author": {"type": "user", "username": "carol"}}});
-    client.handle_msg(&format!("chat {chat}"));
-    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
-}
-
 #[test]
 fn it_ignores_the_setup_of_a_game_at_a_table_it_has_left() {
     logger::set_level(LogLevel::Off);
@@ -1300,6 +1205,370 @@ fn it_ignores_the_setup_of_a_game_at_a_table_it_has_left() {
     client.handle_frame(&json!({"reply": id, "data": setup}).to_string());
     assert!(drain(&mut rx).is_empty());
     assert_eq!(client.table(), None);
+}
+
+// ---- A bot at several tables ----
+
+/// The bot enters a game at this table and has it loaded, without leaving any other table (what the Feed does for a game
+/// starts the way a rematch does, with everyone leaving the old table first).
+fn join_game(client: &mut BotClient, table: usize, players: &[&str], bot_seat: usize) {
+    client.handle_frame(
+        &json!({"event": "tableJoined", "data": {"tableId": table, "stage": "justStarted"}})
+            .to_string(),
+    );
+    let request = client
+        .pending_game_init(table)
+        .expect("the bot asked for the game");
+    let setup = json!({"playerNames": players, "mode": {"type": "playing", "ourPlayerIndex": bot_seat},
+        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+    client.handle_frame(&json!({"reply": request, "data": setup}).to_string());
+    client.handle_msg(&game_notes(table, "bot"));
+}
+
+/// The deal of a two-player game in which the bot sits first, and it is the bot's turn.
+fn deal(client: &mut BotClient, table: usize) {
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
+    }
+    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&game_state(table, &list));
+}
+
+/// The requests the client sent for this table.
+fn sent_for(outs: &[Out], table: usize) -> Vec<String> {
+    sends(outs)
+        .into_iter()
+        .filter(|s| s.contains(&format!(r#""tableId":{table}"#)))
+        .map(String::from)
+        .collect()
+}
+
+/// A bot can be at several tables, and plays a game at each: what happens at one is not part of the other.
+#[test]
+fn it_plays_two_games_at_once() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    join_game(&mut client, 7, &["bot", "alice"], 0);
+    deal(&mut client, 7);
+    join_game(&mut client, 8, &["bot", "bob"], 0);
+    deal(&mut client, 8);
+    let outs = drain(&mut rx);
+
+    // Each game was asked for, loaded and played on, and each move names its table.
+    for table in [7, 8] {
+        let sent = sent_for(&outs, table);
+        assert!(
+            sent.iter().any(|s| s.starts_with("gameInitLoad")),
+            "{table}"
+        );
+        assert!(sent.iter().any(|s| s.starts_with("gameLoaded")), "{table}");
+    }
+    let moves = |table: usize| {
+        sent_for(&outs, table)
+            .into_iter()
+            .filter(|s| s.starts_with("playerAction"))
+            .count()
+    };
+    assert_eq!((moves(7), moves(8)), (1, 1));
+
+    // Events of the two tables come in turn, each into its own game: the human at table 8 clues the bot, then the human at 7.
+    let event = |table: u64, event: Value| {
+        format!("gameEvent {}", json!({"tableId": table, "event": event}))
+    };
+    let turns = |client: &BotClient, table: usize| client.game_at(table).unwrap().state.turn_count;
+    let before = (turns(&client, 7), turns(&client, 8));
+    client.handle_msg(&event(
+        8,
+        json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
+    ));
+    client.handle_msg(&event(
+        8,
+        json!({"type": "clue", "clue": {"type": "rank", "rank": 1, "novel": 1},
+            "playerIndex": 1, "receiverIndex": 0, "orders": [3]}),
+    ));
+    client.handle_msg(&event(
+        7,
+        json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
+    ));
+    client.handle_msg(&event(
+        7,
+        json!({"type": "clue", "clue": {"type": "rank", "rank": 2},
+            "playerIndex": 1, "receiverIndex": 0, "orders": [1]}),
+    ));
+    assert_eq!(turns(&client, 7), before.0 + 1);
+    assert_eq!(turns(&client, 8), before.1 + 1);
+
+    // A note written about a card goes to the table whose game it is about.
+    let outs = drain(&mut rx);
+    let notes: Vec<&str> = sends(&outs)
+        .into_iter()
+        .filter(|s| s.starts_with("note "))
+        .collect();
+    assert!(
+        notes.iter().any(|n| n.contains(r#""tableId":8"#)),
+        "{notes:?}"
+    );
+    assert!(
+        notes.iter().any(|n| n.contains(r#""tableId":7"#)),
+        "{notes:?}"
+    );
+    // The move history of each game is its own (the panic that this used to be).
+    for table in [7, 8] {
+        let game = client.game_at(table).unwrap();
+        assert_eq!(
+            game.move_history.len(),
+            game.state
+                .action_list
+                .iter()
+                .filter(|a| a.iter().any(Action::is_player_action))
+                .count()
+        );
+    }
+
+    // Leaving one table leaves the other as it was.
+    client.handle_msg(r#"tableLeft {"tableId": 8}"#);
+    assert!(client.game_at(7).is_some());
+    client.handle_msg(&event(
+        7,
+        json!({"type": "turn", "turn": 2, "currentPlayerIndex": 0}),
+    ));
+    assert_eq!(turns(&client, 7), before.0 + 2);
+    // ... and what is still said about the table it left is ignored.
+    client.handle_msg(&event(
+        8,
+        json!({"type": "turn", "turn": 3, "currentPlayerIndex": 0}),
+    ));
+    assert_eq!(turns(&client, 7), before.0 + 2);
+}
+
+/// The lobby lists these tables, each with a person at it, and the bot enters them (the pregame of each).
+fn two_pregames(client: &mut BotClient, rx: &mut Receiver<Out>) {
+    let tables = [
+        table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({})),
+        table_json(4, &["bob", "bot"], json!({"type": "pregame"}), json!({})),
+    ];
+    client.handle_msg(&format!("tableList {}", json!({"tables": tables})));
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
+    client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "pregame"}"#);
+    drain(rx);
+}
+
+/// Each table has the convention that its own people asked for; one that someone at no table asks for is the default.
+#[test]
+fn each_table_has_its_own_convention() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    two_pregames(&mut client, &mut rx);
+
+    // A person at a table sets that table; the table is told what it will get.
+    client.handle_msg(&pm("alice", "/settings HGroup5"));
+    let outs = drain(&mut rx);
+    assert_eq!(
+        convention_announcements(&outs),
+        ["table 3: I'll play HGroup5 here. PM me /settings <convention> to change it."]
+    );
+    assert_eq!(pm_replies(&outs).len(), 1);
+    client.handle_msg(&pm("bob", "/settings HGroup3"));
+    assert_eq!(
+        convention_announcements(&drain(&mut rx)),
+        ["table 4: I'll play HGroup3 here. PM me /settings <convention> to change it."]
+    );
+    assert_eq!(
+        (client.convention_at(3), client.convention_at(4)),
+        (
+            Some(ConventionKind::HGroup(5)),
+            Some(ConventionKind::HGroup(3))
+        )
+    );
+
+    // Someone at no table sets the default for tables to come, and none of these changes.
+    client.handle_msg(&pm("carol", "/settings HGroup7"));
+    assert_eq!(
+        pm_replies(&drain(&mut rx)),
+        ["At a new table I play HGroup7 conventions."]
+    );
+    assert_eq!(
+        (client.convention_at(3), client.convention_at(4)),
+        (
+            Some(ConventionKind::HGroup(5)),
+            Some(ConventionKind::HGroup(3))
+        )
+    );
+
+    // What `/settings` says is about the table of whoever asks, and says what the default is.
+    client.handle_msg(&pm("alice", "/settings"));
+    let reply = pm_replies(&drain(&mut rx));
+    assert_eq!(
+        reply,
+        ["Currently playing with HGroup5 conventions. My default for new tables is HGroup7."]
+    );
+
+    // A third table starts with the default.
+    client.handle_msg(r#"tableJoined {"tableId": 5, "stage": "pregame"}"#);
+    assert_eq!(
+        convention_announcements(&drain(&mut rx)),
+        ["table 5: I'll play HGroup7 here. PM me /settings <convention> to change it."]
+    );
+
+    // The games start with what their tables had.
+    join_game(&mut client, 3, &["bot", "alice"], 0);
+    join_game(&mut client, 4, &["bot", "bob"], 0);
+    assert_eq!(client.game_at(3).unwrap().conv.name(), "HGroup5");
+    assert_eq!(client.game_at(4).unwrap().conv.name(), "HGroup3");
+}
+
+/// A rematch (a new table for the same people, after everyone left the replay) plays with the convention of the old table.
+#[test]
+fn a_rematch_keeps_the_convention() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    let old = table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({}));
+    client.handle_msg(&format!("tableList {}", json!({"tables": [old]})));
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
+    client.handle_msg(&pm("alice", "/settings HGroup5"));
+    drain(&mut rx);
+
+    // The game is played and ends; everyone leaves the replay, and the new table has the same people.
+    join_game(&mut client, 3, &["bot", "alice"], 0);
+    assert_eq!(client.game_at(3).unwrap().conv.name(), "HGroup5");
+    client.handle_msg(r#"tableBooted {"tableId": 3}"#);
+    let new = table_json(9, &["alice", "bot"], json!({"type": "pregame"}), json!({}));
+    client.handle_msg(&format!("table {new}"));
+    client.handle_msg(r#"tableJoined {"tableId": 9, "stage": "pregame"}"#);
+    assert_eq!(client.convention_at(9), Some(ConventionKind::HGroup(5)));
+    assert_eq!(
+        convention_announcements(&drain(&mut rx)),
+        ["table 9: I'll play HGroup5 here. PM me /settings <convention> to change it."]
+    );
+
+    // A table of other people, not long after, is not a rematch: it gets the default.
+    client.handle_msg(r#"tableBooted {"tableId": 9}"#);
+    let other = table_json(10, &["dave", "bot"], json!({"type": "pregame"}), json!({}));
+    client.handle_msg(&format!("table {other}"));
+    client.handle_msg(r#"tableJoined {"tableId": 10, "stage": "pregame"}"#);
+    assert_eq!(client.convention_at(10), Some(ConventionKind::Reactor));
+}
+
+/// A person's command is about the table of theirs that the bot is at.
+#[test]
+fn a_command_is_about_the_table_of_whoever_gives_it() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice"), user_json(13, "bob"), user_json(14, "carol")]})
+    ));
+    two_pregames(&mut client, &mut rx);
+
+    // `/start` starts the table of whoever asks, with the players that sit there.
+    client.handle_msg(&pm("bob", "/start"));
+    assert_eq!(
+        sends(&drain(&mut rx)),
+        [r#"tableStart {"intendedPlayerIds":[13,1],"tableId":4}"#]
+    );
+
+    // `/leave` takes the bot out of that table only.
+    client.handle_msg(&pm("alice", "/leave"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+    assert!(client.convention_at(4).is_some());
+    assert_eq!(client.convention_at(3), None);
+
+    // Someone at neither table (the bot is at one now, so it is their table by default) is told the same as before for no table:
+    // with two tables there is no default.
+    client.handle_msg(r#"tableJoined {"tableId": 6, "stage": "pregame"}"#);
+    drain(&mut rx);
+    client.handle_msg(&pm("carol", "/leave"));
+    assert!(
+        sends(&drain(&mut rx))
+            .iter()
+            .all(|s| !s.starts_with("table"))
+    );
+
+    // A chat command at a table is for that table.
+    let chat = |table: u64, who: &str, text: &str| {
+        format!(
+            "chat {}",
+            json!({"text": text, "sentAt": WHEN, "tableId": table,
+                "kind": {"type": "public", "author": {"type": "user", "username": who}}})
+        )
+    };
+    client.handle_msg(&chat(4, "bob", "/setall HGroup5"));
+    assert_eq!(client.convention_at(4), Some(ConventionKind::HGroup(5)));
+    assert_eq!(client.convention_at(6), Some(ConventionKind::Reactor));
+    drain(&mut rx);
+    client.handle_msg(&chat(4, "bob", "/leaveall"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":4}"#]);
+    assert!(client.convention_at(6).is_some());
+}
+
+#[test]
+fn it_joins_another_table_and_goes_back_to_all_its_games() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    let tables = [
+        table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({})),
+        table_json(
+            4,
+            &["bob", "bot"],
+            json!({"type": "playing", "progress": 10}),
+            json!({}),
+        ),
+        table_json(
+            5,
+            &["carol", "bot"],
+            json!({"type": "playing", "progress": 20}),
+            json!({}),
+        ),
+        table_json(
+            6,
+            &["dave"],
+            json!({"type": "playing", "progress": 20}),
+            json!({}),
+        ),
+    ];
+    // After a reconnect the bot is at none of them; it plays at two, and goes back to both (not the one it does not play at).
+    client.handle_msg(&format!("tableList {}", json!({"tables": tables})));
+    assert_eq!(
+        sends(&drain(&mut rx)),
+        [
+            r#"tableReattend {"tableId":4}"#,
+            r#"tableReattend {"tableId":5}"#
+        ]
+    );
+
+    // Asked to join a table while at others, it joins.
+    client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "playing"}"#);
+    drain(&mut rx);
+    client.handle_msg(&pm("alice", "/join"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableJoin {"tableId":3}"#]);
 }
 
 #[test]
