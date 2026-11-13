@@ -425,7 +425,8 @@ dependencies = [
 [[package]]
 name = "hanabi_protocol"
 version = "0.1.0"
-source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=6ed2acff52b0bfce1739f6e34dd6642f2e4f9338#6ed2acff52b0bfce1739f6e34dd6642f2e4f9338"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b8d0459921a220f01a5c5abb56d9fdaebe5f0114e230c6b3a1f81049123e1e4"
 dependencies = [
  "anyhow",
  "chrono",

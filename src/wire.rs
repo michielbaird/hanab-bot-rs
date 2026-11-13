@@ -8,7 +8,7 @@
 //! named by the server's own constant (`events::TABLE`), which carries the type of its payload, and the `match` on the
 //! server's [`GameEvent`] has no catch-all, so a new kind of event has to be handled.
 //!
-//! To follow the protocol, change `rev` of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
+//! To follow the protocol, change the version of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
 
 use hanabi_protocol::{
     CardEvent, CardIdentity, CardOrder, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
