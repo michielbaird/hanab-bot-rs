@@ -100,6 +100,13 @@ impl Feed for BotClient {
         if command == "gameInit" {
             let table = data["tableId"].as_u64().expect("a table") as usize;
             data.as_object_mut().expect("an object").remove("tableId");
+            // (A game at another table than the one the bot is at, such as the rematch of a game: everyone leaves the table of
+            // the old game first, as the server does, and then enters the new one.)
+            if let Some(old) = self.table().filter(|old| *old != table) {
+                self.handle_frame(
+                    &json!({"event": "tableBooted", "data": {"tableId": old}}).to_string(),
+                );
+            }
             self.handle_frame(
                 &json!({"event": "tableJoined", "data": {"tableId": table, "stage": "justStarted"}})
                     .to_string(),
@@ -1160,6 +1167,139 @@ fn a_refused_or_empty_reply_to_the_request_for_a_game_starts_nothing() {
         assert!(drain(&mut rx).is_empty());
         assert_eq!(client.pending_game_init(7), None);
     }
+}
+
+/// A bot can be at several tables at once now, but this one plays one game at a time: what happens at another table must not
+/// reach the game it plays (a clue from the other table, in the turn of this one, was recorded as a move of this game).
+#[test]
+fn it_ignores_what_happens_at_another_table() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&game_init(7, &["bot", "human"], "x"));
+    client.handle_msg(&game_notes(7, "bot"));
+    let mut list: Vec<Value> = (0..5)
+        .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
+        .collect();
+    for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+        list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
+    }
+    list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
+    client.handle_msg(&game_state(7, &list));
+    drain(&mut rx);
+    let actions = |client: &BotClient| client.game.as_ref().unwrap().state.action_list.len();
+    let before = actions(&client);
+
+    // The server puts the bot at a second table, and the events of that table come in.
+    client.handle_msg(r#"tableJoined {"tableId": 8, "stage": "playing"}"#);
+    let event = |table: u64, event: Value| {
+        format!("gameEvent {}", json!({"tableId": table, "event": event}))
+    };
+    client.handle_msg(&event(
+        8,
+        json!({"type": "turn", "turn": 5, "currentPlayerIndex": 1}),
+    ));
+    client.handle_msg(&event(
+        8,
+        json!({"type": "clue", "clue": {"type": "rank", "rank": 1},
+        "playerIndex": 1, "receiverIndex": 0, "orders": [2]}),
+    ));
+    client.handle_msg(&game_state(
+        8,
+        &[json!({"type": "turn", "turn": 9, "currentPlayerIndex": 0})],
+    ));
+    client.handle_msg(r#"tableLeft {"tableId": 8}"#);
+
+    // Nothing of it is in the game at table 7, which is still the one the bot is at.
+    assert_eq!(actions(&client), before);
+    assert_eq!(client.game.as_ref().unwrap().table_id, 7);
+    let outs = drain(&mut rx);
+    assert!(
+        sends(&outs).iter().all(|s| !s.contains("note ")),
+        "a note was written from the other table: {outs:?}"
+    );
+
+    // ... and the events of table 7 still reach it.
+    let turn = |client: &BotClient| client.game.as_ref().unwrap().state.turn_count;
+    let turn_before = turn(&client);
+    client.handle_msg(&event(
+        7,
+        json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
+    ));
+    assert_eq!(turn(&client), turn_before + 1);
+}
+
+/// The other ways in which a second table could reach the game at the first.
+#[test]
+fn it_stays_at_its_table_when_asked_for_another() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(&format!(
+        "userList {}",
+        json!({"users": [user_json(12, "alice"), user_json(13, "carol")]})
+    ));
+    // At table 3, with a person; there is a table 4 where another person sits.
+    let here = table_json(3, &["carol", "bot"], json!({"type": "pregame"}), json!({}));
+    let there = table_json(4, &["alice"], json!({"type": "pregame"}), json!({}));
+    client.handle_msg(&format!("tableList {}", json!({"tables": [here, there]})));
+    client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
+    drain(&mut rx);
+
+    // Asked to join, it says it cannot, and does not.
+    client.handle_msg(&pm("alice", "/join"));
+    let outs = drain(&mut rx);
+    assert!(sends(&outs).iter().all(|s| !s.starts_with("tableJoin")));
+    assert!(pm_replies(&outs)[0].contains("one table at a time"));
+
+    // A command typed in the chat of the other table is not for this one.
+    let chat = json!({"text": "/leaveall", "sentAt": WHEN, "tableId": 4,
+        "kind": {"type": "public", "author": {"type": "user", "username": "alice"}}});
+    client.handle_msg(&format!("chat {chat}"));
+    assert!(sends(&drain(&mut rx)).is_empty());
+
+    // Entering a second table anyway (the server allows it for a bot) leaves it, and says why to whoever asked.
+    client.handle_msg(&pm("alice", "/start"));
+    drain(&mut rx);
+    client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "pregame"}"#);
+    let outs = drain(&mut rx);
+    assert_eq!(sends(&outs)[0], r#"tableLeave {"tableId":4}"#);
+    assert_eq!(client.table(), Some(3));
+    assert!(pm_replies(&outs).iter().any(|m| m.contains("table 3")));
+
+    // Leaving the other table does not take it out of this one, and the same chat command at this table does.
+    client.handle_msg(r#"tableLeft {"tableId": 4}"#);
+    assert_eq!(client.table(), Some(3));
+    let chat = json!({"text": "/leaveall", "sentAt": WHEN, "tableId": 3,
+        "kind": {"type": "public", "author": {"type": "user", "username": "carol"}}});
+    client.handle_msg(&format!("chat {chat}"));
+    assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
+}
+
+#[test]
+fn it_ignores_the_setup_of_a_game_at_a_table_it_has_left() {
+    logger::set_level(LogLevel::Off);
+    let (tx, mut rx) = unbounded_channel();
+    let mut client = BotClient::new(BotConfig::default(), tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(r#"tableJoined {"tableId": 7, "stage": "justStarted"}"#);
+    drain(&mut rx);
+    let id = client.pending_game_init(7).unwrap();
+
+    // It left before the server answered.
+    client.handle_msg(r#"tableLeft {"tableId": 7}"#);
+    let setup = json!({"playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
+        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+    client.handle_frame(&json!({"reply": id, "data": setup}).to_string());
+    assert!(drain(&mut rx).is_empty());
+    assert_eq!(client.table(), None);
 }
 
 #[test]
