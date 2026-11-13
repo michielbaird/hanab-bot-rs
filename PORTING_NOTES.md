@@ -236,7 +236,7 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   left for problems that no request caused. The setup of a game is the data of the reply to `gameInitLoad` (there is no `gameInit` event, and the
   reply does not name the table: `BotClient` remembers which table each request was for, and `wire::game_init_reply` reads it). A bot that still sent `command JSON` was logged in (the server lists it) but nothing it said was
   understood, and it could not read a single message: `connected!` was the last thing it printed.
-- **Staying up:** `supervise::keep_connected` runs each connection as a task of its own and runs another when it ends, for any reason: a
+- **Staying up:** `reconnect::keep_connected` runs each connection as a task of its own and runs another when it ends, for any reason: a
   lost connection, a panic in the task, or the client thread dying (a panic that nothing caught, which the connection notices at once and
   answers with a fresh client; the bot reattends its table from the lobby's table list). The wait doubles from 2 s to 5 minutes and starts
   over after a connection that lasted a minute, so a panic that repeats does not hammer the login. Only a refusal of the credentials
@@ -304,7 +304,7 @@ without it does not depend on the crate, so the WebAssembly package does not eit
 
 ## Several bots in one process
 
-- `bot index=0,1,2` runs one `supervise` task per account (login, reconnect with back-off) and one `BotClient` + decision thread per
+- `bot index=0,1,2` runs one `stay_connected` task per account (login, reconnect with back-off) and one `BotClient` + decision thread per
   connection; they share only the immutable variant registry (`Variant::init`, once) and the tokio runtime. A bot that gives up does not stop the others.
 - The log level is per thread (`logger::set_level`, `LevelGuard`); `logger::set_default_level` sets the process-wide default. A process-wide
   level raced between bots (one bot's temporary quieting could be restored by another).

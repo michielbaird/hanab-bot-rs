@@ -11,11 +11,11 @@ pub mod frac;
 pub mod hgroup;
 pub mod logger;
 pub mod reactor;
+#[cfg(feature = "net")]
+pub mod reconnect;
 pub mod ref_sieve;
 pub mod settings;
 pub mod stats;
-#[cfg(feature = "net")]
-pub mod supervise;
 pub mod tools;
 pub mod util;
 #[cfg(feature = "protocol")]

@@ -21,8 +21,8 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use hanab_bot::basics::Variant;
 use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
 use hanab_bot::client::{BotClient, BotConfig, Out};
+use hanab_bot::reconnect::{Backoff, Ended, keep_connected};
 use hanab_bot::settings::BOT_VERSION;
-use hanab_bot::supervise::{Backoff, Ended, keep_connected};
 use hanab_bot::tools::args::{full_env, parse_args};
 use hanab_bot::tools::console::{ConsoleCmd, parse_command};
 use hanab_bot::wire;
@@ -296,7 +296,7 @@ async fn connect_once(net: Arc<Net>, spec: BotSpec, console: ConsoleSink) -> End
 
 /// Keeps one bot logged in and connected: when the connection drops, or anything in it panics, it logs in again after a wait.
 /// Only a refusal of the credentials ends it.
-async fn supervise(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result<(), String> {
+async fn stay_connected(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result<(), String> {
     let username = spec.username.clone();
     let why = keep_connected(&username, Backoff::default(), || {
         connect_once(net.clone(), spec.clone(), console.clone())
@@ -453,7 +453,7 @@ fn main() -> Result<(), String> {
                 tokio::spawn(async move {
                     // Stagger the logins.
                     tokio::time::sleep(Duration::from_secs(n as u64)).await;
-                    supervise(spec, net, console).await
+                    stay_connected(spec, net, console).await
                 })
             })
             .collect();
