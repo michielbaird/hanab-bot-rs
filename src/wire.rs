@@ -2,20 +2,20 @@
 //! the protocol (a field renamed, a message split, a variant added) stops this module from compiling, instead of showing up
 //! when the bot meets the server.
 //!
-//! Sending: build a [`ClientMessage`] with one of the functions in [`send`], and get its name and JSON with [`command`]. A
+//! Sending: build a [`ClientRequest`] with one of the functions in [`send`], and get its name and JSON with [`command`]. A
 //! value the wire does not accept (a table number out of range) is an error here, not a rejected command.
 //! Receiving: [`receive`] reads a message of the server into an [`Incoming`], in the shape the bot uses. Each message is
-//! named by the server's own constant (`server::TABLE`), which carries the type of its payload, and the `match` on the
+//! named by the server's own constant (`events::TABLE`), which carries the type of its payload, and the `match` on the
 //! server's [`GameEvent`] has no catch-all, so a new kind of event has to be handled.
 //!
 //! To follow the protocol, change `rev` of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
 
 use hanabi_protocol::{
     CardEvent, CardIdentity, CardOrder, Chat, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
-    ClientKind, ClientMessage, Clue, ClueRank, ClueTurn, ColorIndex, EndCondition, GameEvent,
+    ClientKind, ClientRequest, Clue, ClueRank, ClueTurn, ColorIndex, EndCondition, GameEvent,
     GameOptions, LoginRequest, NoteRequest, PlayerAction, PlayerActionRequest, PlayerIndex,
-    RequestId, ServerMessage, TableId, TableJoinRequest, TablePhase, TableRef, TableStage,
-    TableStartRequest, TargetCard, UserId, UserRef, WebSocketQuery, server,
+    RequestId, ServerEvent, TableId, TableJoinRequest, TablePhase, TableRef, TableStage,
+    TableStartRequest, TargetCard, UserId, UserRef, VisibleClue, WebSocketQuery, event as events,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -28,7 +28,7 @@ use crate::basics::{BaseClue, ClueKind, Identity, PerformAction};
 use crate::{log_error, log_warn};
 
 /// The name and the JSON of a command, as the websocket sends them (`name {json}`).
-pub fn command(message: &ClientMessage) -> (&'static str, Value) {
+pub fn command(message: &ClientRequest) -> (&'static str, Value) {
     (message.name(), message.data())
 }
 
@@ -53,49 +53,49 @@ fn table_ref(table: usize) -> Result<TableRef, String> {
 /// What the bot sends.
 pub mod send {
     use super::{
-        ChatPmRequest, ChatRequest, ClientMessage, NoteRequest, PerformAction, PlayerActionRequest,
+        ChatPmRequest, ChatRequest, ClientRequest, NoteRequest, PerformAction, PlayerActionRequest,
         TableJoinRequest, TableStartRequest, UserId, card_order, table_id, table_ref, turn,
     };
 
     /// Chat in the lobby, or at a table.
-    pub fn chat(text: &str, table: Option<usize>) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::Chat(ChatRequest {
+    pub fn chat(text: &str, table: Option<usize>) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::Chat(ChatRequest {
             text: text.to_string(),
             table_id: table.map(table_id).transpose()?,
         }))
     }
 
-    pub fn chat_pm(text: &str, recipient: &str) -> ClientMessage {
-        ClientMessage::ChatPm(ChatPmRequest {
+    pub fn chat_pm(text: &str, recipient: &str) -> ClientRequest {
+        ClientRequest::ChatPm(ChatPmRequest {
             text: text.to_string(),
             recipient: recipient.to_string(),
         })
     }
 
     /// Joins a table, with its password if it has one.
-    pub fn table_join(table: usize, password: Option<&str>) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableJoin(TableJoinRequest {
+    pub fn table_join(table: usize, password: Option<&str>) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableJoin(TableJoinRequest {
             table_id: table_id(table)?,
             password: password.map(String::from),
         }))
     }
 
-    pub fn table_leave(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableLeave(table_ref(table)?))
+    pub fn table_leave(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableLeave(table_ref(table)?))
     }
 
-    pub fn table_unattend(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableUnattend(table_ref(table)?))
+    pub fn table_unattend(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableUnattend(table_ref(table)?))
     }
 
-    pub fn table_reattend(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableReattend(table_ref(table)?))
+    pub fn table_reattend(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableReattend(table_ref(table)?))
     }
 
     /// Starts a table, for the players who sit at it. The server ignores a start whose players are not the ones sitting there
     /// (the owner's view of the table was out of date).
-    pub fn table_start(table: usize, players: &[i64]) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableStart(TableStartRequest {
+    pub fn table_start(table: usize, players: &[i64]) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableStart(TableStartRequest {
             table_id: table_id(table)?,
             intended_player_ids: players
                 .iter()
@@ -104,26 +104,26 @@ pub mod send {
         }))
     }
 
-    pub fn table_terminate(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::TableTerminate(table_ref(table)?))
+    pub fn table_terminate(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::TableTerminate(table_ref(table)?))
     }
 
-    pub fn game_init_load(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::GameInitLoad(table_ref(table)?))
+    pub fn game_init_load(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::GameInitLoad(table_ref(table)?))
     }
 
-    pub fn game_state_load(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::GameStateLoad(table_ref(table)?))
+    pub fn game_state_load(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::GameStateLoad(table_ref(table)?))
     }
 
     /// We have caught up with the game: it is ready for us to play.
-    pub fn game_loaded(table: usize) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::GameLoaded(table_ref(table)?))
+    pub fn game_loaded(table: usize) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::GameLoaded(table_ref(table)?))
     }
 
     /// Our note on a card.
-    pub fn note(table: usize, order: usize, text: &str) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::Note(NoteRequest {
+    pub fn note(table: usize, order: usize, text: &str) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::Note(NoteRequest {
             table_id: table_id(table)?,
             order: card_order(order)?,
             text: text.to_string(),
@@ -131,8 +131,8 @@ pub mod send {
     }
 
     /// A play, a discard or a clue. (Ending a game is [`table_terminate`], not an action.)
-    pub fn player_action(table: usize, action: &PerformAction) -> Result<ClientMessage, String> {
-        Ok(ClientMessage::PlayerAction(PlayerActionRequest {
+    pub fn player_action(table: usize, action: &PerformAction) -> Result<ClientRequest, String> {
+        Ok(ClientRequest::PlayerAction(PlayerActionRequest {
             table_id: table_id(table)?,
             action: turn(action)?,
         }))
@@ -291,14 +291,20 @@ pub fn to_action(event: &GameEvent) -> Result<Option<Action>, String> {
                 target: event.receiver_index.index(),
                 list: event.orders.iter().map(|order| order.index()).collect(),
                 clue: match clue {
-                    Clue::Color { color } => BaseClue {
+                    VisibleClue::Color { color: Some(color) } => BaseClue {
                         kind: ClueKind::Colour,
                         value: color.index(),
                     },
-                    Clue::Rank { rank } => BaseClue {
+                    VisibleClue::Rank { rank: Some(rank) } => BaseClue {
                         kind: ClueKind::Rank,
                         value: usize::from(rank.get()),
                     },
+                    VisibleClue::Color { color: None } | VisibleClue::Rank { rank: None } => {
+                        return Err(
+                            "a clue whose value is hidden (a variant the bot does not play)"
+                                .to_string(),
+                        );
+                    }
                 },
             })
         }
@@ -449,7 +455,6 @@ pub enum Incoming {
     /// We entered a table: its pregame, or a game (that started just now, is going on, or is over).
     TableJoined(usize, Stage),
     TableLeft(usize),
-    GameInit(GameInit),
     GameState(GameState),
     /// An event of the game in progress (`None` for one that the game model does not follow).
     GameEvent(Option<Action>),
@@ -457,6 +462,9 @@ pub enum Incoming {
     Reply {
         id: u64,
         refusal: Option<Refusal>,
+        /// What the reply carries, for a request whose reply has data (read by the function for that request, such as
+        /// [`game_init_reply`]).
+        data: Option<Value>,
     },
     /// A warning or an error that no request caused, with what the server says.
     Notice {
@@ -557,9 +565,9 @@ fn table(table: &hanabi_protocol::Table) -> Table {
     }
 }
 
-fn game_init(init: &hanabi_protocol::GameInit) -> GameInit {
+fn game_init(table: usize, init: &hanabi_protocol::GameInit) -> GameInit {
     GameInit {
-        table_id: init.table_id.get() as usize,
+        table_id: table,
         player_names: init.player_names.iter().map(ToString::to_string).collect(),
         our_player_index: init.mode.our_player_index().map(PlayerIndex::index),
         seed: init.seed.as_ref().map(|seed| seed.as_str().to_string()),
@@ -681,9 +689,25 @@ fn lenient<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
     hanabi_protocol::decode(&value).map_err(|e| e.to_string())
 }
 
+/// The data of a reply, read with `lenient`. The reply says which type it is.
+fn reply_payload<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
+    _reply: hanabi_protocol::Reply<T>,
+    value: &Value,
+) -> Result<T, String> {
+    lenient(value)
+}
+
+/// The setup of a game: the data of the reply to `gameInitLoad` for this table (the reply does not name the table, so the
+/// caller says which request it answers).
+pub fn game_init_reply(table: usize, data: &Value) -> Result<GameInit, String> {
+    let init = reply_payload(hanabi_protocol::reply::GAME_INIT, data)
+        .map_err(|e| format!("the reply to gameInitLoad: {e}"))?;
+    Ok(game_init(table, &init))
+}
+
 /// A payload of the server, read with `lenient`. The message says which type it is.
 fn payload<T: hanabi_protocol::JsonSchema + DeserializeOwned + 'static>(
-    _message: ServerMessage<T>,
+    _message: ServerEvent<T>,
     value: &Value,
 ) -> Result<T, String> {
     lenient(value)
@@ -703,11 +727,11 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
     let read = |e: String| format!("{command}: {e}");
 
     // (A chain and not a `match`: the names are the constants of the server, which a pattern cannot be.)
-    Ok(Some(if command == server::WELCOME.name() {
+    Ok(Some(if command == events::WELCOME.name() {
         Incoming::Welcome(user_of(&value()?).map_err(read)?)
-    } else if command == server::USER.name() {
+    } else if command == events::USER.name() {
         Incoming::User(user_of(&value()?).map_err(read)?)
-    } else if command == server::USER_LIST.name() {
+    } else if command == events::USER_LIST.name() {
         // (All the bot wants of a user is who they are.)
         let list = value()?;
         let users = list["users"]
@@ -720,24 +744,24 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
                 .collect::<Result<_, _>>()
                 .map_err(read)?,
         )
-    } else if command == server::USER_REMOVED.name() {
-        let removed = payload(server::USER_REMOVED, &value()?).map_err(read)?;
+    } else if command == events::USER_REMOVED.name() {
+        let removed = payload(events::USER_REMOVED, &value()?).map_err(read)?;
         Incoming::UserRemoved(i64::from(removed.user_id.get()))
-    } else if command == server::CHAT.name() {
-        Incoming::Chat(chat(&payload(server::CHAT, &value()?).map_err(read)?))
-    } else if command == server::CHAT_LIST.name() {
-        let list = payload(server::CHAT_LIST, &value()?).map_err(read)?;
+    } else if command == events::CHAT.name() {
+        Incoming::Chat(chat(&payload(events::CHAT, &value()?).map_err(read)?))
+    } else if command == events::CHAT_LIST.name() {
+        let list = payload(events::CHAT_LIST, &value()?).map_err(read)?;
         Incoming::ChatList(list.messages.iter().map(chat).collect())
-    } else if command == server::TABLE.name() {
-        Incoming::Table(table(&payload(server::TABLE, &value()?).map_err(read)?))
-    } else if command == server::TABLE_LIST.name() {
-        let list = payload(server::TABLE_LIST, &value()?).map_err(read)?;
+    } else if command == events::TABLE.name() {
+        Incoming::Table(table(&payload(events::TABLE, &value()?).map_err(read)?))
+    } else if command == events::TABLE_LIST.name() {
+        let list = payload(events::TABLE_LIST, &value()?).map_err(read)?;
         Incoming::TableList(list.tables.iter().map(table).collect())
-    } else if command == server::TABLE_REMOVED.name() {
-        let removed = payload(server::TABLE_REMOVED, &value()?).map_err(read)?;
+    } else if command == events::TABLE_REMOVED.name() {
+        let removed = payload(events::TABLE_REMOVED, &value()?).map_err(read)?;
         Incoming::TableRemoved(removed.table_id.get() as i64)
-    } else if command == server::TABLE_JOINED.name() {
-        let joined = payload(server::TABLE_JOINED, &value()?).map_err(read)?;
+    } else if command == events::TABLE_JOINED.name() {
+        let joined = payload(events::TABLE_JOINED, &value()?).map_err(read)?;
         Incoming::TableJoined(
             joined.table_id.get() as usize,
             match joined.stage {
@@ -747,29 +771,25 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
                 TableStage::Replay => Stage::Replay,
             },
         )
-    } else if command == server::TABLE_LEFT.name() {
-        let left = payload(server::TABLE_LEFT, &value()?).map_err(read)?;
+    } else if command == events::TABLE_LEFT.name() {
+        let left = payload(events::TABLE_LEFT, &value()?).map_err(read)?;
         Incoming::TableLeft(left.table_id.get() as usize)
-    } else if command == server::GAME_INIT.name() {
-        Incoming::GameInit(game_init(
-            &payload(server::GAME_INIT, &value()?).map_err(read)?,
-        ))
-    } else if command == server::GAME_STATE.name() {
+    } else if command == events::GAME_STATE.name() {
         Incoming::GameState(game_state(
-            &payload(server::GAME_STATE, &value()?).map_err(read)?,
+            &payload(events::GAME_STATE, &value()?).map_err(read)?,
         ))
-    } else if command == server::GAME_EVENT.name() {
-        let message = payload(server::GAME_EVENT, &value()?).map_err(read)?;
+    } else if command == events::GAME_EVENT.name() {
+        let message = payload(events::GAME_EVENT, &value()?).map_err(read)?;
         Incoming::GameEvent(to_action(&message.event).map_err(read)?)
-    } else if command == server::ERROR.name() || command == server::WARNING.name() {
-        let notice = if command == server::ERROR.name() {
-            payload(server::ERROR, &value()?)
+    } else if command == events::ERROR.name() || command == events::WARNING.name() {
+        let notice = if command == events::ERROR.name() {
+            payload(events::ERROR, &value()?)
         } else {
-            payload(server::WARNING, &value()?)
+            payload(events::WARNING, &value()?)
         }
         .map_err(read)?;
         Incoming::Notice {
-            error: command == server::ERROR.name(),
+            error: command == events::ERROR.name(),
             message: notice.message,
         }
     } else {
@@ -821,7 +841,8 @@ pub fn receive(frame: &str) -> Result<Option<Incoming>, String> {
                 })
             })
             .transpose()?;
-        return Ok(Some(Incoming::Reply { id, refusal }));
+        let data = fields.remove("data");
+        return Ok(Some(Incoming::Reply { id, refusal, data }));
     }
 
     Err(format!(
@@ -830,16 +851,16 @@ pub fn receive(frame: &str) -> Result<Option<Incoming>, String> {
     ))
 }
 
-/// The frame of a request, `{"id": n, "type": command, "data": payload}`, from a line `command JSON` (what the client
+/// The frame of a request, `{"id": n, "request": command, "data": payload}`, from a line `command JSON` (what the client
 /// emits). The server answers it with a reply that repeats the ID. A command that the server would not take is an error here.
 pub fn request(id: u64, line: &str) -> Result<String, String> {
     let (command, args) = line.split_once(' ').unwrap_or((line, ""));
     let data: Value = serde_json::from_str(args).map_err(|e| format!("{command}: {e}"))?;
-    ClientMessage::decode(command, &data)
+    ClientRequest::decode(command, &data)
         .map_err(|e| format!("{command}: {e}"))?
         .ok_or_else(|| format!("{command} is not a command"))?;
     let id = RequestId::new(id).ok_or_else(|| format!("{id} is not a request ID"))?;
-    Ok(serde_json::json!({"id": id.get(), "type": command, "data": data}).to_string())
+    Ok(serde_json::json!({"id": id.get(), "request": command, "data": data}).to_string())
 }
 
 #[cfg(test)]
@@ -849,9 +870,9 @@ mod tests {
     use super::*;
 
     /// A message the way the server would take it: it names a command it knows and passes the schema of its payload.
-    fn assert_accepted(message: &ClientMessage) -> Value {
+    fn assert_accepted(message: &ClientRequest) -> Value {
         let (name, data) = command(message);
-        let decoded = ClientMessage::decode(name, &data)
+        let decoded = ClientRequest::decode(name, &data)
             .unwrap_or_else(|e| panic!("{name} {data}: {e}"))
             .unwrap_or_else(|| panic!("{name} is not a command"));
         assert_eq!(decoded.name(), name);
@@ -902,7 +923,7 @@ mod tests {
 
     #[test]
     fn the_messages_have_the_shape_the_bot_used_to_build_by_hand() {
-        let data = |message: Result<ClientMessage, String>| assert_accepted(&message.unwrap());
+        let data = |message: Result<ClientRequest, String>| assert_accepted(&message.unwrap());
 
         assert_eq!(
             data(send::chat("hi", Some(7))),
@@ -958,6 +979,12 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// The phase of the state of a game in progress.
+    fn in_progress() -> Value {
+        json!({"type": "playing", "clock": {"playerTimesMs": [0, 0], "turnElapsedMs": 0},
+            "pause": {"queued": false}, "connections": [true, true]})
     }
 
     /// The frame of an event: `{"event": command, "data": json}`.
@@ -1178,14 +1205,15 @@ mod tests {
 
     #[test]
     fn reads_the_start_and_the_state_of_a_game() {
-        let init = |mode: Value| match received(
-            "gameInit",
-            json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": mode, "customDeal": false,
+        // The setup is the data of the reply to `gameInitLoad` (which does not name the table: we say which we asked for).
+        let init = |mode: Value| {
+            game_init_reply(
+                7,
+                &json!({"playerNames": ["bot", "human"], "mode": mode, "customDeal": false,
                     "seed": "p2v0s1", "startedAt": "2026-01-01T12:00:00.000Z",
                     "options": {"variantId": 7, "deckPlays": true}, "characters": []}),
-        ) {
-            Incoming::GameInit(init) => init,
-            other => panic!("{other:?}"),
+            )
+            .unwrap()
         };
         let playing = init(json!({"type": "playing", "ourPlayerIndex": 1}));
         assert_eq!(playing.table_id, 7);
@@ -1198,7 +1226,7 @@ mod tests {
 
         let Incoming::GameState(state) = received(
             "gameState",
-            json!({"tableId": 7, "connections": [true, true], "spectators": [],
+            json!({"tableId": 7, "phase": in_progress(), "spectators": [],
                 "events": [
                     {"type": "draw", "playerIndex": 0, "order": 0},
                     {"type": "turn", "turn": 0, "currentPlayerIndex": 0}],
@@ -1285,6 +1313,7 @@ mod tests {
             Some(Incoming::Reply {
                 id: 7,
                 refusal: None,
+                data: None,
             }) => {}
             other => panic!("{other:?}"),
         }
@@ -1292,9 +1321,19 @@ mod tests {
             Some(Incoming::Reply {
                 id: 8,
                 refusal: Some(refusal),
+                ..
             }) => {
                 assert_eq!((refusal.message.as_str(), refusal.ignored), ("No.", false));
             }
+            other => panic!("{other:?}"),
+        }
+        // A reply with data (the setup of a game answers `gameInitLoad`).
+        match receive(r#"{"reply": 10, "data": {"playerNames": ["a", "b"]}}"#).unwrap() {
+            Some(Incoming::Reply {
+                id: 10,
+                refusal: None,
+                data: Some(data),
+            }) => assert_eq!(data["playerNames"][1], "b"),
             other => panic!("{other:?}"),
         }
         // A refusal that is not worth showing.
@@ -1314,7 +1353,7 @@ mod tests {
         let frame = request(5, r#"gameStateLoad {"tableId":7}"#).unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(&frame).unwrap(),
-            json!({"id": 5, "type": "gameStateLoad", "data": {"tableId": 7}})
+            json!({"id": 5, "request": "gameStateLoad", "data": {"tableId": 7}})
         );
 
         // What the server would not take is not sent: an unknown command, a payload of the old shape, an ID out of range.
@@ -1380,7 +1419,7 @@ mod tests {
         ));
         let Incoming::GameState(state) = received(
             "gameState",
-            json!({"tableId": 7, "connections": [true, true], "spectators": [], "latency": 3,
+            json!({"tableId": 7, "phase": in_progress(), "spectators": [], "latency": 3,
                 "events": [clue, {"type": "turn", "turn": 0, "currentPlayerIndex": 0, "more": true}],
                 "notes": [{"username": "bot", "notes": ["x"], "spectator": false, "color": "red"}]}),
         ) else {
@@ -1397,15 +1436,15 @@ mod tests {
             panic!("chat");
         };
         assert_eq!(chat.username, "alice");
-        assert!(matches!(
-            received(
-                "gameInit",
-                json!({"tableId": 7, "playerNames": ["bot", "human"], "mode": {"type": "spectating", "x": 1},
+        assert!(
+            game_init_reply(
+                7,
+                &json!({"playerNames": ["bot", "human"], "mode": {"type": "spectating", "x": 1},
                     "customDeal": false, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
                     "characters": [], "rated": true})
-            ),
-            Incoming::GameInit(_)
-        ));
+            )
+            .is_ok()
+        );
         assert_eq!(
             login_response(r#"{"userId": 12, "username": "bot", "newCookie": "x"}"#),
             Ok(12)

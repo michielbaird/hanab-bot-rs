@@ -58,7 +58,9 @@ fn game_init(table_id: usize, players: &[&str], seed: &str) -> String {
 fn game_state_of(table_id: usize, events: &[Value], notes: Value) -> String {
     format!(
         "gameState {}",
-        json!({"tableId": table_id, "events": events, "notes": notes, "connections": [true, true],
+        json!({"tableId": table_id, "events": events, "notes": notes,
+            "phase": {"type": "playing", "clock": {"playerTimesMs": [0, 0], "turnElapsedMs": 0},
+                "pause": {"queued": false}, "connections": [true, true]},
             "spectators": []})
     )
 }
@@ -91,7 +93,24 @@ trait Feed {
 impl Feed for BotClient {
     fn handle_msg(&mut self, line: &str) {
         let (command, data) = line.split_once(' ').unwrap_or((line, "{}"));
-        let data: Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{line}: {e}"));
+        let mut data: Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{line}: {e}"));
+
+        // The setup of a game is not an event: it is the reply to the request for it, which the bot sends when it enters the
+        // table. So a game starts the way it does for real: the bot enters the table, and the server answers its request.
+        if command == "gameInit" {
+            let table = data["tableId"].as_u64().expect("a table") as usize;
+            data.as_object_mut().expect("an object").remove("tableId");
+            self.handle_frame(
+                &json!({"event": "tableJoined", "data": {"tableId": table, "stage": "justStarted"}})
+                    .to_string(),
+            );
+            let request = self
+                .pending_game_init(table)
+                .expect("the bot asked for the game");
+            self.handle_frame(&json!({"reply": request, "data": data}).to_string());
+            return;
+        }
+
         self.handle_frame(&json!({"event": command, "data": data}).to_string());
     }
 }
@@ -107,7 +126,7 @@ fn assert_accepted(sent: &str) {
 }
 
 fn hanab_protocol_decode(name: &str, value: &Value) -> Result<(), String> {
-    match hanabi_protocol::ClientMessage::decode(name, value) {
+    match hanabi_protocol::ClientRequest::decode(name, value) {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(format!("{name} is not a command")),
         Err(e) => Err(e.to_string()),
@@ -117,7 +136,7 @@ fn hanab_protocol_decode(name: &str, value: &Value) -> Result<(), String> {
 fn drain(rx: &mut Receiver<Out>) -> Vec<Out> {
     let mut out = Vec::new();
     while let Ok(o) = rx.try_recv() {
-        if let Out::Send(sent) = &o {
+        if let Out::Send(_, sent) = &o {
             assert_accepted(sent);
         }
         out.push(o);
@@ -128,7 +147,7 @@ fn drain(rx: &mut Receiver<Out>) -> Vec<Out> {
 fn sends(outs: &[Out]) -> Vec<&str> {
     outs.iter()
         .filter_map(|o| match o {
-            Out::Send(s) => Some(s.as_str()),
+            Out::Send(_, s) => Some(s.as_str()),
             Out::Wait(_) => None,
         })
         .collect()
@@ -151,7 +170,14 @@ fn it_plays_through_the_game_start_handshake() {
 
     let init = game_init(7, &["bot", "human"], "x");
     client.handle_msg(&init);
-    assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
+    // (The bot asks for the game when it enters the table, and for its state once the server has answered with the setup.)
+    assert_eq!(
+        sends(&drain(&mut rx)),
+        [
+            r#"gameInitLoad {"tableId":7}"#,
+            r#"gameStateLoad {"tableId":7}"#
+        ]
+    );
 
     // The first card has no note yet, so the bot writes its settings there.
     client.handle_msg(&game_notes(7, "bot"));
@@ -292,7 +318,7 @@ fn first_action(name: &str, table_id: usize) -> String {
     drain(&mut rx)
         .iter()
         .filter_map(|o| match o {
-            Out::Send(s) if s.starts_with("playerAction ") => Some(s.clone()),
+            Out::Send(_, s) if s.starts_with("playerAction ") => Some(s.clone()),
             _ => None,
         })
         .next_back()
@@ -984,7 +1010,14 @@ fn it_finds_a_variant_by_its_number() {
     // A game of that variant starts.
     let init = game_init(7, &["bot", "human"], "x").replace(r#""variantId":0"#, r#""variantId":7"#);
     client.handle_msg(&init);
-    assert_eq!(sends(&drain(&mut rx)), [r#"gameStateLoad {"tableId":7}"#]);
+    // (The bot asks for the game when it enters the table, and for its state once the server has answered with the setup.)
+    assert_eq!(
+        sends(&drain(&mut rx)),
+        [
+            r#"gameInitLoad {"tableId":7}"#,
+            r#"gameStateLoad {"tableId":7}"#
+        ]
+    );
 }
 
 #[test]
@@ -1060,6 +1093,73 @@ fn it_tells_who_asked_when_the_server_refuses_a_request() {
     drain(&mut rx);
     client.handle_msg(r#"warning {"message": "Slow down."}"#);
     assert_eq!(pm_replies(&drain(&mut rx)), ["Slow down."]);
+}
+
+/// Each request has an ID of its own, and the reply to the request for a game's setup is how the game starts.
+#[test]
+fn it_numbers_its_requests_and_reads_the_setup_from_the_reply() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+    let (tx, mut rx) = unbounded_channel();
+    let config = BotConfig {
+        feedback_intro: false,
+        ..BotConfig::default()
+    };
+    let mut client = BotClient::new(config, tx);
+    client.handle_msg(&welcome("bot"));
+    client.handle_msg(r#"tableJoined {"tableId": 7, "stage": "justStarted"}"#);
+
+    // The setup is asked for; until the server answers there is no game.
+    let outs = drain(&mut rx);
+    let (id, line) = match &outs[..] {
+        [Out::Send(id, line)] => (*id, line.as_str()),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(line, r#"gameInitLoad {"tableId":7}"#);
+    assert_eq!(client.pending_game_init(7), Some(id));
+
+    // The reply that answers it (and no other) starts the game: the bot asks for its state, with a request of its own.
+    client.handle_frame(&json!({"reply": id + 100, "data": {}}).to_string());
+    assert!(drain(&mut rx).is_empty(), "a reply to another request");
+    let setup = json!({"playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
+        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+    client.handle_frame(&json!({"reply": id, "data": setup}).to_string());
+    let outs = drain(&mut rx);
+    match &outs[..] {
+        [Out::Send(next, line)] => {
+            assert!(*next > id, "an ID of its own");
+            assert_eq!(line, r#"gameStateLoad {"tableId":7}"#);
+            // (What the transport sends: the frame of the request.)
+            let frame = hanab_bot::wire::request(*next, line).unwrap();
+            assert!(
+                frame.contains(r#""request":"gameStateLoad""#)
+                    && frame.contains(&format!(r#""id":{next}"#))
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(client.pending_game_init(7), None, "answered");
+}
+
+#[test]
+fn a_refused_or_empty_reply_to_the_request_for_a_game_starts_nothing() {
+    logger::set_level(LogLevel::Off);
+    for reply in [
+        |id: u64| json!({"reply": id, "error": {"message": "No such table."}}),
+        |id: u64| json!({"reply": id}),
+        |id: u64| json!({"reply": id, "data": {"playerNames": ["bot"]}}),
+    ] {
+        let (tx, mut rx) = unbounded_channel();
+        let mut client = BotClient::new(BotConfig::default(), tx);
+        client.handle_msg(&welcome("bot"));
+        client.handle_msg(r#"tableJoined {"tableId": 7, "stage": "justStarted"}"#);
+        drain(&mut rx);
+        let id = client.pending_game_init(7).unwrap();
+        client.handle_frame(&reply(id).to_string());
+        // No game: it does not ask for the state, and it is not waiting for the reply any more.
+        assert!(drain(&mut rx).is_empty());
+        assert_eq!(client.pending_game_init(7), None);
+    }
 }
 
 #[test]

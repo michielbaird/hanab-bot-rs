@@ -205,14 +205,14 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `28988be` of 12 November, 17:31), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `e57555c` of 12 November, 19:03), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
   people use and leaves the account alone). The answer is `{"userId": n}` and one cookie per account; all of them go to
   `/ws?client=bot&account=<userId>` (a bot sends no client version).
 - **Received:** `welcome`, `chat` (`text`, `tableId` and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`; a `suggestion` is from the server. The message itself had `source`, `username` and `recipient` until 12 November), `chatList`, `table`, `tableList` (`{"tables": [...]}`),
-  `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameInit` (`mode.ourPlayerIndex`; it was `init`), `gameEvent`, `gameState`,
+  `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameEvent`, `gameState`,
   `warning`/`error` (`message`). A table's `phase` is an object (`{"type": "pregame"}`, a shared replay also has its `gameId`); it was a name. Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events. `gameState` (the answer to `gameStateLoad`) holds the `events` so far and the `notes` of everyone
   the bot may see (its own are the entry with its `username`); it was `noteListPlayer` followed by `gameEventList`. A clue
   names its receiver as `receiverIndex` and its value as `color` or `rank` (it was `value`), and a failed play is a `misplay` event (a `discard` has no `failed` field any more).
@@ -229,11 +229,12 @@ has examples; this follows upstream `28988be` of 12 November, 17:31), and the se
 The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the
 hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
 
-- **Frames:** since 12 November (17:16 EST) every websocket frame is one JSON object. A request is `{"id": n, "type": command, "data": payload}`
-  with an ID the client chooses (`wire::request`, from the line `command JSON` that the client emits; the transport in `bot.rs` counts the IDs
-  per connection). The server answers each with `{"reply": n}` (with `data`, or an `error` notice, which `Incoming::Reply` carries as a
+- **Frames:** since 12 November (17:16 EST) every websocket frame is one JSON object. A request is `{"id": n, "request": command, "data": payload}` (`"type"` until 18:29 that day)
+  with an ID the client chooses (`wire::request`, from the line `command JSON` that the client emits; `BotClient` counts the IDs, because a reply
+  can only be read by the one who knows what it answers: `Out::Send` carries the ID, and the transport in `bot.rs` frames the line). The server answers each with `{"reply": n}` (with `data`, or an `error` notice, which `Incoming::Reply` carries as a
   `Refusal`; the code `commandIgnored` marks one not worth showing), and sends the rest as `{"event": name, "data": payload}`. `warning` is
-  left for problems that no request caused. A bot that still sent `command JSON` was logged in (the server lists it) but nothing it said was
+  left for problems that no request caused. The setup of a game is the data of the reply to `gameInitLoad` (there is no `gameInit` event, and the
+  reply does not name the table: `BotClient` remembers which table each request was for, and `wire::game_init_reply` reads it). A bot that still sent `command JSON` was logged in (the server lists it) but nothing it said was
   understood, and it could not read a single message: `connected!` was the last thing it printed.
 - **Sending:** `wire::send::*` build a `ClientMessage` (an enum over every command), `login_request` and `websocket_query` the login form and
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
