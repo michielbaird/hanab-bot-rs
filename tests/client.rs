@@ -156,7 +156,7 @@ fn sends(outs: &[Out]) -> Vec<&str> {
     outs.iter()
         .filter_map(|o| match o {
             Out::Send(_, s) => Some(s.as_str()),
-            Out::Wait(_) => None,
+            Out::Wait(..) => None,
         })
         .collect()
 }
@@ -218,7 +218,7 @@ fn it_plays_through_the_game_start_handshake() {
     assert_eq!(s[0], r#"gameLoaded {"tableId":7}"#);
     assert!(
         outs.iter()
-            .any(|o| *o == Out::Wait(std::time::Duration::from_millis(1000)))
+            .any(|o| matches!(o, Out::Wait(_, d) if *d == std::time::Duration::from_millis(1000)))
     );
     let action = s.last().unwrap();
     assert!(

@@ -876,11 +876,35 @@ pub fn request(id: u64, line: &str) -> Result<String, String> {
     Ok(serde_json::json!({"id": id.get(), "request": command, "data": data}).to_string())
 }
 
+/// The table a request line (`command JSON`) is about, if it names one.
+pub fn request_table(line: &str) -> Option<u64> {
+    let (_, args) = line.split_once(' ')?;
+    let data: Value = serde_json::from_str(args).ok()?;
+    // (The requests do not agree on the spelling.)
+    ["tableId", "tableID"]
+        .iter()
+        .find_map(|key| data.get(key)?.as_u64())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_request_line_names_its_table() {
+        assert_eq!(
+            request_table(r#"playerAction {"tableId":7,"type":0}"#),
+            Some(7)
+        );
+        assert_eq!(
+            request_table(r#"chatPM {"msg":"hi","recipient":"x"}"#),
+            None
+        );
+        assert_eq!(request_table(r#"note {"tableID":8,"order":0}"#), Some(8));
+        assert_eq!(request_table("tableLeave"), None);
+    }
 
     /// A message the way the server would take it: it names a command it knows and passes the schema of its payload.
     fn assert_accepted(message: &ClientRequest) -> Value {

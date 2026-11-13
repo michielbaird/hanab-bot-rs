@@ -40,8 +40,9 @@ pub enum Out {
     /// Send this request to the server: its ID, and the line `<command> <json>` that the transport puts in a frame
     /// (`wire::request`). The server's reply repeats the ID.
     Send(u64, String),
-    /// Hold back everything after this for the given time.
-    Wait(Duration),
+    /// Hold back what comes after this for the same table (or for none, when the table is `None`) for the given time. The
+    /// requests of other tables go on.
+    Wait(Option<usize>, Duration),
 }
 
 pub use crate::wire::{ChatMessage, Phase, Spectator, Table, TableSettings};
@@ -717,7 +718,7 @@ impl BotClient {
             }
             if !resync {
                 self.send(wire::send::game_loaded(table_id));
-                self.emit(Out::Wait(Duration::from_millis(1000)));
+                self.emit(Out::Wait(Some(table_id), Duration::from_millis(1000)));
             }
             self.handle_action(last);
         }
@@ -1416,6 +1417,7 @@ impl BotClient {
 
         if !self.fast_mode {
             self.emit(Out::Wait(
+                Some(table_id),
                 Duration::from_secs(2).saturating_sub(started.elapsed()),
             ));
         }
