@@ -128,3 +128,27 @@ fn it_recognizes_no_ptd_when_bob_has_a_copy_of_zeldas_unknown_play() {
 
     assert!(game.must_clue());
 }
+
+/// Alice must clue when Cathy has just played a card that Bob has on chop (a duplicate that Cathy's play made trash) and Cathy
+/// did not know which card it was. A play always records the inference the card had (`old_inferred`), which is what
+/// `must_clue` compares with the card's identity, so the case that Scala's `get` would throw on does not arise.
+#[test]
+fn it_must_clue_after_a_blind_play_of_bobs_chop() {
+    let mut game = setup(
+        reactor(),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["y1", "y4", "b4", "p4", "g4"],
+            &["y1", "r4", "r4", "g4", "b4"],
+        ],
+        Setup {
+            starting: Cathy,
+            ..Setup::default()
+        },
+    );
+    let played = game.state.hands[Cathy as usize][0];
+    take_turn_draw(&mut game, "Cathy plays y1", "b5");
+
+    assert!(game.common.thoughts[played].old_inferred.is_defined());
+    assert!(game.must_clue());
+}

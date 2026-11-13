@@ -148,7 +148,7 @@ impl ReactorGame for Game {
         let unknown_play = || {
             matches!(&self.last_actions[zelda], Some(Action::Play(PlayAction { order, id: Some(played), .. }))
                 if bob_chop_id == Some(*played)
-                    // (The Scala bot throws if there is no old inference; this treats it as "different".)
+                    // (A play records the card's inference before it (`old_inferred`), so it is never empty here, and Scala's `get` does not throw.)
                     && self.common.thoughts[*order].old_inferred.get() != Some(IdentitySet::from(*played)))
         };
 

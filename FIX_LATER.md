@@ -64,8 +64,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     original `meta` instead of the accumulated one, so only the last processed slot's `trash` flag survived.
 12. **fixed** `calc_target_slot`: `indexOf` returned -1 when the reacting order wasn't in the reacter's old hand, making the slot 0 (and
     `target_slot - 1` underflow); the reaction is now not interpreted.
-13. **open** `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on a possibly-empty `old_inferred`, which throws in Scala.
-    The Rust treats "no old inference" as "different from the played identity".
+13. **resolved** `Reactor::must_clue`'s `unknownPlay` calls `IdentitySetOpt.get` on `old_inferred`, which throws in Scala when it is empty.
+    It never is: every play of a card with a known identity sets `old_inferred` to the inference the card had (`basics/game/update.rs`), and
+    in 890 cases of the check over 2-4 player Reactor self-play it was set every time. The Rust compares an `Option`, as before.
 
 ### Referential Sieve
 
