@@ -53,8 +53,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 ### Reactor
 
-8. **open** `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrites* an
-   existing waiting connection with `None`. Probably meant `game.waiting.orElse(...)`.
+8. **fixed** `try_stable` (`reactor/interpret_clue.rs`): `copy(waiting = Option.when(game.waiting.isEmpty && ...))` *overwrote* an
+   existing waiting connection with `None`. It now keeps it. (The reacter's own clue clears the connection first, so this only shows when
+   another player's stable clue meets a connection that is waiting; the benchmark's fingerprint does not change.)
 9. **fixed** `interpret_discard`, Gentleman's Discard branch: the fold started from `game` instead of `g`, so the `check_missed` changes
    made to `g` were thrown away. It now continues from `g`.
 10. **fixed** `interpret_discard`, "reset ctd after slot 1 discard": `prev.isTouched(0)` was called with *order 0*, not the discarded card, so the

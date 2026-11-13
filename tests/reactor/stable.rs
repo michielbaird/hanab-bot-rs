@@ -403,3 +403,43 @@ fn reacts_to_a_reclue_that_isnt_tempo() {
     // We need to react, since Bob will bomb y2.
     assert_eq!(game.last_move(), Some(Interp::Clue(ClueInterp::Reactive)));
 }
+
+/// A stable clue records a possible response inversion only when no connection is waiting, and must not drop one that is
+/// (Cathy's reactive clue to Alice has Bob as its reacter; Alice clues Bob before he has reacted).
+#[test]
+fn it_keeps_a_waiting_connection_through_a_stable_clue() {
+    use hanab_bot::basics::clue::BaseClue;
+    use hanab_bot::reactor::{ReactorGame, ReactorWC};
+
+    let mut game = setup(
+        reactor(),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["g4", "b4", "p4", "y4", "r1"],
+            &["b3", "g2", "r2", "r3", "g5"],
+        ],
+        Setup {
+            init: Box::new(|game| {
+                let hand = game.state.hands[Alice as usize].clone();
+                game.reactor_mut().waiting = Some(ReactorWC {
+                    giver: Cathy as usize,
+                    reacter: Bob as usize,
+                    receiver: Alice as usize,
+                    receiver_hand: hand,
+                    clue: BaseClue::new(hanab_bot::basics::clue::ClueKind::Rank, 2),
+                    focus_slot: 1,
+                    inverted: false,
+                    turn: 0,
+                });
+            }),
+            ..Setup::default()
+        },
+    );
+    take_turn(&mut game, "Alice clues 1 to Bob");
+
+    let waiting = game.waiting().expect("the waiting connection is kept");
+    assert_eq!(
+        (waiting.giver, waiting.reacter, waiting.receiver),
+        (Cathy as usize, Bob as usize, Alice as usize)
+    );
+}

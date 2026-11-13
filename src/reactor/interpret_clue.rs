@@ -188,22 +188,24 @@ fn try_stable(prev: &Game, game: &Game, action: &ClueAction, stall: bool) -> Sta
         }
     }
 
-    // (This overwrites any existing waiting connection with `None`, as the Scala bot does.)
-    g.reactor_mut().waiting =
-        (game.waiting().is_none() && next_player_index != target).then(|| {
-            log_info!("writing potential response inversion!");
+    // A clue that skips the next player might be a response inversion, which is recorded unless a connection is already
+    // waiting. That one stays.
+    g.reactor_mut().waiting = if game.waiting().is_none() && next_player_index != target {
+        log_info!("writing potential response inversion!");
 
-            ReactorWC {
-                giver,
-                reacter: next_player_index,
-                receiver: target,
-                receiver_hand: state.hands[target].clone(),
-                clue,
-                focus_slot: reactive_focus(state, target, action),
-                inverted: true,
-                turn: state.turn_count,
-            }
-        });
+        Some(ReactorWC {
+            giver,
+            reacter: next_player_index,
+            receiver: target,
+            receiver_hand: state.hands[target].clone(),
+            clue,
+            focus_slot: reactive_focus(state, target, action),
+            inverted: true,
+            turn: state.turn_count,
+        })
+    } else {
+        game.waiting().cloned()
+    };
 
     if let FixResult::Normal {
         clued_resets,
