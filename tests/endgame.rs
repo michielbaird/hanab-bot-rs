@@ -421,3 +421,33 @@ fn it_wins_an_unconventional_rainbow_endgame_in_h() {
         PerformAction::Colour { target: 1, value } if value != Colour::Yellow.ordinal()
     ));
 }
+
+/// A drawn card is stored at the next order and has that order, whatever order the caller gave it.
+#[test]
+fn it_gives_a_drawn_card_the_order_it_is_stored_at() {
+    use hanab_bot::basics::Identity;
+    use hanab_bot::basics::card::Card;
+    use hanab_bot::endgame::winnable::advance_state;
+
+    logger::set_level(LogLevel::Off);
+    let game = setup(
+        hgroup(1),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y1", "g1", "b1", "p4"],
+        ],
+        Setup::default(),
+    );
+    let state = &game.state;
+    let next = state.next_card_order;
+    let discard = PerformAction::Discard {
+        target: state.hands[Alice as usize][0],
+    };
+
+    let draw = Card::new(Some(Identity::new(0, 2)), next + 1, state.turn_count);
+    let advanced = advance_state(state, discard, Alice as usize, Some(draw));
+
+    assert_eq!(advanced.hands[Alice as usize][0], next);
+    assert_eq!(advanced.deck[next].order, next);
+    assert_eq!(advanced.deck[next].identity, Some(Identity::new(0, 2)));
+}

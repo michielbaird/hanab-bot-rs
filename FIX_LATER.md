@@ -42,8 +42,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
    `winrate + rem_prob < best` was looser than intended. It is now reduced after every arrangement. The solver returns the same answers
    (all endgame tests pass); the measured speed-up on the tests was within noise (one test 19 s -> 15-18 s, another 7.5 s -> 8.5 s of CPU).
 2. **fixed** `EndgameSolver::solve`, multi-arrangement loop: `rem_prob` started at `1 - winrate` instead of `1 - first.prob`.
-3. **open** `winnable_if` (`winnable.rs`): the drawn `Card` is created with order `next_card_order + 1` but stored at
-   `next_card_order`. Only the `order` field is wrong; probably harmless.
+3. **fixed** `winnable_if` (`winnable.rs`): the drawn `Card` was created with order `next_card_order + 1` but stored at
+   `next_card_order`. Only the `order` field was wrong, and nothing in the solver read it (`replay` does, on a different path). It is created
+   with the right order now, and `remove_and_draw` gives a drawn card the order it is stored at whatever the caller passed.
 4. **fixed** `Game::analyze` (`basics/game/analyze.rs`) computed endgame winrates from the *final* game, not the replayed game `g`, so every
    endgame comment compared winrates from the wrong position. It now solves from `g`; the time per winrate is 500 ms, or
    `ANALYZE_ENDGAME_TIMEOUT_MS`. Caveat found while checking (item 37).
