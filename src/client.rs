@@ -45,6 +45,26 @@ pub enum Out {
     Wait(Option<usize>, Duration),
 }
 
+/// What a search for a move found, to be handed back to the client ([`BotClient::finish_search`]).
+pub struct Searched {
+    table_id: usize,
+    turn: usize,
+    in_progress: bool,
+    started: Instant,
+    /// The action, or the panic message and the fallback action played instead.
+    outcome: Result<PerformAction, (String, PerformAction)>,
+}
+
+fn search(game: &Game) -> Result<PerformAction, (String, PerformAction)> {
+    catch_unwind(AssertUnwindSafe(|| game.take_action())).map_err(|panic| {
+        let message = panic_message(panic.as_ref());
+        log_error!("panic while choosing an action: {message}");
+        (message, fallback_action(game))
+    })
+}
+
+type SearchSink = Arc<dyn Fn(Searched) + Send + Sync>;
+
 pub use crate::wire::{ChatMessage, Phase, Spectator, Table, TableSettings};
 
 /// Our notes, to restore the settings from (the first card has the bot's note).
@@ -193,6 +213,7 @@ pub struct BotClient {
     /// The convention the current game was created with. Changing the setting does not change a game in progress.
     game_convention: Option<ConventionKind>,
     fast_mode: bool,
+    search_sink: Option<SearchSink>,
     leave_pregame_if_only_bots: bool,
     last_requester: Option<String>,
     feedback: FeedbackStore,
@@ -225,6 +246,7 @@ impl BotClient {
             last_left: None,
             game_convention: None,
             fast_mode: false,
+            search_sink: None,
             leave_pregame_if_only_bots: true,
             last_requester: None,
             feedback: FeedbackStore::new(config.feedback_file.clone()),
@@ -1386,7 +1408,9 @@ impl BotClient {
         }
     }
 
-    /// Decides on an action and queues it, no sooner than 2 seconds after the turn started (unless in fast mode).
+    /// Starts choosing an action for the turn. With a sink (see [`Self::search_in_threads`]) the search runs on a thread of its
+    /// own, so that the other tables go on meanwhile, and [`Self::finish_search`] is called with the result; without one it runs
+    /// here, and the action is queued before this returns.
     fn take_turn(&mut self, in_progress: bool) {
         let Some(game) = &self.game else { return };
         let Some(table_id) = self.table_id else {
@@ -1394,12 +1418,58 @@ impl BotClient {
         };
 
         let started = Instant::now();
-        let action = match catch_unwind(AssertUnwindSafe(|| game.take_action())) {
+        let turn = game.state.turn_count;
+        let Some(sink) = self.search_sink.clone() else {
+            let outcome = search(game);
+            self.finish_search(Searched {
+                table_id,
+                turn,
+                in_progress,
+                started,
+                outcome,
+            });
+            return;
+        };
+        let game = game.clone();
+        std::thread::spawn(move || {
+            let outcome = search(&game);
+            sink(Searched {
+                table_id,
+                turn,
+                in_progress,
+                started,
+                outcome,
+            });
+        });
+    }
+
+    /// Searches for each turn on a thread of its own and hands the result to `sink`, which has to give it back to the thread
+    /// of this client ([`Self::finish_search`]). Without it a search holds up everything else the client does.
+    pub fn search_in_threads(&mut self, sink: impl Fn(Searched) + Send + Sync + 'static) {
+        self.search_sink = Some(Arc::new(sink));
+    }
+
+    /// Queues the action a search chose, no sooner than 2 seconds after the turn started (unless in fast mode). A result for a
+    /// table the bot has left, or for a turn that is over, is dropped.
+    pub fn finish_search(&mut self, searched: Searched) {
+        let Searched {
+            table_id,
+            turn,
+            in_progress,
+            started,
+            outcome,
+        } = searched;
+        if !self.focus(table_id) {
+            return;
+        }
+        let Some(game) = &self.game else { return };
+        if game.state.turn_count != turn {
+            return;
+        }
+
+        let action = match outcome {
             Ok(action) => action,
-            Err(panic) => {
-                let message = panic_message(panic.as_ref());
-                log_error!("panic while choosing an action: {message}");
-                let action = fallback_action(game);
+            Err((message, action)) => {
                 self.report_failure(&message, &action);
                 action
             }

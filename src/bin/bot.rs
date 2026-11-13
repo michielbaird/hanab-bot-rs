@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 
 use hanab_bot::basics::Variant;
 use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
-use hanab_bot::client::{BotClient, BotConfig, Out};
+use hanab_bot::client::{BotClient, BotConfig, Out, Searched};
 use hanab_bot::reconnect::{Backoff, Ended, keep_connected};
 use hanab_bot::settings::BOT_VERSION;
 use hanab_bot::tools::args::{full_env, parse_args};
@@ -31,6 +31,10 @@ use hanab_bot::wire;
 enum ClientIn {
     Msg(String),
     Console(ConsoleCmd),
+    /// A search for a move has finished (they run on threads of their own).
+    Searched(Searched),
+    /// The connection is over. (The client holds a sender of its own, for the searches, so the channel does not close.)
+    Stop,
 }
 
 type ConsoleSink = Arc<Mutex<Option<mpsc::Sender<ClientIn>>>>;
@@ -152,6 +156,7 @@ async fn run_connection(
     let (in_tx, in_rx) = mpsc::channel::<ClientIn>();
     *console.lock().unwrap() = Some(in_tx.clone());
 
+    let search_tx = in_tx.clone();
     let name = username.to_string();
     // The client thread tells when it died (a panic that nothing caught), so that the connection can be run again with a fresh
     // client instead of sitting there with nobody answering.
@@ -159,10 +164,16 @@ async fn run_connection(
     let client_thread = std::thread::spawn(move || {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let mut client = BotClient::new(config, out_tx);
+            let searches = search_tx;
+            client.search_in_threads(move |searched| {
+                let _ = searches.send(ClientIn::Searched(searched));
+            });
             while let Ok(input) = in_rx.recv() {
                 match input {
                     ClientIn::Msg(frame) => client.handle_frame(&frame),
                     ClientIn::Console(cmd) => println!("{}", client.debug(&cmd, &name)),
+                    ClientIn::Searched(searched) => client.finish_search(searched),
+                    ClientIn::Stop => break,
                 }
             }
         }));
@@ -275,6 +286,7 @@ async fn run_connection(
     sender.abort();
     writer.abort();
     *console.lock().unwrap() = None;
+    let _ = in_tx.send(ClientIn::Stop);
     drop(in_tx);
     let _ = client_thread.join();
     result
