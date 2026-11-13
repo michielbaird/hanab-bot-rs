@@ -48,9 +48,12 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 4. **fixed** `Game::analyze` (`basics/game/analyze.rs`) computed endgame winrates from the *final* game, not the replayed game `g`, so every
    endgame comment compared winrates from the wrong position. It now solves from `g`; the time per winrate is 500 ms, or
    `ANALYZE_ENDGAME_TIMEOUT_MS`. Caveat found while checking (item 37).
-5. **open (low)** `RemainingMap` iteration order (ordinal) differs from Scala's unspecified `Map` order; only affects tie-breaks.
-6. **open (low)** `thinks_playables` in the solver is called with `assume = true` (Scala default). Check whether `assume = false` is what
-   endgame play-selection wants.
+5. **resolved (by design)** `RemainingMap` iteration order (ordinal) differs from Scala's `Map` order, which is unspecified (insertion order up to
+   4 entries, hash order after) and cannot be matched. Ordinal order makes the solver deterministic; it only affects tie-breaks, and a test pins it.
+6. **resolved (no change)** `thinks_playables` in the solver is called with `assume = true` (Scala default). `assume` only matters in H-Group's
+   `filter_playables` (a card that is inferred playable but not definite counts only with `assume`; Reactor and RefSieve ignore it). Playing
+   40 games each of `HGroup5` self-play with the solver on, at 3 and at 4 players, gave exactly the same scores and move counts with `false`
+   in both solver calls (979 over 2327 moves at 3 players, 968 over 2265 at 4), so it makes no measurable difference; `true` stays, as in Scala.
 
 ### Reactor
 
