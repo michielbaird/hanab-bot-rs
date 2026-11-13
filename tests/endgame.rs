@@ -451,3 +451,34 @@ fn it_gives_a_drawn_card_the_order_it_is_stored_at() {
     assert_eq!(advanced.deck[next].order, next);
     assert_eq!(advanced.deck[next].identity, Some(Identity::new(0, 2)));
 }
+
+/// `RemainingMap` iterates by identity ordinal, whatever the order the counts were set in, so the solver tries the same
+/// identities in the same order every time. (The Scala bot's `Map` has no specified order past four entries.)
+#[test]
+fn it_iterates_the_remaining_ids_by_ordinal() {
+    use hanab_bot::basics::Identity;
+    use hanab_bot::endgame::solver::RemainingMap;
+
+    let ids = [
+        Identity::new(4, 5),
+        Identity::new(0, 1),
+        Identity::new(2, 3),
+        Identity::new(1, 4),
+        Identity::new(3, 2),
+        Identity::new(0, 5),
+    ];
+    let mut forward = RemainingMap::default();
+    let mut backward = RemainingMap::default();
+    for &id in &ids {
+        forward.set(id, 1);
+    }
+    for &id in ids.iter().rev() {
+        backward.set(id, 1);
+    }
+
+    let order: Vec<usize> = forward.iter().map(|(id, _)| id.to_ord()).collect();
+    assert_eq!(order.len(), ids.len());
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
+    assert_eq!(forward, backward);
+    assert_eq!(forward.first().map(|(id, _)| id), Some(Identity::new(0, 1)));
+}
