@@ -13,7 +13,7 @@ use hanab_bot::endgame::EndgameSolver;
 use hanab_bot::frac::Frac;
 use hanab_bot::hgroup::state_eval::eval_action_impl;
 use hanab_bot::hgroup::state_eval::get_result;
-use hanab_bot::hgroup::{DcStatus, FStatus, HGroupGame, StallInterp};
+use hanab_bot::hgroup::{DcStatus, FStatus, HGroupGame, StallInterp, XConvData};
 
 use Player::*;
 
@@ -437,4 +437,27 @@ fn an_unknown_play_that_can_only_be_a_clued_dupe_is_not_valued_as_nan() {
         }),
     );
     assert_eq!(value, -100.0);
+}
+
+/// The extra metadata of a card that nothing has written is the default, whether or not the table has grown to its order yet:
+/// reading never needs the table to be sized by the draws, and writing one order leaves the others (below and above) at the default.
+#[test]
+fn it_reads_unwritten_extra_metadata_as_the_default() {
+    let mut game = setup(
+        hgroup(1),
+        &[
+            &["xx", "xx", "xx", "xx", "xx"],
+            &["r1", "y1", "g1", "b1", "p4"],
+        ],
+        Setup::default(),
+    );
+
+    assert_eq!(game.xmeta(0), &XConvData::default());
+    assert_eq!(game.xmeta(999), &XConvData::default());
+
+    game.xmeta_mut(7).id_uncertain = true;
+    assert!(game.xmeta(7).id_uncertain);
+    for other in [0, 6, 8, 999] {
+        assert_eq!(game.xmeta(other), &XConvData::default(), "order {other}");
+    }
 }

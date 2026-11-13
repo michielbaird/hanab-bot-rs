@@ -82,8 +82,9 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 
 ### H-Group
 
-25. **open (low)** `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala
-    `Vector.updated` would throw.
+25. **resolved** `HGroupGame::xmeta` returns a default for orders beyond the stored vector, while `xmeta_mut` grows it; the Scala
+    `Vector.updated` would throw. The two agree: a card nothing has written has the default (`DEFAULT_XMETA` is `XConvData::default()`), and
+    only code that Scala would have crashed on reads past the end. Nothing indexes the vector directly, and a test pins the behaviour.
 26. **fixed** `eval_action` for unknown-id plays/discards: a mistake was already -100; with no candidates it was `NaN` (like item 22), now -100.
 28. **open, design question** *Giver and receiver read a clue differently* (`investigations/hgroup5_seed9_3p.json`, `self_play seed=9
     convention=HGroup5`, 3p): at turn 24 Cathy re-clues Alice's already-clued 5s (no new cards touched, early game over). Alice's game

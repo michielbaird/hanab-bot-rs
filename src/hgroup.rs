@@ -199,6 +199,9 @@ pub trait HGroupGame {
         &self.hg().waiting
     }
 
+    /// The extra metadata on an order: the default until something writes it. (The table grows when it is written, not when the card is
+    /// drawn, so a read past its end is the default, which is what a card nothing has written has. Scala's `Vector.updated` would throw
+    /// there; nothing can depend on that.)
     fn xmeta(&self, order: usize) -> &XConvData {
         self.hg().xmeta.get(order).unwrap_or(&DEFAULT_XMETA)
     }
