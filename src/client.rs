@@ -119,6 +119,49 @@ enum Pending {
     GameInit(usize),
 }
 
+/// What the bot keeps for one table. A bot can be at several tables (the server allows it), and the client works on one at a
+/// time: the fields of the table in focus are on `BotClient` itself, where the code that plays a game has always found them,
+/// and those of the others are parked here until a message for their table comes in (`focus`).
+struct Parked {
+    table_id: Option<usize>,
+    game_started: bool,
+    restored_settings: bool,
+    resyncing: bool,
+    old_note_orders: Vec<usize>,
+    /// The convention for the next game at this table (what `/settings` sets there).
+    convention: ConventionKind,
+    game_convention: Option<ConventionKind>,
+    leave_pregame_if_only_bots: bool,
+    seed: Option<String>,
+    game: Option<Game>,
+}
+
+impl Parked {
+    /// A table the bot has just come to: no game yet, and the convention it will play there.
+    fn new(table: usize, convention: ConventionKind) -> Self {
+        Self {
+            table_id: Some(table),
+            game_started: false,
+            restored_settings: false,
+            resyncing: false,
+            old_note_orders: Vec::new(),
+            convention,
+            game_convention: None,
+            leave_pregame_if_only_bots: true,
+            seed: None,
+            game: None,
+        }
+    }
+}
+
+/// The table a bot has just been taken out of, for the next game of the same people (a rematch) to play with the same
+/// convention.
+struct Left {
+    players: Vec<String>,
+    convention: ConventionKind,
+    when: Instant,
+}
+
 pub struct BotClient {
     out: Sender<Out>,
     /// The ID of the next request (the reply repeats it). Shared with the threads that send for the client.
@@ -138,8 +181,14 @@ pub struct BotClient {
     tables: HashMap<i64, Table>,
     /// The users in the lobby, by their ID: a table lists its players by name, and starting one needs their IDs.
     users: HashMap<i64, UserInfo>,
-    /// The convention for the next game (what `/settings` sets).
+    /// The convention for the next game at the table in focus (what `/settings` sets there).
     convention: ConventionKind,
+    /// The convention for a table the bot comes to (what `/settings` sets for someone who is not at one of its tables).
+    default_convention: ConventionKind,
+    /// The tables the bot is at, other than the one in focus.
+    parked: HashMap<usize, Parked>,
+    /// The table that the bot was last taken out of.
+    last_left: Option<Left>,
     /// The convention the current game was created with. Changing the setting does not change a game in progress.
     game_convention: Option<ConventionKind>,
     fast_mode: bool,
@@ -170,6 +219,9 @@ impl BotClient {
             tables: HashMap::new(),
             users: HashMap::new(),
             convention: ConventionKind::Reactor,
+            default_convention: ConventionKind::Reactor,
+            parked: HashMap::new(),
+            last_left: None,
             game_convention: None,
             fast_mode: false,
             leave_pregame_if_only_bots: true,
@@ -191,10 +243,154 @@ impl BotClient {
         })
     }
 
+    /// The game at a table the bot is at (for the tests of games at several tables).
+    #[doc(hidden)]
+    pub fn game_at(&self, table: usize) -> Option<&Game> {
+        if self.table_id == Some(table) {
+            self.game.as_ref()
+        } else {
+            self.parked.get(&table)?.game.as_ref()
+        }
+    }
+
+    /// The convention the bot will play at a table it is at, or plays there (for the same tests).
+    #[doc(hidden)]
+    pub fn convention_at(&self, table: usize) -> Option<ConventionKind> {
+        if self.table_id == Some(table) {
+            Some(self.convention)
+        } else {
+            self.parked.get(&table).map(|p| p.convention)
+        }
+    }
+
     /// The table the bot is at (for the tests of the transport and of a game's start).
     #[doc(hidden)]
     pub fn table(&self) -> Option<usize> {
         self.table_id
+    }
+
+    /// Swaps the table in focus with these fields.
+    fn swap_table(&mut self, other: &mut Parked) {
+        std::mem::swap(&mut self.table_id, &mut other.table_id);
+        std::mem::swap(&mut self.game_started, &mut other.game_started);
+        std::mem::swap(&mut self.restored_settings, &mut other.restored_settings);
+        std::mem::swap(&mut self.resyncing, &mut other.resyncing);
+        std::mem::swap(&mut self.old_note_orders, &mut other.old_note_orders);
+        std::mem::swap(&mut self.convention, &mut other.convention);
+        std::mem::swap(&mut self.game_convention, &mut other.game_convention);
+        std::mem::swap(
+            &mut self.leave_pregame_if_only_bots,
+            &mut other.leave_pregame_if_only_bots,
+        );
+        std::mem::swap(&mut self.seed, &mut other.seed);
+        std::mem::swap(&mut self.game, &mut other.game);
+    }
+
+    /// Puts this table in focus and parks the one that was.
+    fn focus_on(&mut self, mut incoming: Parked) {
+        self.swap_table(&mut incoming);
+        // (A table the bot has left has no id: nothing to keep.)
+        if let Some(old) = incoming.table_id {
+            self.parked.insert(old, incoming);
+        }
+    }
+
+    /// Whether the bot is at this table.
+    fn at_table(&self, table: usize) -> bool {
+        self.table_id == Some(table) || self.parked.contains_key(&table)
+    }
+
+    /// Puts the table in focus, if the bot is at it. Everything the bot does about a table is done with that table in
+    /// focus, so that the code for one game works as it does when there is only one.
+    fn focus(&mut self, table: usize) -> bool {
+        if self.table_id == Some(table) {
+            return true;
+        }
+        match self.parked.remove(&table) {
+            Some(parked) => {
+                self.focus_on(parked);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Puts no table in focus (the tables the bot is at are parked), for what a person who is at none of them asks.
+    fn focus_none(&mut self) {
+        if self.table_id.is_some() {
+            let mut none = Parked::new(0, self.default_convention);
+            none.table_id = None;
+            self.focus_on(none);
+        }
+    }
+
+    /// Puts the table in focus; a table the bot has not been at starts with `convention`.
+    fn enter(&mut self, table: usize, convention: ConventionKind) {
+        if !self.focus(table) {
+            self.focus_on(Parked::new(table, convention));
+        }
+    }
+
+    /// The tables the bot is at.
+    fn tables_here(&self) -> Vec<usize> {
+        self.table_id
+            .into_iter()
+            .chain(self.parked.keys().copied())
+            .collect()
+    }
+
+    /// The convention for a table the bot has come to: that of the table it was just taken out of, if this is the rematch (the
+    /// next game of the same people), else the default.
+    fn convention_for_new_table(&mut self, table: usize) -> ConventionKind {
+        let rematch = self.last_left.take().filter(|left| {
+            left.when.elapsed() < Duration::from_secs(60)
+                // (A person in common; the bot has no way to tell, if it does not know the table yet.)
+                && self.tables.get(&(table as i64)).is_none_or(|t| {
+                    t.player_names
+                        .iter()
+                        .any(|p| left.players.contains(p) && !self.is_bot(p))
+                })
+        });
+        rematch.map_or(self.default_convention, |left| left.convention)
+    }
+
+    /// Remembers the table in focus, which the bot has been taken out of, for its rematch.
+    fn remember_left(&mut self, table: usize) {
+        self.last_left = Some(Left {
+            players: self
+                .tables
+                .get(&(table as i64))
+                .map(|t| t.player_names.clone())
+                .unwrap_or_default(),
+            convention: self.convention,
+            when: Instant::now(),
+        });
+    }
+
+    /// Says in the chat of the table in focus which convention the bot will play there.
+    fn announce_convention(&self) {
+        self.send_chat(&format!(
+            "I'll play {} here. PM me /settings <convention> to change it.",
+            self.convention
+        ));
+    }
+
+    /// The table of the bot where this person is (one of its players or its spectators): what a person's PM is about, since a
+    /// person is at one table at a time. With the bot at one table only, that one, whoever asks.
+    fn table_of(&self, who: &str) -> Option<usize> {
+        let here = self.tables_here();
+        here.iter()
+            .copied()
+            .find(|&id| {
+                self.tables.get(&(id as i64)).is_some_and(|t| {
+                    t.player_names.iter().any(|p| p == who)
+                        || t.spectators.iter().any(|s| s.username == who)
+                })
+            })
+            .or_else(|| match here[..] {
+                [only] => Some(only),
+                _ => None,
+            })
     }
 
     pub fn convention(&self) -> ConventionKind {
@@ -294,10 +490,10 @@ impl BotClient {
                     }
                 }
 
-                // (The server sends the messages of every table that the bot is at, and a bot may be at several. This one plays
-                // one game at a time: what happens at another table is not part of it.)
+                // (The server sends the messages of every table that the bot is at, and a bot may be at several: each is
+                // handled with its table in focus.)
                 Incoming::GameEvent { table, action } => {
-                    if self.table_id == Some(table)
+                    if self.focus(table)
                         && !self.resyncing
                         && let Some(action) = action
                     {
@@ -307,8 +503,8 @@ impl BotClient {
 
                 // Received at the beginning of the game: all events that have happened so far, and the notes.
                 Incoming::GameState(state) => {
-                    if self.table_id != Some(state.table_id) {
-                        // Another table's.
+                    if !self.focus(state.table_id) {
+                        // A table the bot is not at.
                     } else if self.restored_settings {
                         self.handle_event_list(state.table_id, &state.events);
                     } else {
@@ -322,14 +518,13 @@ impl BotClient {
                     }
                 }
 
-                Incoming::TableJoined(id, stage)
-                    if self.table_id.is_some_and(|here| here != id) =>
-                {
-                    self.decline_table(id, stage);
-                }
-
                 Incoming::TableJoined(id, stage) => {
-                    self.table_id = Some(id);
+                    let convention = if self.at_table(id) {
+                        self.default_convention
+                    } else {
+                        self.convention_for_new_table(id)
+                    };
+                    self.enter(id, convention);
                     self.game_started = stage != Stage::Pregame;
                     self.last_requester = None;
                     self.leave_pregame_if_only_bots = true; // reset to true on each table join
@@ -338,6 +533,7 @@ impl BotClient {
                         if let Some(table) = self.tables.get(&(id as i64)).cloned() {
                             self.check_supported_settings(&table);
                         }
+                        self.announce_convention();
                     } else {
                         // A game (or a replay) to load: its setup is the reply to this request.
                         if let Some(request) = self.request(wire::send::game_init_load(id)) {
@@ -349,14 +545,15 @@ impl BotClient {
                 }
 
                 Incoming::TableLeft(id) => {
-                    if self.table_id == Some(id) {
+                    if self.focus(id) {
+                        self.remember_left(id);
                         self.table_id = None;
                         self.game_started = false;
                     }
                 }
 
                 Incoming::Table(table) => {
-                    if self.table_id == Some(table.table_id as usize) {
+                    if self.focus(table.table_id as usize) {
                         // (A finished game's replay, which is also where the bot is after its own game: when the game
                         // ends, everyone at the table is a spectator of it.)
                         if self.config.leave_replay_if_only_bots
@@ -407,14 +604,20 @@ impl BotClient {
                         self.tables.insert(t.table_id, t);
                     }
 
-                    if let Some(me) = &self.info {
-                        let my_table = self
+                    // The games the bot plays at (it can be at several): back to each of them.
+                    if let Some(me) = self.info.as_ref().map(|me| me.name.clone()) {
+                        let mut mine: Vec<i64> = self
                             .tables
                             .values()
-                            .find(|t| t.player_names.contains(&me.name) && t.is_playing())
-                            .map(|t| t.table_id);
-
-                        if let Some(id) = my_table {
+                            .filter(|t| {
+                                t.player_names.contains(&me)
+                                    && t.is_playing()
+                                    && !self.at_table(t.table_id as usize)
+                            })
+                            .map(|t| t.table_id)
+                            .collect();
+                        mine.sort_unstable();
+                        for id in mine {
                             log_info!("automatically reattending table with id {id}");
                             self.send(wire::send::table_reattend(id as usize));
                         }
@@ -432,7 +635,7 @@ impl BotClient {
                         }
                         println!("request {id} refused: {}", refusal.message);
                     } else if let Some(Pending::GameInit(table)) = pending
-                        && self.table_id == Some(table)
+                        && self.focus(table)
                     {
                         let init = data
                             .ok_or_else(|| "the reply to gameInitLoad had no data".to_string())
@@ -492,29 +695,6 @@ impl BotClient {
                     .find_map(|(id, user)| (user.name == *name).then_some(*id))
             })
             .collect()
-    }
-
-    /// The bot plays one game at a time, and the server lets a bot be at any number of tables. Leaves a table that the bot
-    /// ended up at while it is at another one, and says why to whoever asked.
-    fn decline_table(&mut self, table: usize, stage: Stage) {
-        let here = self.table_id.expect("it is at a table");
-        println!(
-            "Leaving table {table}: the bot is at table {here}, and plays one game at a time."
-        );
-        // (At a table whose game has started it unattends, as when it leaves a game it played; before the start it leaves.)
-        self.send(if stage == Stage::Pregame {
-            wire::send::table_leave(table)
-        } else {
-            wire::send::table_unattend(table)
-        });
-        if let Some(who) = self.last_requester.take() {
-            self.send_pm(
-                &who,
-                &format!(
-                    "I can only be at one table at a time, and I am at table {here}. Ask me again when that game is over (or use /leave to take me out of it)."
-                ),
-            );
-        }
     }
 
     /// Plays through the events of the game so far.
@@ -675,14 +855,29 @@ impl BotClient {
     fn settings_reply(&self) -> String {
         let fast = if self.fast_mode { " [fast mode]" } else { "" };
 
+        // Not about a table: the default.
+        if self.table_id.is_none() {
+            return format!(
+                "At a new table I play {} conventions.{fast}",
+                self.default_convention
+            );
+        }
+
+        // (With several tables, the default is not the setting of this one.)
+        let default = if self.tables_here().len() > 1 {
+            format!(" My default for new tables is {}.", self.default_convention)
+        } else {
+            String::new()
+        };
+
         match self.running_convention() {
             // A new setting only applies to the next game; the running one keeps its conventions.
             Some(running) if running != self.convention => format!(
-                "This game is being played with {running} conventions; {0} will be used from the next game (use `/settings {0} force` to switch now).{fast}",
+                "This game is being played with {running} conventions; {0} will be used from the next game (use `/settings {0} force` to switch now).{fast}{default}",
                 self.convention
             ),
             _ => format!(
-                "Currently playing with {} conventions.{fast}",
+                "Currently playing with {} conventions.{fast}{default}",
                 self.convention
             ),
         }
@@ -717,6 +912,14 @@ impl BotClient {
             }
         };
 
+        // From someone at none of the bot's tables: the default for the tables it comes to.
+        if self.table_id.is_none() {
+            self.default_convention = c;
+            self.convention = c;
+            reply(self, &self.settings_reply());
+            return;
+        }
+
         match self.running_convention() {
             Some(running) if force && running != c => {
                 if let Err(msg) = self.force_switch(&data.username, c) {
@@ -729,6 +932,10 @@ impl BotClient {
 
         self.convention = c;
         reply(self, &self.settings_reply());
+        // The table sees what it will get (a command in the table's chat has said it there already).
+        if pm && !self.game_started {
+            self.announce_convention();
+        }
 
         if matches!(c, ConventionKind::HGroup(level) if level >= crate::hgroup::level::CONTEXT) {
             reply(
@@ -831,13 +1038,13 @@ impl BotClient {
             return;
         }
         let within_room = recipient.is_none() && table_id.is_some();
-        // (A command typed at another table is not for the table that the bot is at.)
-        if within_room && *table_id != self.table_id {
-            return;
-        }
         let starts = |cmd: &str| msg.starts_with(cmd);
 
         if within_room {
+            // (A command typed at a table is for that table, if the bot is at it.)
+            if !table_id.is_some_and(|table| self.focus(table)) {
+                return;
+            }
             if starts("/setall") {
                 self.assign_settings(data, false);
             } else if starts("/leaveall") {
@@ -853,12 +1060,16 @@ impl BotClient {
             return;
         }
 
-        if starts("/join") && self.table_id.is_some() {
-            self.send_pm(
-                who,
-                "I can only be at one table at a time. Ask me again when this game is over (or use /leave to take me out of it).",
-            );
-        } else if starts("/join") {
+        // A person's PM is about the table of the bot's that they are at (a person is at one table at a time), or about the
+        // bot itself if they are at none.
+        match self.table_of(who) {
+            Some(table) => {
+                self.focus(table);
+            }
+            None => self.focus_none(),
+        }
+
+        if starts("/join") {
             let table = self
                 .tables
                 .values()

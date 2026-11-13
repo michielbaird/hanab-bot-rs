@@ -242,11 +242,15 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   over after a connection that lasted a minute, so a panic that repeats does not hammer the login. Only a refusal of the credentials
   (401 or 403) ends a bot; it used to give up after five connections that failed, about a minute without the server, and sat dead.
 - **Tables:** the server lets a bot (an account that logged in as one) be at any number of tables, and sends it the messages of all of
-  them, each with its `tableId`. `BotClient` plays one game at a time, so it follows only the table it is at: events, game states, the
-  setup of a game and chat commands for another table are ignored, a second table that it ends up at is left (and whoever asked is told),
-  and `/join` while at a table is refused. Playing several at once is a larger change (one game, one convention and one set of flags per
-  table, and decisions that do not hold each other up). `tableBooted`, which the server sends today when a replay is left for the next
-  game, counts as `tableLeft` (upstream `fa13b41` made it one).
+  them, each with its `tableId`. `BotClient` plays a game at each. The state of one table (its game, convention, flags, seed) is a set of
+  fields on `BotClient`, where the code that plays a game has always found them, and the other tables' are parked in a map (`Parked`); every
+  message about a table is handled with that table in focus (`focus`, which swaps them), so the code for one game is the code for several.
+  Events, game states, replies and chat commands for a table the bot is not at are ignored. A person's PM is about the table of the bot's that
+  they are at (`table_of`; with the bot at one table, that one), or about the bot itself if they are at none: `/settings` then sets the
+  default for tables to come. A table starts with the default, or with the convention of the table the bot was just taken out of if it is the
+  rematch (the same people, within a minute), and says in the table's chat which it will play. `tableBooted`, which the server sends today
+  when a replay is left for the next game, counts as `tableLeft` (upstream `fa13b41` made it one). What is not per table yet: the pause
+  before a move (`Out::Wait` holds back everything on the connection) and the search for a move, which run one table at a time (#104).
 - **Sending:** `wire::send::*` build a `ClientRequest` (an enum over every command), `login_request` and `websocket_query` the login form and
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
 - **Receiving:** `wire::receive(command, args)` reads a message into an `Incoming` (the messages the bot follows, in the shape it uses).
