@@ -191,6 +191,12 @@ impl BotClient {
         })
     }
 
+    /// The table the bot is at (for the tests of the transport and of a game's start).
+    #[doc(hidden)]
+    pub fn table(&self) -> Option<usize> {
+        self.table_id
+    }
+
     pub fn convention(&self) -> ConventionKind {
         self.convention
     }
@@ -288,8 +294,11 @@ impl BotClient {
                     }
                 }
 
-                Incoming::GameEvent(action) => {
-                    if !self.resyncing
+                // (The server sends the messages of every table that the bot is at, and a bot may be at several. This one plays
+                // one game at a time: what happens at another table is not part of it.)
+                Incoming::GameEvent { table, action } => {
+                    if self.table_id == Some(table)
+                        && !self.resyncing
                         && let Some(action) = action
                     {
                         self.handle_action(&action);
@@ -298,7 +307,9 @@ impl BotClient {
 
                 // Received at the beginning of the game: all events that have happened so far, and the notes.
                 Incoming::GameState(state) => {
-                    if self.restored_settings {
+                    if self.table_id != Some(state.table_id) {
+                        // Another table's.
+                    } else if self.restored_settings {
                         self.handle_event_list(state.table_id, &state.events);
                     } else {
                         // The settings have not been (attempted to be) restored so far. That happens with the notes, and
@@ -309,6 +320,12 @@ impl BotClient {
                         };
                         self.handle_note_list(msg);
                     }
+                }
+
+                Incoming::TableJoined(id, stage)
+                    if self.table_id.is_some_and(|here| here != id) =>
+                {
+                    self.decline_table(id, stage);
                 }
 
                 Incoming::TableJoined(id, stage) => {
@@ -331,9 +348,11 @@ impl BotClient {
                     }
                 }
 
-                Incoming::TableLeft(_) => {
-                    self.table_id = None;
-                    self.game_started = false;
+                Incoming::TableLeft(id) => {
+                    if self.table_id == Some(id) {
+                        self.table_id = None;
+                        self.game_started = false;
+                    }
                 }
 
                 Incoming::Table(table) => {
@@ -412,7 +431,9 @@ impl BotClient {
                             self.send_pm(&who, &refusal.message);
                         }
                         println!("request {id} refused: {}", refusal.message);
-                    } else if let Some(Pending::GameInit(table)) = pending {
+                    } else if let Some(Pending::GameInit(table)) = pending
+                        && self.table_id == Some(table)
+                    {
                         let init = data
                             .ok_or_else(|| "the reply to gameInitLoad had no data".to_string())
                             .and_then(|data| wire::game_init_reply(table, &data))?;
@@ -471,6 +492,29 @@ impl BotClient {
                     .find_map(|(id, user)| (user.name == *name).then_some(*id))
             })
             .collect()
+    }
+
+    /// The bot plays one game at a time, and the server lets a bot be at any number of tables. Leaves a table that the bot
+    /// ended up at while it is at another one, and says why to whoever asked.
+    fn decline_table(&mut self, table: usize, stage: Stage) {
+        let here = self.table_id.expect("it is at a table");
+        println!(
+            "Leaving table {table}: the bot is at table {here}, and plays one game at a time."
+        );
+        // (At a table whose game has started it unattends, as when it leaves a game it played; before the start it leaves.)
+        self.send(if stage == Stage::Pregame {
+            wire::send::table_leave(table)
+        } else {
+            wire::send::table_unattend(table)
+        });
+        if let Some(who) = self.last_requester.take() {
+            self.send_pm(
+                &who,
+                &format!(
+                    "I can only be at one table at a time, and I am at table {here}. Ask me again when that game is over (or use /leave to take me out of it)."
+                ),
+            );
+        }
     }
 
     /// Plays through the events of the game so far.
@@ -787,6 +831,10 @@ impl BotClient {
             return;
         }
         let within_room = recipient.is_none() && table_id.is_some();
+        // (A command typed at another table is not for the table that the bot is at.)
+        if within_room && *table_id != self.table_id {
+            return;
+        }
         let starts = |cmd: &str| msg.starts_with(cmd);
 
         if within_room {
@@ -805,7 +853,12 @@ impl BotClient {
             return;
         }
 
-        if starts("/join") {
+        if starts("/join") && self.table_id.is_some() {
+            self.send_pm(
+                who,
+                "I can only be at one table at a time. Ask me again when this game is over (or use /leave to take me out of it).",
+            );
+        } else if starts("/join") {
             let table = self
                 .tables
                 .values()

@@ -22,11 +22,10 @@ use hanab_bot::basics::Variant;
 use hanab_bot::basics::variant::{COLOURS_URL, VARIANTS_URL};
 use hanab_bot::client::{BotClient, BotConfig, Out};
 use hanab_bot::settings::BOT_VERSION;
+use hanab_bot::supervise::{Backoff, Ended, keep_connected};
 use hanab_bot::tools::args::{full_env, parse_args};
 use hanab_bot::tools::console::{ConsoleCmd, parse_command};
 use hanab_bot::wire;
-
-const MAX_RETRIES: u32 = 5;
 
 /// What the client thread is asked to do.
 enum ClientIn {
@@ -49,14 +48,23 @@ struct Session {
     user_id: i64,
 }
 
+/// Why a login gave no session.
+enum LoginError {
+    /// The server refused the credentials (or the address): another try would not change that.
+    Refused(String),
+    /// Anything else: the network, the server, or an answer that makes no sense.
+    Failed(String),
+}
+
 /// Logs in as a bot.
-fn login(base: &str, username: &str, password: &str) -> Result<Session, String> {
+fn login(base: &str, username: &str, password: &str) -> Result<Session, LoginError> {
+    let failed = |e: String| LoginError::Failed(e);
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(format!("{base}/login"))
         .form(&wire::login_request(username, password))
         .send()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| failed(e.to_string()))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -66,7 +74,12 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
             .and_then(|body| wire::login_refusal(&body))
             .map(|message| format!(": {message}"))
             .unwrap_or_default();
-        return Err(format!("login failed: {status}{why}"));
+        let error = format!("login failed: {status}{why}");
+        return Err(if matches!(status.as_u16(), 401 | 403) {
+            LoginError::Refused(error)
+        } else {
+            failed(error)
+        });
     }
 
     // (There is a cookie for the account, and one for the browser's most recent sign-in: the websocket gets them all.)
@@ -79,12 +92,22 @@ fn login(base: &str, username: &str, password: &str) -> Result<Session, String> 
         .collect::<Vec<_>>()
         .join("; ");
     if cookie.is_empty() {
-        return Err("No cookie found in the login response".to_string());
+        return Err(failed("No cookie found in the login response".to_string()));
     }
 
-    let user_id = wire::login_response(&response.text().map_err(|e| e.to_string())?)?;
+    let user_id = wire::login_response(&response.text().map_err(|e| failed(e.to_string()))?)
+        .map_err(failed)?;
 
     Ok(Session { cookie, user_id })
+}
+
+/// What a panic said.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_else(|| "no message".to_string())
 }
 
 /// Runs the client until the connection closes: a thread owns the `BotClient` (choosing actions is slow),
@@ -130,13 +153,21 @@ async fn run_connection(
     *console.lock().unwrap() = Some(in_tx.clone());
 
     let name = username.to_string();
+    // The client thread tells when it died (a panic that nothing caught), so that the connection can be run again with a fresh
+    // client instead of sitting there with nobody answering.
+    let (died_tx, mut died_rx) = tokio::sync::oneshot::channel::<String>();
     let client_thread = std::thread::spawn(move || {
-        let mut client = BotClient::new(config, out_tx);
-        while let Ok(input) = in_rx.recv() {
-            match input {
-                ClientIn::Msg(frame) => client.handle_frame(&frame),
-                ClientIn::Console(cmd) => println!("{}", client.debug(&cmd, &name)),
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let mut client = BotClient::new(config, out_tx);
+            while let Ok(input) = in_rx.recv() {
+                match input {
+                    ClientIn::Msg(frame) => client.handle_frame(&frame),
+                    ClientIn::Console(cmd) => println!("{}", client.debug(&cmd, &name)),
+                }
             }
+        }));
+        if let Err(panic) = outcome {
+            let _ = died_tx.send(panic_message(panic.as_ref()));
         }
     });
 
@@ -188,8 +219,20 @@ async fn run_connection(
         })
     };
 
+    let mut watching = true;
     let result = loop {
-        match tokio::time::timeout(Duration::from_secs(120), read.next()).await {
+        let next = tokio::select! {
+            died = &mut died_rx, if watching => {
+                // (If it ended without a panic, it is because the connection did.)
+                if let Ok(why) = died {
+                    break Err(format!("the bot's thread panicked: {why}"));
+                }
+                watching = false;
+                continue;
+            }
+            next = tokio::time::timeout(Duration::from_secs(120), read.next()) => next,
+        };
+        match next {
             Err(_) => break Err("no message for 2 minutes".to_string()),
             Ok(None) => break Err("websocket stream ended".to_string()),
             Ok(Some(Err(e))) => break Err(e.to_string()),
@@ -220,53 +263,46 @@ struct Net {
     config: BotConfig,
 }
 
+#[derive(Clone)]
 struct BotSpec {
     index: usize,
     username: String,
     password: String,
 }
 
-/// Keeps one bot logged in and connected, reconnecting with a back-off when the connection drops.
+/// One connection of a bot: logs in, and runs the client until the connection ends.
+async fn connect_once(net: Arc<Net>, spec: BotSpec, console: ConsoleSink) -> Ended {
+    let (base, user, pass) = (net.http_base.clone(), spec.username.clone(), spec.password);
+    let session = match tokio::task::spawn_blocking(move || login(&base, &user, &pass)).await {
+        Ok(Ok(session)) => session,
+        Ok(Err(LoginError::Refused(why))) => return Ended::Refused(why),
+        Ok(Err(LoginError::Failed(why))) => return Ended::Lost(why),
+        Err(e) => return Ended::Lost(format!("the login failed: {e}")),
+    };
+
+    match run_connection(
+        &net.ws_url,
+        &session,
+        net.config.clone(),
+        &spec.username,
+        &console,
+    )
+    .await
+    {
+        Ok(()) => Ended::Lost("the connection ended".to_string()),
+        Err(e) => Ended::Lost(e),
+    }
+}
+
+/// Keeps one bot logged in and connected: when the connection drops, or anything in it panics, it logs in again after a wait.
+/// Only a refusal of the credentials ends it.
 async fn supervise(spec: BotSpec, net: Arc<Net>, console: ConsoleSink) -> Result<(), String> {
     let username = spec.username.clone();
-    let mut attempt: u32 = 0;
-
-    loop {
-        let (base, user, pass) = (
-            net.http_base.clone(),
-            spec.username.clone(),
-            spec.password.clone(),
-        );
-        let session = tokio::task::spawn_blocking(move || login(&base, &user, &pass))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let (result, connected) = match session {
-            Ok(session) => (
-                run_connection(
-                    &net.ws_url,
-                    &session,
-                    net.config.clone(),
-                    &username,
-                    &console,
-                )
-                .await,
-                true,
-            ),
-            Err(e) => (Err(e), false),
-        };
-
-        let Err(err) = result else { return Ok(()) };
-        if attempt >= MAX_RETRIES {
-            return Err(format!("[{username}] {err}"));
-        }
-
-        // A connection that got established resets the retry counter.
-        let next = if connected { 0 } else { attempt + 1 };
-        println!("[{username}] Connection lost (attempt {attempt}/{MAX_RETRIES}): {err}");
-        tokio::time::sleep(Duration::from_secs(2 << attempt)).await;
-        attempt = next;
-    }
+    let why = keep_connected(&username, Backoff::default(), || {
+        connect_once(net.clone(), spec.clone(), console.clone())
+    })
+    .await;
+    Err(format!("[{username}] {why}"))
 }
 
 fn main() -> Result<(), String> {
@@ -436,4 +472,21 @@ fn main() -> Result<(), String> {
         }
         failure.map_or(Ok(()), Err)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::panic_message;
+
+    #[test]
+    fn says_what_a_panic_said() {
+        let said = std::panic::catch_unwind(|| panic!("the history is full")).unwrap_err();
+        assert_eq!(panic_message(said.as_ref()), "the history is full");
+
+        let formatted = std::panic::catch_unwind(|| panic!("table {}", 7)).unwrap_err();
+        assert_eq!(panic_message(formatted.as_ref()), "table 7");
+
+        let other = std::panic::catch_unwind(|| std::panic::panic_any(7_u8)).unwrap_err();
+        assert_eq!(panic_message(other.as_ref()), "no message");
+    }
 }

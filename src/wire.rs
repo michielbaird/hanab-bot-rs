@@ -456,8 +456,11 @@ pub enum Incoming {
     TableJoined(usize, Stage),
     TableLeft(usize),
     GameState(GameState),
-    /// An event of the game in progress (`None` for one that the game model does not follow).
-    GameEvent(Option<Action>),
+    /// An event of the game at a table (`None` for one that the game model does not follow).
+    GameEvent {
+        table: usize,
+        action: Option<Action>,
+    },
     /// The server's answer to a request of ours (by its ID). `refusal` is set if the request was refused.
     Reply {
         id: u64,
@@ -771,8 +774,15 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
                 TableStage::Replay => Stage::Replay,
             },
         )
-    } else if command == events::TABLE_LEFT.name() {
-        let left = payload(events::TABLE_LEFT, &value()?).map_err(read)?;
+    } else if command == events::TABLE_LEFT.name() || command == events::TABLE_BOOTED.name() {
+        // (Taken out of a table, as when a replay is left for the next game: `tableBooted` until upstream `fa13b41`, when
+        // `tableLeft` took its place. Bumping the pin past that is a compile error here, and this goes.)
+        let left = if command == events::TABLE_LEFT.name() {
+            payload(events::TABLE_LEFT, &value()?)
+        } else {
+            payload(events::TABLE_BOOTED, &value()?)
+        }
+        .map_err(read)?;
         Incoming::TableLeft(left.table_id.get() as usize)
     } else if command == events::GAME_STATE.name() {
         Incoming::GameState(game_state(
@@ -780,7 +790,10 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
         ))
     } else if command == events::GAME_EVENT.name() {
         let message = payload(events::GAME_EVENT, &value()?).map_err(read)?;
-        Incoming::GameEvent(to_action(&message.event).map_err(read)?)
+        Incoming::GameEvent {
+            table: message.table_id.get() as usize,
+            action: to_action(&message.event).map_err(read)?,
+        }
     } else if command == events::ERROR.name() || command == events::WARNING.name() {
         let notice = if command == events::ERROR.name() {
             payload(events::ERROR, &value()?)
@@ -1119,6 +1132,11 @@ mod tests {
             received("tableLeft", json!({"tableId": 3})),
             Incoming::TableLeft(3)
         ));
+        // Taken out of a table (when a replay is left for the next game).
+        assert!(matches!(
+            received("tableBooted", json!({"tableId": 3})),
+            Incoming::TableLeft(3)
+        ));
         assert!(matches!(
             received("tableRemoved", json!({"tableId": 3})),
             Incoming::TableRemoved(3)
@@ -1249,14 +1267,17 @@ mod tests {
                 "gameEvent",
                 json!({"tableId": 7, "event": {"type": "turn", "turn": 3, "currentPlayerIndex": 1}})
             ),
-            Incoming::GameEvent(Some(Action::Turn(_)))
+            Incoming::GameEvent {
+                table: 7,
+                action: Some(Action::Turn(_))
+            }
         ));
         assert!(matches!(
             received(
                 "gameEvent",
                 json!({"tableId": 7, "event": {"type": "playerTimes", "playerTimesMs": [1, 2], "durationMs": 3}})
             ),
-            Incoming::GameEvent(None)
+            Incoming::GameEvent { action: None, .. }
         ));
     }
 
@@ -1415,7 +1436,10 @@ mod tests {
                 "gameEvent",
                 json!({"tableId": 7, "event": clue.clone(), "seq": 9})
             ),
-            Incoming::GameEvent(Some(Action::Clue(_)))
+            Incoming::GameEvent {
+                action: Some(Action::Clue(_)),
+                ..
+            }
         ));
         let Incoming::GameState(state) = received(
             "gameState",

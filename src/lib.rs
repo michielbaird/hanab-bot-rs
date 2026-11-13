@@ -14,6 +14,8 @@ pub mod reactor;
 pub mod ref_sieve;
 pub mod settings;
 pub mod stats;
+#[cfg(feature = "net")]
+pub mod supervise;
 pub mod tools;
 pub mod util;
 #[cfg(feature = "protocol")]

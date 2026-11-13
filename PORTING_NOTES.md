@@ -236,7 +236,18 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   left for problems that no request caused. The setup of a game is the data of the reply to `gameInitLoad` (there is no `gameInit` event, and the
   reply does not name the table: `BotClient` remembers which table each request was for, and `wire::game_init_reply` reads it). A bot that still sent `command JSON` was logged in (the server lists it) but nothing it said was
   understood, and it could not read a single message: `connected!` was the last thing it printed.
-- **Sending:** `wire::send::*` build a `ClientMessage` (an enum over every command), `login_request` and `websocket_query` the login form and
+- **Staying up:** `supervise::keep_connected` runs each connection as a task of its own and runs another when it ends, for any reason: a
+  lost connection, a panic in the task, or the client thread dying (a panic that nothing caught, which the connection notices at once and
+  answers with a fresh client; the bot reattends its table from the lobby's table list). The wait doubles from 2 s to 5 minutes and starts
+  over after a connection that lasted a minute, so a panic that repeats does not hammer the login. Only a refusal of the credentials
+  (401 or 403) ends a bot; it used to give up after five connections that failed, about a minute without the server, and sat dead.
+- **Tables:** the server lets a bot (an account that logged in as one) be at any number of tables, and sends it the messages of all of
+  them, each with its `tableId`. `BotClient` plays one game at a time, so it follows only the table it is at: events, game states, the
+  setup of a game and chat commands for another table are ignored, a second table that it ends up at is left (and whoever asked is told),
+  and `/join` while at a table is refused. Playing several at once is a larger change (one game, one convention and one set of flags per
+  table, and decisions that do not hold each other up). `tableBooted`, which the server sends today when a replay is left for the next
+  game, counts as `tableLeft` (upstream `fa13b41` made it one).
+- **Sending:** `wire::send::*` build a `ClientRequest` (an enum over every command), `login_request` and `websocket_query` the login form and
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
 - **Receiving:** `wire::receive(command, args)` reads a message into an `Incoming` (the messages the bot follows, in the shape it uses).
   Each message is named by the server's own constant (`server::TABLE`), which carries its payload type, and is checked against the
