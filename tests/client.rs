@@ -105,7 +105,7 @@ impl Feed for BotClient {
             // the old game first, as the server does, and then enters the new one.)
             if let Some(old) = self.table().filter(|old| *old != table) {
                 self.handle_frame(
-                    &json!({"event": "tableBooted", "data": {"tableId": old}}).to_string(),
+                    &json!({"event": "tableLeft", "data": {"tableId": old}}).to_string(),
                 );
             }
             self.handle_frame(
@@ -467,7 +467,7 @@ fn it_saves_feedback_with_the_game_context() {
 }
 
 #[test]
-fn it_saves_feedback_unescaped() {
+fn it_saves_feedback_as_typed() {
     logger::set_level(LogLevel::Off);
     init_variants();
 
@@ -481,10 +481,10 @@ fn it_saves_feedback_unescaped() {
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("bot"));
 
-    // hanab.live escapes chat text before it reaches the bot.
+    // Chat is plain text: what looks like an HTML entity is what the player typed.
     client.handle_msg(&pm(
         "alice",
-        "/feedback &lt;turn 5: bot told me about 1s &amp; 2s&gt;",
+        "/feedback <turn 5: bot told me about 1s & 2s, not &amp;>",
     ));
 
     let saved: Vec<Value> = std::fs::read_to_string(&path)
@@ -492,7 +492,10 @@ fn it_saves_feedback_unescaped() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(saved[0]["text"], "<turn 5: bot told me about 1s & 2s>");
+    assert_eq!(
+        saved[0]["text"],
+        "<turn 5: bot told me about 1s & 2s, not &amp;>"
+    );
 }
 
 #[test]
@@ -1455,7 +1458,7 @@ fn a_rematch_keeps_the_convention() {
     // The game is played and ends; everyone leaves the replay, and the new table has the same people.
     join_game(&mut client, 3, &["bot", "alice"], 0);
     assert_eq!(client.game_at(3).unwrap().conv.name(), "HGroup5");
-    client.handle_msg(r#"tableBooted {"tableId": 3}"#);
+    client.handle_msg(r#"tableLeft {"tableId": 3}"#);
     let new = table_json(9, &["alice", "bot"], json!({"type": "pregame"}), json!({}));
     client.handle_msg(&format!("table {new}"));
     client.handle_msg(r#"tableJoined {"tableId": 9, "stage": "pregame"}"#);
@@ -1466,7 +1469,7 @@ fn a_rematch_keeps_the_convention() {
     );
 
     // A table of other people, not long after, is not a rematch: it gets the default.
-    client.handle_msg(r#"tableBooted {"tableId": 9}"#);
+    client.handle_msg(r#"tableLeft {"tableId": 9}"#);
     let other = table_json(10, &["dave", "bot"], json!({"type": "pregame"}), json!({}));
     client.handle_msg(&format!("table {other}"));
     client.handle_msg(r#"tableJoined {"tableId": 10, "stage": "pregame"}"#);

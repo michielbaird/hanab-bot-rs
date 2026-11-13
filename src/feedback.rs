@@ -117,8 +117,8 @@ impl FeedbackStore {
         context: &Context,
         now: SystemTime,
     ) -> Result<(), FeedbackError> {
-        let text = unescape_html(text.trim());
-        let text = text.as_str();
+        // (Chat is plain text since upstream `a9500ad`: it is stored as it came.)
+        let text = text.trim();
         if text.is_empty() {
             return Err(FeedbackError::Empty);
         }
@@ -179,7 +179,8 @@ fn entry_json(from: &str, text: &str, context: &Context, now: SystemTime) -> Val
     })
 }
 
-/// hanab.live HTML-escapes chat text (`<` arrives as `&lt;`); this turns the five entities it uses back into characters.
+/// hanab.live HTML-escaped chat text (`<` arrived as `&lt;`) until upstream `a9500ad` sent plain text. Feedback logs that are older
+/// than `unescape_html` was in `record_at` have it escaped; this turns the five entities it used back into characters.
 /// (`&amp;` goes last so that `&amp;lt;` becomes `&lt;`, not `<`.)
 pub fn unescape_html(text: &str) -> String {
     text.replace("&lt;", "<")
