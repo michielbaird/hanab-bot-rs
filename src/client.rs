@@ -5,13 +5,16 @@
 //! owns the websocket, spaces out the sends, and runs the client on its own thread, because
 //! choosing an action can take seconds.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use hanabi_protocol::ClientMessage;
+use hanabi_protocol::ClientRequest;
 
 use crate::basics::action::Action;
 use crate::basics::game::Note;
@@ -34,8 +37,9 @@ const BLUE: &str = "\x1b[34m";
 /// Something the client wants the transport to do, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Out {
-    /// Send this message (`<command> <json>`) to the server.
-    Send(String),
+    /// Send this request to the server: its ID, and the line `<command> <json>` that the transport puts in a frame
+    /// (`wire::request`). The server's reply repeats the ID.
+    Send(u64, String),
     /// Hold back everything after this for the given time.
     Wait(Duration),
 }
@@ -108,8 +112,19 @@ impl BotConfig {
     }
 }
 
+/// What a request of ours is for, when its reply has something in it that we need.
+#[derive(Clone, Copy, Debug)]
+enum Pending {
+    /// The setup of the game at this table.
+    GameInit(usize),
+}
+
 pub struct BotClient {
     out: Sender<Out>,
+    /// The ID of the next request (the reply repeats it). Shared with the threads that send for the client.
+    request_ids: Arc<AtomicU64>,
+    /// The requests that wait for a reply that we read, by ID.
+    pending: RefCell<HashMap<u64, Pending>>,
     config: BotConfig,
     info: Option<UserInfo>,
     table_id: Option<usize>,
@@ -144,6 +159,8 @@ impl BotClient {
     pub fn new(config: BotConfig, out: Sender<Out>) -> Self {
         Self {
             out,
+            request_ids: Arc::new(AtomicU64::new(1)),
+            pending: RefCell::new(HashMap::new()),
             info: None,
             table_id: None,
             game_started: false,
@@ -165,6 +182,15 @@ impl BotClient {
         }
     }
 
+    /// The ID of the request for the setup of the game at this table, while its reply is awaited (for the tests of the
+    /// transport and of a game's start, which answer it).
+    #[doc(hidden)]
+    pub fn pending_game_init(&self, table: usize) -> Option<u64> {
+        self.pending.borrow().iter().find_map(|(id, pending)| {
+            matches!(pending, Pending::GameInit(t) if *t == table).then_some(*id)
+        })
+    }
+
     pub fn convention(&self) -> ConventionKind {
         self.convention
     }
@@ -174,15 +200,28 @@ impl BotClient {
         let _ = self.out.send(out);
     }
 
-    /// Sends a command, built with [`wire::send`] (one that the wire does not take is logged, not sent).
-    fn send(&self, message: Result<ClientMessage, String>) {
+    /// Sends a request, built with [`wire::send`] (one that the wire does not take is logged, not sent).
+    fn send(&self, message: Result<ClientRequest, String>) {
+        self.request(message);
+    }
+
+    /// Sends a request like [`Self::send`], and returns its ID, for a request whose reply we read.
+    fn request(&self, message: Result<ClientRequest, String>) -> Option<u64> {
         match message {
             Ok(message) => {
                 let (cmd, args) = wire::command(&message);
-                println!("{RED}Sending command: {cmd} {args}{}", crate::logger::RESET);
-                self.emit(Out::Send(format!("{cmd} {args}")));
+                let id = self.request_ids.fetch_add(1, Ordering::Relaxed);
+                println!(
+                    "{RED}Sending request {id}: {cmd} {args}{}",
+                    crate::logger::RESET
+                );
+                self.emit(Out::Send(id, format!("{cmd} {args}")));
+                Some(id)
             }
-            Err(e) => log_error!("couldn't send a command: {e}"),
+            Err(e) => {
+                log_error!("couldn't send a command: {e}");
+                None
+            }
         }
     }
 
@@ -283,12 +322,14 @@ impl BotClient {
                             self.check_supported_settings(&table);
                         }
                     } else {
-                        // A game (or a replay) to load.
-                        self.send(wire::send::game_init_load(id));
+                        // A game (or a replay) to load: its setup is the reply to this request.
+                        if let Some(request) = self.request(wire::send::game_init_load(id)) {
+                            self.pending
+                                .borrow_mut()
+                                .insert(request, Pending::GameInit(id));
+                        }
                     }
                 }
-
-                Incoming::GameInit(msg) => self.handle_init(msg)?,
 
                 Incoming::TableLeft(_) => {
                     self.table_id = None;
@@ -361,8 +402,9 @@ impl BotClient {
                     }
                 }
 
-                // A refused request is answered with an error reply (it was a `warning` before JSON frames).
-                Incoming::Reply { id, refusal } => {
+                // The answer to a request of ours (a refusal was a `warning` before JSON frames).
+                Incoming::Reply { id, refusal, data } => {
+                    let pending = self.pending.borrow_mut().remove(&id);
                     if let Some(refusal) = refusal {
                         if !refusal.ignored
                             && let Some(who) = self.last_requester.take()
@@ -370,6 +412,11 @@ impl BotClient {
                             self.send_pm(&who, &refusal.message);
                         }
                         println!("request {id} refused: {}", refusal.message);
+                    } else if let Some(Pending::GameInit(table)) = pending {
+                        let init = data
+                            .ok_or_else(|| "the reply to gameInitLoad had no data".to_string())
+                            .and_then(|data| wire::game_init_reply(table, &data))?;
+                        self.handle_init(init)?;
                     }
                 }
 
@@ -1001,13 +1048,15 @@ impl BotClient {
         self.send_pm(who, "Analyzing... (may take up to 60s)");
 
         let out = self.out.clone();
+        let request_ids = self.request_ids.clone();
         let hostname = self.config.hostname.clone();
         let who = who.to_string();
         std::thread::spawn(move || {
             let pm = |msg: &str| {
                 for text in split_chat(msg) {
                     let (cmd, args) = wire::command(&wire::send::chat_pm(&text, &who));
-                    let _ = out.send(Out::Send(format!("{cmd} {args}")));
+                    let id = request_ids.fetch_add(1, Ordering::Relaxed);
+                    let _ = out.send(Out::Send(id, format!("{cmd} {args}")));
                 }
             };
 
