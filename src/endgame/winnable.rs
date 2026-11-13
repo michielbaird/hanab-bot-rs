@@ -185,7 +185,7 @@ pub fn winnable_if(
         .partition(|&id| state.is_basic_trash(id));
 
     let is_winnable = |draw_id: Identity| {
-        let draw = Card::new(Some(draw_id), state.next_card_order + 1, state.turn_count);
+        let draw = Card::new(Some(draw_id), state.next_card_order, state.turn_count);
         let new_state = advance_state(state, perform, player_turn, Some(draw));
         let new_remaining = remaining.rem(draw_id);
 
@@ -216,7 +216,7 @@ pub fn winnable_if(
     }
 }
 
-/// The state after the player performs the action (and draws `draw`, if given).
+/// The state after the player performs the action (and draws `draw`, if given: it is stored at the next order, and takes it).
 pub fn advance_state(
     state: &State,
     perform: PerformAction,
@@ -275,7 +275,13 @@ fn remove_and_draw(s: &mut State, player_index: usize, order: usize, draw: Optio
         .and_then(super::super::basics::card::Identifiable::id)
         .is_none()
     {
-        let new_card = draw.unwrap_or_else(|| Card::new(None, new_card_order, s.turn_count));
+        // (The card takes the order it is stored at, whatever order the caller gave it.)
+        let new_card = draw
+            .map(|card| Card {
+                order: new_card_order,
+                ..card
+            })
+            .unwrap_or_else(|| Card::new(None, new_card_order, s.turn_count));
 
         if s.deck.len() == new_card_order {
             s.deck.push(new_card);
