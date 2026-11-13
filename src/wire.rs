@@ -11,7 +11,7 @@
 //! To follow the protocol, change `rev` of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
 
 use hanabi_protocol::{
-    CardEvent, CardIdentity, CardOrder, Chat, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
+    CardEvent, CardIdentity, CardOrder, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
     ClientKind, ClientRequest, Clue, ClueRank, ClueTurn, ColorIndex, EndCondition, GameEvent,
     GameOptions, LoginRequest, NoteRequest, PlayerAction, PlayerActionRequest, PlayerIndex,
     RequestId, ServerEvent, TableId, TableJoinRequest, TablePhase, TableRef, TableStage,
@@ -498,8 +498,9 @@ fn author(author: &ChatAuthor) -> (&'static str, String) {
     }
 }
 
-fn chat(chat: &Chat) -> ChatMessage {
-    let (source, username, recipient) = match &chat.kind {
+/// A chat message, shown in the chat of `table_id` (`None` for the lobby, and for a private message).
+fn chat(message: &hanabi_protocol::ChatMessage, table_id: Option<TableId>) -> ChatMessage {
+    let (source, username, recipient) = match &message.kind {
         ChatKind::Public { author: a } => {
             let (source, username) = author(a);
             (source, username, None)
@@ -511,16 +512,12 @@ fn chat(chat: &Chat) -> ChatMessage {
             let (source, username) = author(a);
             (source, username, Some(recipient.to_string()))
         }
-        // (A suggestion to the owner of a table is from the server.)
-        ChatKind::SettingsSuggestion { recipient, .. } => {
-            ("server", String::new(), Some(recipient.to_string()))
-        }
     };
     ChatMessage {
-        text: chat.text.clone(),
+        text: message.text.clone(),
         source: source.to_string(),
         username,
-        table_id: chat.table_id.map(|id| id.get() as usize),
+        table_id: table_id.map(|id| id.get() as usize),
         recipient,
     }
 }
@@ -751,10 +748,18 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
         let removed = payload(events::USER_REMOVED, &value()?).map_err(read)?;
         Incoming::UserRemoved(i64::from(removed.user_id.get()))
     } else if command == events::CHAT.name() {
-        Incoming::Chat(chat(&payload(events::CHAT, &value()?).map_err(read)?))
+        let message = payload(events::CHAT, &value()?).map_err(read)?;
+        Incoming::Chat(chat(&message.message, message.table_id))
     } else if command == events::CHAT_LIST.name() {
         let list = payload(events::CHAT_LIST, &value()?).map_err(read)?;
-        Incoming::ChatList(list.messages.iter().map(chat).collect())
+        // (The list names its table once, not in each message.)
+        let table_id = list.table.map(|table| table.table_id);
+        Incoming::ChatList(
+            list.messages
+                .iter()
+                .map(|message| chat(message, table_id))
+                .collect(),
+        )
     } else if command == events::TABLE.name() {
         Incoming::Table(table(&payload(events::TABLE, &value()?).map_err(read)?))
     } else if command == events::TABLE_LIST.name() {
@@ -774,15 +779,9 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
                 TableStage::Replay => Stage::Replay,
             },
         )
-    } else if command == events::TABLE_LEFT.name() || command == events::TABLE_BOOTED.name() {
-        // (Taken out of a table, as when a replay is left for the next game: `tableBooted` until upstream `fa13b41`, when
-        // `tableLeft` took its place. Bumping the pin past that is a compile error here, and this goes.)
-        let left = if command == events::TABLE_LEFT.name() {
-            payload(events::TABLE_LEFT, &value()?)
-        } else {
-            payload(events::TABLE_BOOTED, &value()?)
-        }
-        .map_err(read)?;
+    } else if command == events::TABLE_LEFT.name() {
+        // (Taken out of a table, as when a replay is left for the next game.)
+        let left = payload(events::TABLE_LEFT, &value()?).map_err(read)?;
         Incoming::TableLeft(left.table_id.get() as usize)
     } else if command == events::GAME_STATE.name() {
         Incoming::GameState(game_state(
@@ -1132,11 +1131,6 @@ mod tests {
             received("tableLeft", json!({"tableId": 3})),
             Incoming::TableLeft(3)
         ));
-        // Taken out of a table (when a replay is left for the next game).
-        assert!(matches!(
-            received("tableBooted", json!({"tableId": 3})),
-            Incoming::TableLeft(3)
-        ));
         assert!(matches!(
             received("tableRemoved", json!({"tableId": 3})),
             Incoming::TableRemoved(3)
@@ -1201,24 +1195,26 @@ mod tests {
             ("discord", "carol")
         );
 
-        let suggestion = chat(
-            json!({"type": "settingsSuggestion", "recipient": "bot",
-                "settings": {"name": "t", "maxPlayers": 5, "options": {}}}),
-            None,
-        );
-        assert_eq!(
-            (suggestion.source.as_str(), suggestion.recipient.as_deref()),
-            ("server", Some("bot"))
-        );
-
+        // A table's chat list names its table once, for every message.
         let Incoming::ChatList(list) = received(
             "chatList",
             json!({"messages": [{"text": "hi", "sentAt": "2026-01-01T12:00:00.000Z",
-                "kind": {"type": "public", "author": {"type": "server"}}}], "numUnread": 0}),
+                "kind": {"type": "public", "author": {"type": "server"}}}],
+                "table": {"tableId": 3, "numUnread": 0}}),
         ) else {
             panic!("a chat list");
         };
         assert_eq!(list.len(), 1);
+        assert_eq!(list[0].table_id, Some(3));
+        // The lobby's chat list names no table.
+        let Incoming::ChatList(list) = received(
+            "chatList",
+            json!({"messages": [{"text": "hi", "sentAt": "2026-01-01T12:00:00.000Z",
+                "kind": {"type": "public", "author": {"type": "server"}}}]}),
+        ) else {
+            panic!("a chat list");
+        };
+        assert_eq!(list[0].table_id, None);
     }
 
     #[test]

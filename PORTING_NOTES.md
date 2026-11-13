@@ -205,13 +205,13 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `e57555c` of 12 November, 19:03), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `6ed2acf` of 13 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
   people use and leaves the account alone). The answer is `{"userId": n}` and one cookie per account; all of them go to
   `/ws?client=bot&account=<userId>` (a bot sends no client version).
-- **Received:** `welcome`, `chat` (`text`, `tableId` and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`; a `suggestion` is from the server. The message itself had `source`, `username` and `recipient` until 12 November), `chatList`, `table`, `tableList` (`{"tables": [...]}`),
+- **Received:** `welcome`, `chat` (plain `text`, which was HTML until 13 November; a `tableId` unless the message belongs to no table, as in the lobby or a private message; and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`. The message itself had `source`, `username` and `recipient` until 12 November), `chatList` (the messages, and for a table's chat `table: {tableId, numUnread}`, which names the table once), `table`, `tableList` (`{"tables": [...]}`),
   `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameEvent`, `gameState`,
   `warning`/`error` (`message`). A table's `phase` is an object (`{"type": "pregame"}`, a shared replay also has its `gameId`); it was a name. Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events. `gameState` (the answer to `gameStateLoad`) holds the `events` so far and the `notes` of everyone
   the bot may see (its own are the entry with its `username`); it was `noteListPlayer` followed by `gameEventList`. A clue
@@ -248,8 +248,8 @@ hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
   Events, game states, replies and chat commands for a table the bot is not at are ignored. A person's PM is about the table of the bot's that
   they are at (`table_of`; with the bot at one table, that one), or about the bot itself if they are at none: `/settings` then sets the
   default for tables to come. A table starts with the default, or with the convention of the table the bot was just taken out of if it is the
-  rematch (the same people, within a minute), and says in the table's chat which it will play. `tableBooted`, which the server sends today
-  when a replay is left for the next game, counts as `tableLeft` (upstream `fa13b41` made it one). What is not per table yet: the pause
+  rematch (the same people, within a minute), and says in the table's chat which it will play. The server sends `tableLeft` when a replay is
+  left for the next game (it was `tableBooted` until upstream `fa13b41`). What is not per table yet: the pause
   before a move (`Out::Wait` holds back everything on the connection) and the search for a move, which run one table at a time (#104).
 - **Sending:** `wire::send::*` build a `ClientRequest` (an enum over every command), `login_request` and `websocket_query` the login form and
   the `/ws` query. A value the wire does not take (a table number out of range) is an error before sending.
