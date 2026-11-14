@@ -58,7 +58,7 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
 # release (0.1.0) has the `event` of a `gameEvent` message, which the server replaced with `events` on 13 November. Back to a version
 # when a release has it. To follow the protocol, change `rev` and fix what no longer compiles in `wire`.
 serde_path_to_error = { version = "0.1", optional = true }
-hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "5a6ca9571d44cfb67cfce6d1e5c37324360cef90", optional = true }
+hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "f1b8a236798944b890a1207bbe21a14d6ec5559b", optional = true }
 
 # `Instant::now()` panics on `wasm32-unknown-unknown`; `web-time` reads the browser's clock instead (see `clock`).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

@@ -205,7 +205,7 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `5a6ca95` of 14 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `f1b8a23` of 14 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
