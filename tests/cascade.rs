@@ -1,4 +1,4 @@
-//! A cascade of bombs in a real game: game 2065891 of hanab.live (HGroup5, 4 players, No Variant). At turn 14 a human clues
+//! A cascade of bombs in a real game: game 2065891 of hanab.live (`HGroup5`, 4 players, No Variant). At turn 14 a human clues
 //! yellow to michiel-bot-1, touching y4 and y3, with the y2 in his own hand. Each bot in turn then plays a clued card as the y2
 //! that the clue promised, and bombs: bot-2 (turn 15, b2), bot-3 (turn 16, p2) and bot-1 (turn 17, y3).
 //!
