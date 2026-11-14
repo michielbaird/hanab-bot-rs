@@ -8,7 +8,7 @@
 //! named by the server's own constant (`events::TABLE`), which carries the type of its payload, and the `match` on the
 //! server's [`GameEvent`] has no catch-all, so a new kind of event has to be handled.
 //!
-//! To follow the protocol, change the version of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
+//! To follow the protocol, change `rev` of `hanabi_protocol` in `Cargo.toml` and fix what no longer compiles.
 
 use hanabi_protocol::{
     CardEvent, CardIdentity, CardOrder, ChatAuthor, ChatKind, ChatPmRequest, ChatRequest,
@@ -456,10 +456,11 @@ pub enum Incoming {
     TableJoined(usize, Stage),
     TableLeft(usize),
     GameState(GameState),
-    /// An event of the game at a table (`None` for one that the game model does not follow).
-    GameEvent {
+    /// The events of one action of the game at a table (a play, the draw after it, the next turn), in order. The ones that the
+    /// game model does not follow are left out.
+    GameEvents {
         table: usize,
-        action: Option<Action>,
+        actions: Vec<Action>,
     },
     /// The server's answer to a request of ours (by its ID). `refusal` is set if the request was refused.
     Reply {
@@ -789,9 +790,13 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
         ))
     } else if command == events::GAME_EVENT.name() {
         let message = payload(events::GAME_EVENT, &value()?).map_err(read)?;
-        Incoming::GameEvent {
+        let mut actions = Vec::new();
+        for event in &message.events {
+            actions.extend(to_action(event).map_err(read)?);
+        }
+        Incoming::GameEvents {
             table: message.table_id.get() as usize,
-            action: to_action(&message.event).map_err(read)?,
+            actions,
         }
     } else if command == events::ERROR.name() || command == events::WARNING.name() {
         let notice = if command == events::ERROR.name() {
@@ -1285,19 +1290,27 @@ mod tests {
         assert!(matches!(
             received(
                 "gameEvent",
-                json!({"tableId": 7, "event": {"type": "turn", "turn": 3, "currentPlayerIndex": 1}})
+                json!({"tableId": 7, "events": [{"type": "turn", "turn": 3, "currentPlayerIndex": 1}]})
             ),
-            Incoming::GameEvent {
-                table: 7,
-                action: Some(Action::Turn(_))
-            }
+            Incoming::GameEvents { table: 7, actions } if matches!(actions[..], [Action::Turn(_)])
         ));
         assert!(matches!(
             received(
                 "gameEvent",
-                json!({"tableId": 7, "event": {"type": "playerTimes", "playerTimesMs": [1, 2], "durationMs": 3}})
+                json!({"tableId": 7, "events": [{"type": "playerTimes", "playerTimesMs": [1, 2], "durationMs": 3}]})
             ),
-            Incoming::GameEvent { action: None, .. }
+            Incoming::GameEvents { actions, .. } if actions.is_empty()
+        ));
+        // Several events of one action arrive together, in order, and the ones the model does not follow are left out.
+        assert!(matches!(
+            received(
+                "gameEvent",
+                json!({"tableId": 7, "events": [
+                    {"type": "turn", "turn": 3, "currentPlayerIndex": 1},
+                    {"type": "playerTimes", "playerTimesMs": [1, 2], "durationMs": 3},
+                    {"type": "turn", "turn": 4, "currentPlayerIndex": 2}]})
+            ),
+            Incoming::GameEvents { actions, .. } if matches!(actions[..], [Action::Turn(_), Action::Turn(_)])
         ));
     }
 
@@ -1454,12 +1467,9 @@ mod tests {
         assert!(matches!(
             received(
                 "gameEvent",
-                json!({"tableId": 7, "event": clue.clone(), "seq": 9})
+                json!({"tableId": 7, "events": [clue.clone()], "seq": 9})
             ),
-            Incoming::GameEvent {
-                action: Some(Action::Clue(_)),
-                ..
-            }
+            Incoming::GameEvents { actions, .. } if matches!(actions[..], [Action::Clue(_)])
         ));
         let Incoming::GameState(state) = received(
             "gameState",

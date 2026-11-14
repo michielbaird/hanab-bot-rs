@@ -205,14 +205,14 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows `hanabi_protocol` 0.1.0, published 13 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `f1b8a23` of 14 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
   people use and leaves the account alone). The answer is `{"userId": n}` and one cookie per account; all of them go to
   `/ws?client=bot&account=<userId>` (a bot sends no client version).
 - **Received:** `welcome`, `chat` (plain `text`, which was HTML until 13 November; a `tableId` unless the message belongs to no table, as in the lobby or a private message; and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`. The message itself had `source`, `username` and `recipient` until 12 November), `chatList` (the messages, and for a table's chat `table: {tableId, numUnread}`, which names the table once), `table`, `tableList` (`{"tables": [...]}`),
-  `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameEvent`, `gameState`,
+  `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameEvent` (`events`, the events of one action in one message), `gameState`,
   `warning`/`error` (`message`). A table's `phase` is an object (`{"type": "pregame"}`, a shared replay also has its `gameId`); it was a name. Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events. `gameState` (the answer to `gameStateLoad`) holds the `events` so far and the `notes` of everyone
   the bot may see (its own are the entry with its `username`); it was `noteListPlayer` followed by `gameEventList`. A clue
   names its receiver as `receiverIndex` and its value as `color` or `rank` (it was `value`), and a failed play is a `misplay` event (a `discard` has no `failed` field any more).
@@ -226,8 +226,8 @@ has examples; this follows `hanabi_protocol` 0.1.0, published 13 November), and 
 
 ### Following the protocol with the compiler (`wire`)
 
-The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), published on crates.io (MIT) and pinned to one version (`=0.1.0`); it comes from the `server/protocol`
-directory of the hanabi-live repository. `src/wire.rs` is the one place that knows the protocol:
+The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which `net` enables), pinned by `rev` to a commit of the hanabi-live repository (`server/protocol`); it is also published on crates.io (MIT), but
+0.1.0 predates the change of `gameEvent` to a list of `events` (13 November), so the bot uses the commit until a release has it. `src/wire.rs` is the one place that knows the protocol:
 
 - **Frames:** since 12 November (17:16 EST) every websocket frame is one JSON object. A request is `{"id": n, "request": command, "data": payload}` (`"type"` until 18:29 that day)
   with an ID the client chooses (`wire::request`, from the line `command JSON` that the client emits; `BotClient` counts the IDs, because a reply
@@ -264,7 +264,7 @@ directory of the hanabi-live repository. `src/wire.rs` is the one place that kno
   (`init`, `tableGone`, `noteListPlayer`, `gameEventList`, ...) are not read any more: the bot speaks the current protocol only. The readers
   of exports (`GameData`, `PerformAction::from_json`, `Action::from_json`) still take the older shapes, so saved games keep working.
 
-To follow the protocol: change the version, run `cargo build`, and fix what no longer compiles. Bumping the pin by an hour of upstream commits used to find
+To follow the protocol: change `rev`, run `cargo build`, and fix what no longer compiles. Bumping the pin by an hour of upstream commits used to find
 found `tableStarted` merged into `tableJoined` (with a `stage`), a table's `progress` moving into its phase, `loaded` becoming `gameLoaded`, `LoginRequest.version` becoming optional, `tableStart` needing the players' user IDs and the
 `ViewMode::SharedReplay` of `gameInit`. Pinning an older commit shows what that looks like. The test payloads in `tests/client.rs` are
 complete messages for the same reason: the schema rejects a partial one. `BotClient` (the `client` module) needs the feature; the library

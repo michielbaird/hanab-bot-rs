@@ -1,6 +1,6 @@
 [package]
 name = "hanab-bot-rs"
-version = "1.5.1"
+version = "1.5.2"
 edition = "2024"
 description = "A Hanabi bot for hanab.live (H-Group, Referential Sieve and Reactor conventions), a Rust port of scala-bot"
 license = "GPL-3.0-or-later"
@@ -54,10 +54,11 @@ tokio = { version = "1", optional = true, features = ["rt-multi-thread", "macros
 tokio-tungstenite = { version = "0.26", optional = true, default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink", "std"] }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
-# The server's protocol crate, published on crates.io (MIT), pinned to one release. To follow the protocol, change the version and fix
-# what no longer compiles in `wire`.
+# The server's protocol crate (also published on crates.io, MIT), pinned to a commit of the hanabi-live repository for now: the published
+# release (0.1.0) has the `event` of a `gameEvent` message, which the server replaced with `events` on 13 November. Back to a version
+# when a release has it. To follow the protocol, change `rev` and fix what no longer compiles in `wire`.
 serde_path_to_error = { version = "0.1", optional = true }
-hanabi_protocol = { version = "=0.1.0", optional = true }
+hanabi_protocol = { git = "https://github.com/Hanabi-Live/hanabi-live", rev = "f1b8a236798944b890a1207bbe21a14d6ec5559b", optional = true }
 
 # `Instant::now()` panics on `wasm32-unknown-unknown`; `web-time` reads the browser's clock instead (see `clock`).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

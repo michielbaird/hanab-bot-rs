@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "hanab-bot-rs"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "futures-util",
  "hanabi_protocol",
@@ -425,8 +425,7 @@ dependencies = [
 [[package]]
 name = "hanabi_protocol"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b8d0459921a220f01a5c5abb56d9fdaebe5f0114e230c6b3a1f81049123e1e4"
+source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=f1b8a236798944b890a1207bbe21a14d6ec5559b#f1b8a236798944b890a1207bbe21a14d6ec5559b"
 dependencies = [
  "anyhow",
  "chrono",
