@@ -310,7 +310,7 @@ fn it_writes_notes_on_cards_the_server_takes() {
     drain(&mut rx);
 
     // The human's turn, and a clue from them that touches the bot's first card.
-    let event = |event: Value| format!("gameEvent {}", json!({"tableId": 7, "event": event}));
+    let event = |event: Value| format!("gameEvent {}", json!({"tableId": 7, "events": [event]}));
     client.handle_msg(&event(
         json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1}),
     ));
@@ -331,6 +331,60 @@ fn it_writes_notes_on_cards_the_server_takes() {
         notes.iter().any(|n| n.contains(r#""text":"t"#)),
         "{notes:?}"
     );
+}
+
+/// A `gameEvent` message carries the events of one action together (a turn and a clue here), and the bot applies them in order,
+/// exactly as when they arrive one by one.
+#[test]
+fn it_applies_the_events_of_one_message_in_order() {
+    logger::set_level(LogLevel::Off);
+    init_variants();
+
+    let play = |together: bool| {
+        let (tx, mut rx) = unbounded_channel();
+        let config = BotConfig {
+            feedback_intro: false,
+            ..BotConfig::default()
+        };
+        let mut client = BotClient::new(config, tx);
+        client.handle_msg(&welcome("bot"));
+        client.handle_msg(&game_init(7, &["bot", "human"], "x"));
+        client.handle_msg(&game_notes(7, "bot"));
+
+        let mut list: Vec<Value> = (0..5)
+            .map(|order| json!({"type": "draw", "playerIndex": 0, "order": order}))
+            .collect();
+        for (i, (suit, rank)) in [(1, 1), (1, 1), (2, 1), (2, 2), (3, 1)].iter().enumerate() {
+            list.push(json!({"type": "draw", "playerIndex": 1, "order": 5 + i, "identity": {"suitIndex": suit, "rank": rank}}));
+        }
+        list.push(json!({"type": "turn", "turn": 0, "currentPlayerIndex": 0}));
+        client.handle_msg(&game_state(7, &list));
+        drain(&mut rx);
+
+        let turn = json!({"type": "turn", "turn": 1, "currentPlayerIndex": 1});
+        let clue = json!({"type": "clue", "clue": {"type": "rank", "rank": 1},
+            "playerIndex": 1, "receiverIndex": 0, "orders": [4]});
+        let message =
+            |events: Vec<Value>| format!("gameEvent {}", json!({"tableId": 7, "events": events}));
+        if together {
+            client.handle_msg(&message(vec![turn, clue]));
+        } else {
+            client.handle_msg(&message(vec![turn]));
+            client.handle_msg(&message(vec![clue]));
+        }
+        let outs = drain(&mut rx);
+        sends(&outs)
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+
+    let together = play(true);
+    assert!(
+        together.iter().any(|s| s.starts_with("note ")),
+        "{together:?}"
+    );
+    assert_eq!(together, play(false));
 }
 
 #[test]
@@ -831,7 +885,7 @@ fn a_convention_can_be_forced_during_a_game() {
         pm_replies(&drain(&mut rx)),
         ["Already switching conventions, please wait a moment."]
     );
-    client.handle_msg(r#"gameEvent {"tableId": 7, "event": {"type": "turn", "turn": 1, "currentPlayerIndex": 0}}"#);
+    client.handle_msg(r#"gameEvent {"tableId": 7, "events": [{"type": "turn", "turn": 1, "currentPlayerIndex": 0}]}"#);
     assert_eq!(client.game.as_ref().unwrap().state.turn_count, 0);
 
     // The list arrives: the same game, replayed with the new convention. The table has loaded it already.
@@ -1341,7 +1395,7 @@ fn it_plays_two_games_at_once() {
 
     // Events of the two tables come in turn, each into its own game: the human at table 8 clues the bot, then the human at 7.
     let event = |table: u64, event: Value| {
-        format!("gameEvent {}", json!({"tableId": table, "event": event}))
+        format!("gameEvent {}", json!({"tableId": table, "events": [event]}))
     };
     let turns = |client: &BotClient, table: usize| client.game_at(table).unwrap().state.turn_count;
     let before = (turns(&client, 7), turns(&client, 8));

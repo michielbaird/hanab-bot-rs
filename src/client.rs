@@ -515,12 +515,11 @@ impl BotClient {
 
                 // (The server sends the messages of every table that the bot is at, and a bot may be at several: each is
                 // handled with its table in focus.)
-                Incoming::GameEvent { table, action } => {
-                    if self.focus(table)
-                        && !self.resyncing
-                        && let Some(action) = action
-                    {
-                        self.handle_action(&action);
+                Incoming::GameEvents { table, actions } => {
+                    if self.focus(table) && !self.resyncing {
+                        for action in &actions {
+                            self.handle_action(action);
+                        }
                     }
                 }
 
