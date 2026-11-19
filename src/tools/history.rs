@@ -28,8 +28,8 @@ pub struct HistoryRow {
 }
 
 impl HistoryRow {
-    /// Reads a row of the history API: `{gameId, score, variantId, playerNames, finishedAt, seed}` (before November
-    /// 2026: `{id, num_players, score, variant, users, datetime, seed}`).
+    /// Reads a row of the history API: `{gameId, score, options: {variantId}, playerNames, finishedAt, seed}` (before November
+    /// 2026: `{id, num_players, score, variant, users, datetime, seed}`; in between, `variantId` was not in `options`).
     pub fn parse(row: &Value) -> Option<Self> {
         let users: Vec<String> = match row["playerNames"].as_array() {
             Some(names) => names
@@ -51,8 +51,9 @@ impl HistoryRow {
                 .as_u64()
                 .map_or(users.len(), |n| n as usize),
             score: row["score"].as_u64()? as usize,
-            variant_id: row["variantId"]
+            variant_id: row["options"]["variantId"]
                 .as_u64()
+                .or_else(|| row["variantId"].as_u64())
                 .or_else(|| row["variant"].as_u64())
                 .unwrap_or_default(),
             users,
@@ -91,8 +92,10 @@ pub fn fetch_history(
     let mut rows = Vec::new();
 
     for page in 0.. {
-        let url =
-            format!("https://{host}/api/v1/history/{user}?size={PAGE}&page={page}&col%5Bid%5D=1");
+        // (Newest first is the order the server gives without `sort`. It refuses a parameter that it does not take, such as
+        // the `size` and `page` that it took before November 2026.)
+        let offset = page * PAGE;
+        let url = format!("https://{host}/api/v1/history/{user}?offset={offset}&limit={PAGE}");
         let json: Value =
             serde_json::from_str(&fetch_text(&url)?).map_err(|e| format!("{url}: {e}"))?;
         // (`games`; before November 2026 `rows`.)
@@ -613,12 +616,13 @@ mod tests {
     #[test]
     fn parses_history_rows_in_the_new_shape() {
         let row = HistoryRow::parse(&json!({
-            "gameId": 2045738, "score": 25, "variantId": 0,
+            "gameId": 2045738, "score": 25, "options": {"variantId": 16, "deckPlays": true},
             "playerNames": ["michiel-test", "MichielBaird", "potato_bot_1"],
             "finishedAt": "2026-11-11T02:09:00.123Z", "seed": "p3v0s111"
         }))
         .unwrap();
         assert_eq!(row.id, 2045738);
+        assert_eq!(row.variant_id, 16);
         assert_eq!(row.num_players, 3);
         assert_eq!(row.users, ["michiel-test", "MichielBaird", "potato_bot_1"]);
         assert_eq!(row.datetime, "2026-11-11 02:09:00");

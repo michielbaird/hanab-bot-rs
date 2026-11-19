@@ -626,41 +626,10 @@ impl BotClient {
                     self.tables.remove(&id);
                 }
 
-                Incoming::UserList(users) => {
-                    for user in &users {
-                        self.add_user(user);
-                    }
-                }
-
                 Incoming::User(user) => self.add_user(&user),
 
                 Incoming::UserRemoved(id) => {
                     self.users.remove(&id);
-                }
-
-                Incoming::TableList(list) => {
-                    for t in list {
-                        self.tables.insert(t.table_id, t);
-                    }
-
-                    // The games the bot plays at (it can be at several): back to each of them.
-                    if let Some(me) = self.info.as_ref().map(|me| me.name.clone()) {
-                        let mut mine: Vec<i64> = self
-                            .tables
-                            .values()
-                            .filter(|t| {
-                                t.player_names.contains(&me)
-                                    && t.is_playing()
-                                    && !self.at_table(t.table_id as usize)
-                            })
-                            .map(|t| t.table_id)
-                            .collect();
-                        mine.sort_unstable();
-                        for id in mine {
-                            log_info!("automatically reattending table with id {id}");
-                            self.send(wire::send::table_reattend(id as usize));
-                        }
-                    }
                 }
 
                 // The answer to a request of ours (a refusal was a `warning` before JSON frames).
@@ -690,11 +659,31 @@ impl BotClient {
                     println!("{}: {message}", if error { "error" } else { "warning" });
                 }
 
-                Incoming::Welcome(info) => {
-                    // (The welcome has no mark, so it is not allowed to take one away that the lobby gave.)
-                    self.users.entry(info.id).or_insert_with(|| info.clone());
-                    println!("logged in as {}", info.name);
-                    self.info = Some(info);
+                Incoming::Welcome { me, users, tables } => {
+                    // The welcome's lists replace the ones we had (it comes again after a reconnect).
+                    self.users = users.into_iter().map(|u| (u.id, u)).collect();
+                    self.tables = tables.into_iter().map(|t| (t.table_id, t)).collect();
+                    // (Our own entry has no mark, so it is not allowed to take one away that the lobby gave.)
+                    self.users.entry(me.id).or_insert_with(|| me.clone());
+                    println!("logged in as {}", me.name);
+
+                    // The games the bot plays at (it can be at several): back to each of them.
+                    let mut mine: Vec<i64> = self
+                        .tables
+                        .values()
+                        .filter(|t| {
+                            t.player_names.contains(&me.name)
+                                && t.is_playing()
+                                && !self.at_table(t.table_id as usize)
+                        })
+                        .map(|t| t.table_id)
+                        .collect();
+                    mine.sort_unstable();
+                    self.info = Some(me);
+                    for id in mine {
+                        log_info!("automatically reattending table with id {id}");
+                        self.send(wire::send::table_reattend(id as usize));
+                    }
                 }
             }
             Ok(())

@@ -205,19 +205,19 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
 
 hanab.live's server was rewritten in Rust and its protocol cleaned up on 9-11 November 2026 (breaking: names, shapes, camelCase IDs).
 The contract is the `server/protocol` crate of the hanabi-live repository (`registry.rs` lists every command; `fixtures/compatibility.json`
-has examples; this follows upstream `6cbb0ec` of 18 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
+has examples; this follows upstream `94bf919` of 19 November), and the server rejects unknown fields, so what we send has to match exactly. What the bot uses:
 
 - **Login:** `POST /login` with `username`, `password`, `client=bot` (it was `bot=true`, with `version=bot` for older servers, until the
   `client` field replaced it on 11 November: `web` sends the version, `bot` marks the account as a bot, `app` is for programs that
   people use and leaves the account alone). The answer is `{"userId": n}` and one cookie per account; all of them go to
   `/ws?client=bot&account=<userId>` (a bot sends no client version).
-- **Received:** `welcome`, `chat` (plain `text`, which was HTML until 13 November; a `tableId` unless the message belongs to no table, as in the lobby or a private message; and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`. The message itself had `source`, `username` and `recipient` until 12 November), `chatList` (the messages, and for a table's chat `table: {tableId, numUnread}`, which names the table once), `table`, `tableList` (`{"tables": [...]}`),
+- **Received:** `welcome` (who we are, and the lobby's `users` and `tables`, which replace the lists the bot had; there were `userList` and `tableList` messages until 19 November), `chat` (plain `text`, which was HTML until 13 November; a `tableId` unless the message belongs to no table, as in the lobby or a private message; and a `kind`: `public` or `private` with an `author` of type `user`, `discord` or `server`, and for a private message the `recipient`. The message itself had `source`, `username` and `recipient` until 12 November), `chatList` (the messages, and for a table's chat `table: {tableId, numUnread}`, which names the table once), `table`,
   `tableRemoved`, `tableJoined`, `tableLeft`, `tableStarted`, `gameEvent` (`events`, the events of one action in one message), `gameState`,
   `warning`/`error` (`message`). A table's `phase` is an object (`{"type": "pregame"}`, a shared replay also has its `gameId`); it was a name. Events are tagged by `type` with nested `identity`; there are no `status` or `strike` events. `gameState` (the answer to `gameStateLoad`) holds the `events` so far and the `notes` of everyone
   the bot may see (its own are the entry with its `username`); it was `noteListPlayer` followed by `gameEventList`. A clue
   names its receiver as `receiverIndex` and its value as `color` or `rank` (it was `value`), and a failed play is a `misplay` event (a `discard` has no `failed` field any more).
 - **Sent:** `chatPm`, `chat` (with `tableId`), `tableJoin`, `tableLeave`, `tableUnattend`, `tableReattend`, `tableStart`, `tableTerminate`,
-  `gameInitLoad`, `gameStateLoad`, `gameLoaded` (it was `loaded`), `tableStart` (with `intendedPlayerIds`, the user IDs of the players who sit there: an empty list makes the server ignore the start, so the bot keeps the lobby's users, from `userList`, `user` and `userRemoved`, to find them), `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`, a clue with `receiverIndex` and `clue: {type: "color", color: n}` or `{type: "rank", rank: n}`). Chat longer than
+  `gameInitLoad`, `gameStateLoad`, `gameLoaded` (it was `loaded`), `tableStart` (with `intendedPlayerIds`, the user IDs of the players who sit there: an empty list makes the server ignore the start, so the bot keeps the lobby's users, from the welcome, `user` and `userRemoved`, to find them), `note` (`text`), `playerAction` (`{"type": "play"|"discard"|"clue", ...}`, a clue with `receiverIndex` and `clue: {type: "color", color: n}` or `{type: "rank", rank: n}`). Chat longer than
   300 characters is rejected, so `split_chat` cuts it.
 - **Exports** (`/export/<id>`, and what `self_play` writes): `playerNames`, `deck`, `actions` as turns (`{"type": "play", "order": n}`, a clue `{"type": "clue", "receiverIndex": n, "clue": {...}}`),
   `options.variantId` (the variant's number in `variants.json`, found by `TableOptions::variant`; it was `variantName`), `seed`; the game's ID is not in the export any more. The readers (`GameData`, `Action::from_json`, `PerformAction::from_json`) also take the older shapes,
@@ -238,7 +238,7 @@ The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which 
   understood, and it could not read a single message: `connected!` was the last thing it printed.
 - **Staying up:** `reconnect::keep_connected` runs each connection as a task of its own and runs another when it ends, for any reason: a
   lost connection, a panic in the task, or the client thread dying (a panic that nothing caught, which the connection notices at once and
-  answers with a fresh client; the bot reattends its table from the lobby's table list). The wait doubles from 2 s to 5 minutes and starts
+  answers with a fresh client; the bot reattends its tables from the welcome's list of tables). The wait doubles from 2 s to 5 minutes and starts
   over after a connection that lasted a minute, so a panic that repeats does not hammer the login. Only a refusal of the credentials
   (401 or 403) ends a bot; it used to give up after five connections that failed, about a minute without the server, and sat dead.
 - **Tables:** the server lets a bot (an account that logged in as one) be at any number of tables, and sends it the messages of all of

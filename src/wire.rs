@@ -386,7 +386,7 @@ impl Table {
     }
 }
 
-/// A user, by ID and by name, and whether the server marks the account as a bot (the lobby's `user` and `userList` say so:
+/// A user, by ID and by name, and whether the server marks the account as a bot (the lobby's `user` and the welcome's `users` say so:
 /// a connection that logged in as a bot, until a person logs in to the account).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserInfo {
@@ -443,14 +443,18 @@ pub struct Refusal {
 /// A message of the server that the bot follows.
 #[derive(Clone, Debug)]
 pub enum Incoming {
-    Welcome(UserInfo),
+    /// The first message after connecting (also after a reconnect): who we are, and the lobby's users and tables, which
+    /// replace the lists the bot had. `user`, `userRemoved`, `table` and `tableRemoved` change them after that.
+    Welcome {
+        me: UserInfo,
+        users: Vec<UserInfo>,
+        tables: Vec<Table>,
+    },
     User(UserInfo),
-    UserList(Vec<UserInfo>),
     UserRemoved(i64),
     Chat(ChatMessage),
     ChatList(Vec<ChatMessage>),
     Table(Table),
-    TableList(Vec<Table>),
     TableRemoved(i64),
     /// We entered a table: its pregame, or a game (that started just now, is going on, or is over).
     TableJoined(usize, Stage),
@@ -729,22 +733,30 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
 
     // (A chain and not a `match`: the names are the constants of the server, which a pattern cannot be.)
     Ok(Some(if command == events::WELCOME.name() {
-        Incoming::Welcome(user_of(&value()?).map_err(read)?)
+        // (All the bot wants of the welcome is who we are and the lobby's lists, and of a user who they are. The welcome
+        // carries the lists since upstream `7550b24`; there were `userList` and `tableList` messages.)
+        let welcome = value()?;
+        let users = welcome["users"]
+            .as_array()
+            .ok_or_else(|| read("the welcome has no users".to_string()))?
+            .iter()
+            .map(user_of)
+            .collect::<Result<_, _>>()
+            .map_err(read)?;
+        let tables: Vec<hanabi_protocol::Table> =
+            lenient(&welcome["tables"]).map_err(|e| read(format!("the welcome's tables: {e}")))?;
+        // (Who we are is the welcome's `UserRef`, which is flattened into it.)
+        let me: serde_json::Map<String, Value> = ["userId", "username"]
+            .into_iter()
+            .filter_map(|key| Some((key.to_string(), welcome.get(key)?.clone())))
+            .collect();
+        Incoming::Welcome {
+            me: user_of(&Value::Object(me)).map_err(read)?,
+            users,
+            tables: tables.iter().map(table).collect(),
+        }
     } else if command == events::USER.name() {
         Incoming::User(user_of(&value()?).map_err(read)?)
-    } else if command == events::USER_LIST.name() {
-        // (All the bot wants of a user is who they are.)
-        let list = value()?;
-        let users = list["users"]
-            .as_array()
-            .ok_or_else(|| read("the list has no users".to_string()))?;
-        Incoming::UserList(
-            users
-                .iter()
-                .map(user_of)
-                .collect::<Result<_, _>>()
-                .map_err(read)?,
-        )
     } else if command == events::USER_REMOVED.name() {
         let removed = payload(events::USER_REMOVED, &value()?).map_err(read)?;
         Incoming::UserRemoved(i64::from(removed.user_id.get()))
@@ -763,9 +775,6 @@ fn event(command: &str, data: &Value) -> Result<Option<Incoming>, String> {
         )
     } else if command == events::TABLE.name() {
         Incoming::Table(table(&payload(events::TABLE, &value()?).map_err(read)?))
-    } else if command == events::TABLE_LIST.name() {
-        let list = payload(events::TABLE_LIST, &value()?).map_err(read)?;
-        Incoming::TableList(list.tables.iter().map(table).collect())
     } else if command == events::TABLE_REMOVED.name() {
         let removed = payload(events::TABLE_REMOVED, &value()?).map_err(read)?;
         Incoming::TableRemoved(removed.table_id.get() as i64)
@@ -1051,10 +1060,6 @@ mod tests {
             Incoming::User(u) => assert_eq!((u.id, u.name.as_str()), (7, "Alice")),
             other => panic!("{other:?}"),
         }
-        match received("userList", json!({"users": [user]})) {
-            Incoming::UserList(users) => assert_eq!(users.len(), 1),
-            other => panic!("{other:?}"),
-        }
         assert!(matches!(
             received("userRemoved", json!({"userId": 7})),
             Incoming::UserRemoved(7)
@@ -1071,23 +1076,28 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         }
-        match received("userList", json!({"users": [marked(true), marked(false)]})) {
-            Incoming::UserList(users) => {
+        // The welcome lists the users who are online (there was a `userList` message until upstream `7550b24`).
+        match received(
+            "welcome",
+            welcome_json(json!([user, marked(true), marked(false)]), json!([])),
+        ) {
+            Incoming::Welcome { me, users, tables } => {
+                assert_eq!((me.id, me.name.as_str(), me.bot), (7, "Alice", false));
                 assert_eq!(
-                    users.iter().map(|u| u.bot).collect::<Vec<_>>(),
-                    [true, false]
+                    users.iter().map(|u| (u.id, u.bot)).collect::<Vec<_>>(),
+                    [(7, false), (8, true), (8, false)]
                 );
+                assert!(tables.is_empty());
             }
             other => panic!("{other:?}"),
         }
-        match received(
-            "welcome",
-            json!({"userId": 7, "username": "Alice", "muted": false, "firstTimeUser": false, "friends": [],
-                "blocked": [], "playingAtTables": [3], "spectatingAtTables": [], "settings": {"volume": 70}}),
-        ) {
-            Incoming::Welcome(u) => assert_eq!((u.id, u.name.as_str()), (7, "Alice")),
-            other => panic!("{other:?}"),
-        }
+    }
+
+    /// A welcome, as in the server's compatibility fixtures, with these users and tables.
+    fn welcome_json(users: Value, tables: Value) -> Value {
+        json!({"userId": 7, "username": "Alice", "muted": false, "firstTimeUser": false, "friends": [],
+            "blocked": [], "playingAtTables": [3], "spectatingAtTables": [], "users": users, "tables": tables,
+            "settings": {"volume": 70}})
     }
 
     fn table_json(phase: Value) -> Value {
@@ -1130,13 +1140,21 @@ mod tests {
             Phase::SharedReplay
         );
 
-        let Incoming::TableList(tables) = received(
-            "tableList",
-            json!({"tables": [table_json(json!({"type": "playing", "progress": 40}))]}),
+        // The welcome lists the tables (there was a `tableList` message until upstream `7550b24`).
+        let Incoming::Welcome { tables, .. } = received(
+            "welcome",
+            welcome_json(
+                json!([]),
+                json!([table_json(json!({"type": "playing", "progress": 40}))]),
+            ),
         ) else {
-            panic!("a table list");
+            panic!("a welcome");
         };
         assert!(tables[0].is_playing());
+        // ... and without them it is not a welcome.
+        let mut without = welcome_json(json!([]), json!([]));
+        without.as_object_mut().unwrap().remove("tables");
+        assert!(read("welcome", without).is_err());
     }
 
     #[test]
@@ -1453,12 +1471,14 @@ mod tests {
         assert!(table.is_pregame() && table.settings.options.empty_clues);
         assert_eq!(table.spectators.len(), 2);
 
-        // A list of them.
+        // A list of them, in the welcome.
         let mut one = table_json(json!({"type": "playing", "progress": 40}));
         one["added"] = json!([1, 2]);
+        let mut welcome = welcome_json(json!([]), json!([one]));
+        welcome["somethingNew"] = json!(1);
         assert!(matches!(
-            received("tableList", json!({"tables": [one], "total": 1})),
-            Incoming::TableList(tables) if tables[0].is_playing()
+            received("welcome", welcome),
+            Incoming::Welcome { tables, .. } if tables[0].is_playing()
         ));
 
         // Events: on a clue, on a turn, and in the events of a game state.
@@ -1514,15 +1534,12 @@ mod tests {
             Incoming::User(u) if u.id == 7
         ));
         assert!(matches!(
-            received("userList", json!({"users": [user]})),
-            Incoming::UserList(users) if users.len() == 1
-        ));
-        assert!(matches!(
             received(
                 "welcome",
-                json!({"userId": 7, "username": "Alice", "settings": {"theme": "dark"}, "somethingNew": 1})
+                json!({"userId": 7, "username": "Alice", "settings": {"theme": "dark"}, "somethingNew": 1,
+                    "users": [user], "tables": []})
             ),
-            Incoming::Welcome(u) if u.name == "Alice"
+            Incoming::Welcome { me, users, .. } if me.name == "Alice" && users.len() == 1
         ));
         // ... but who they are is needed.
         assert!(read("user", json!({"username": "Alice"})).is_err());

@@ -403,7 +403,7 @@ dependencies = [
 [[package]]
 name = "hanabi_protocol"
 version = "0.1.0"
-source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=6cbb0ecf3704fb7df05aab3e7ab20f2e464a5c44#6cbb0ecf3704fb7df05aab3e7ab20f2e464a5c44"
+source = "git+https://github.com/Hanabi-Live/hanabi-live?rev=94bf919c42e75249389d1ac1b985ac84f85fa946#94bf919c42e75249389d1ac1b985ac84f85fa946"
 dependencies = [
  "anyhow",
  "jsonschema",
