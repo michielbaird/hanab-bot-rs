@@ -30,10 +30,15 @@ fn init_variants() {
 const WHEN: &str = "2026-01-01T12:00:00.000Z";
 
 fn welcome(name: &str) -> String {
+    welcome_with(name, &[])
+}
+
+/// A welcome that has the tables of the lobby.
+fn welcome_with(name: &str, tables: &[Value]) -> String {
     format!(
         "welcome {}",
         json!({"userId": 1, "username": name, "muted": false, "firstTimeUser": false, "friends": [],
-            "blocked": [], "playingAtTables": [], "spectatingAtTables": [], "settings": {}})
+            "blocked": [], "playingAtTables": [], "spectatingAtTables": [], "settings": {}, "users": [], "tables": tables})
     )
 }
 
@@ -1121,7 +1126,7 @@ fn it_ignores_tables_after_the_start_and_reads_the_table_list() {
 
     // A table without a convention-breaking option, in the list of tables.
     let table = table_json(3, &["bot"], json!({"type": "pregame"}), json!({}));
-    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(&format!("table {}", table));
     assert!(chats(&drain(&mut rx)).is_empty());
 
     // Once the game has started, a table update is not looked at (it could make the bot leave the game).
@@ -1152,7 +1157,7 @@ fn it_asks_for_the_game_when_the_table_starts() {
 /// A table of the lobby that the bot has joined.
 fn joined_table(client: &mut BotClient, players: &[&str], phase: Value, options: Value) {
     let table = table_json(3, players, phase, options);
-    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(&format!("table {}", table));
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
 }
 
@@ -1168,7 +1173,7 @@ fn it_forgets_a_table_that_is_removed() {
         json!({"type": "pregame"}),
         json!({"emptyClues": true}),
     );
-    client.handle_msg(&format!("tableList {}", json!({"tables": [table]})));
+    client.handle_msg(&format!("table {}", table));
     client.handle_msg(r#"tableRemoved {"tableId": 3}"#);
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
 
@@ -1248,10 +1253,7 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("bot"));
     // (The server lists the users in the lobby, and tells of one more.)
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice")]})
-    ));
+    client.handle_msg(&format!("user {}", user_json(12, "alice")));
     client.handle_msg(&format!("user {}", user_json(13, "carol")));
     joined_table(
         &mut client,
@@ -1283,10 +1285,7 @@ fn it_tells_who_asked_when_the_server_refuses_a_request() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("bot"));
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice")]})
-    ));
+    client.handle_msg(&format!("user {}", user_json(12, "alice")));
     joined_table(
         &mut client,
         &["alice", "bot"],
@@ -1552,7 +1551,9 @@ fn two_pregames(client: &mut BotClient, rx: &mut Receiver<Out>) {
         table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({})),
         table_json(4, &["bob", "bot"], json!({"type": "pregame"}), json!({})),
     ];
-    client.handle_msg(&format!("tableList {}", json!({"tables": tables})));
+    for table in tables {
+        client.handle_msg(&format!("table {}", table));
+    }
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
     client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "pregame"}"#);
     drain(rx);
@@ -1642,7 +1643,7 @@ fn a_rematch_keeps_the_convention() {
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("bot"));
     let old = table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({}));
-    client.handle_msg(&format!("tableList {}", json!({"tables": [old]})));
+    client.handle_msg(&format!("table {}", old));
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
     client.handle_msg(&pm("alice", "/settings HGroup5"));
     drain(&mut rx);
@@ -1675,10 +1676,13 @@ fn a_command_is_about_the_table_of_whoever_gives_it() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("bot"));
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice"), user_json(13, "bob"), user_json(14, "carol")]})
-    ));
+    for user in [
+        user_json(12, "alice"),
+        user_json(13, "bob"),
+        user_json(14, "carol"),
+    ] {
+        client.handle_msg(&format!("user {}", user));
+    }
     two_pregames(&mut client, &mut rx);
 
     // `/start` starts the table of whoever asks, with the players that sit there.
@@ -1727,7 +1731,6 @@ fn it_joins_another_table_and_goes_back_to_all_its_games() {
     logger::set_level(LogLevel::Off);
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
-    client.handle_msg(&welcome("bot"));
     let tables = [
         table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({})),
         table_json(
@@ -1750,7 +1753,7 @@ fn it_joins_another_table_and_goes_back_to_all_its_games() {
         ),
     ];
     // After a reconnect the bot is at none of them; it plays at two, and goes back to both (not the one it does not play at).
-    client.handle_msg(&format!("tableList {}", json!({"tables": tables})));
+    client.handle_msg(&welcome_with("bot", &tables));
     assert_eq!(
         sends(&drain(&mut rx)),
         [
@@ -1865,7 +1868,9 @@ fn at_a_table_with(people: &[(i64, &str, bool)]) -> (BotClient, Receiver<Out>) {
         .iter()
         .map(|&(id, name, bot)| marked_user(id, name, bot))
         .collect();
-    client.handle_msg(&format!("userList {}", json!({"users": users})));
+    for user in &users {
+        client.handle_msg(&format!("user {}", user));
+    }
     let names: Vec<&str> = people
         .iter()
         .map(|&(_, name, _)| name)
@@ -1928,10 +1933,13 @@ fn it_leaves_for_a_name_prefix_as_well_as_for_a_mark() {
     };
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("me"));
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice"), marked_user(13, "some-bot", true), user_json(14, "our-bot-1")]})
-    ));
+    for user in [
+        user_json(12, "alice"),
+        marked_user(13, "some-bot", true),
+        user_json(14, "our-bot-1"),
+    ] {
+        client.handle_msg(&format!("user {}", user));
+    }
     joined_table(
         &mut client,
         &["alice", "me"],
@@ -1952,10 +1960,9 @@ fn it_leaves_a_replay_when_the_server_marks_everyone_watching_as_a_bot() {
     let (tx, mut rx) = unbounded_channel();
     let mut client = BotClient::new(BotConfig::default(), tx);
     client.handle_msg(&welcome("me"));
-    client.handle_msg(&format!(
-        "userList {}",
-        json!({"users": [user_json(12, "alice"), marked_user(13, "some-bot", true)]})
-    ));
+    for user in [user_json(12, "alice"), marked_user(13, "some-bot", true)] {
+        client.handle_msg(&format!("user {}", user));
+    }
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "justStarted"}"#);
     drain(&mut rx);
 
