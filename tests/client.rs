@@ -57,7 +57,7 @@ fn game_init(table_id: usize, players: &[&str], seed: &str) -> String {
     format!(
         "gameInit {}",
         json!({"tableId": table_id, "playerNames": players,
-            "mode": {"type": "playing", "ourPlayerIndex": 0}, "customDeal": false, "seed": seed,
+            "mode": {"type": "playing", "ourPlayerIndex": 0}, "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]}, "seed": seed,
             "startedAt": WHEN, "options": {"variantId": 0}, "characters": []})
     )
 }
@@ -1342,7 +1342,7 @@ fn it_numbers_its_requests_and_reads_the_setup_from_the_reply() {
     client.handle_frame(&json!({"reply": id + 100, "data": {}}).to_string());
     assert!(drain(&mut rx).is_empty(), "a reply to another request");
     let setup = json!({"playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+        "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]}, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
     client.handle_frame(&json!({"reply": id, "data": setup}).to_string());
     let outs = drain(&mut rx);
     match &outs[..] {
@@ -1395,7 +1395,7 @@ fn it_ignores_the_setup_of_a_game_at_a_table_it_has_left() {
     // It left before the server answered.
     client.handle_msg(r#"tableLeft {"tableId": 7}"#);
     let setup = json!({"playerNames": ["bot", "human"], "mode": {"type": "playing", "ourPlayerIndex": 0},
-        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+        "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]}, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
     client.handle_frame(&json!({"reply": id, "data": setup}).to_string());
     assert!(drain(&mut rx).is_empty());
     assert_eq!(client.table(), None);
@@ -1414,7 +1414,7 @@ fn join_game(client: &mut BotClient, table: usize, players: &[&str], bot_seat: u
         .pending_game_init(table)
         .expect("the bot asked for the game");
     let setup = json!({"playerNames": players, "mode": {"type": "playing", "ourPlayerIndex": bot_seat},
-        "customDeal": false, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
+        "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]}, "seed": "x", "startedAt": WHEN, "options": {"variantId": 0}, "characters": []});
     client.handle_frame(&json!({"reply": request, "data": setup}).to_string());
     client.handle_msg(&game_notes(table, "bot"));
 }
