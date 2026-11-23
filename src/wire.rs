@@ -1240,7 +1240,7 @@ mod tests {
         let init = |mode: Value| {
             game_init_reply(
                 7,
-                &json!({"playerNames": ["bot", "human"], "mode": mode, "customDeal": false,
+                &json!({"playerNames": ["bot", "human"], "mode": mode, "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]},
                     "seed": "p2v0s1", "startedAt": "2026-01-01T12:00:00.000Z",
                     "options": {"variantId": 7, "deckPlays": true}, "characters": []}),
             )
@@ -1474,7 +1474,7 @@ mod tests {
             game_init_reply(
                 7,
                 &json!({"playerNames": ["bot", "human"], "mode": {"type": "spectating", "x": 1},
-                    "customDeal": false, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
+                    "customDeal": false, "variant": {"variant": {"id": 0, "recipe": "r", "name": "No Variant", "suits": ["Red"]}, "suits": [{"name": "Red", "id": "red", "pip": "red"}], "colors": [{"name": "Red", "fill": "#ff0000"}]}, "startedAt": "2026-01-01T12:00:00.000Z", "options": {"variantId": 0},
                     "characters": [], "rated": true})
             )
             .is_ok()
