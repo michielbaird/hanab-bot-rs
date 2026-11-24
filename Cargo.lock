@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "hanab-bot-rs"
-version = "1.6.2"
+version = "1.6.3"
 dependencies = [
  "futures-util",
  "hanabi-protocol",

@@ -1,4 +1,4 @@
-//! Player feedback for the live bot: `/feedback <message>` in a PM is appended to a JSON-lines file together
+//! Player feedback for the live bot: `!feedback <message>` in a PM is appended to a JSON-lines file together
 //! with enough context (table, players, turn, convention) to find the game in the bot's history on hanab.live.
 
 use std::collections::{HashMap, VecDeque};

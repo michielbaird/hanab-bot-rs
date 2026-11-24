@@ -30,7 +30,7 @@ pub struct GameData {
 }
 
 /// Fetches the JSON of an exported game from a server: for an app that owns the network (the library has no HTTP client without the
-/// `net` feature) to give to the bot's `/analyze` command, in [`BotConfig::export_fetcher`](crate::client::BotConfig). It may block.
+/// `net` feature) to give to the bot's `!analyze` command, in [`BotConfig::export_fetcher`](crate::client::BotConfig). It may block.
 pub trait ExportFetcher: Send + Sync + std::fmt::Debug {
     /// The text of the export `id` of the server `hostname` (`https://<hostname>/export/<id>` on hanab.live).
     fn fetch(&self, hostname: &str, id: &str) -> Result<String, String>;

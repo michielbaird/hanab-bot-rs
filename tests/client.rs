@@ -438,7 +438,7 @@ fn it_analyzes_a_game_that_the_app_fetches() {
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("bot"));
 
-    client.handle_msg(&pm("friend", "/analyze 7 HGroup5"));
+    client.handle_msg(&pm("friend", "!analyze 7 HGroup5"));
     let sent = sent_until(&mut rx, "Analysis completed");
     assert!(
         sent.iter().any(|s| s.contains("Analysis completed")),
@@ -450,7 +450,7 @@ fn it_analyzes_a_game_that_the_app_fetches() {
     );
 
     // What the fetcher refuses is reported.
-    client.handle_msg(&pm("friend", "/analyze 8 HGroup5"));
+    client.handle_msg(&pm("friend", "!analyze 8 HGroup5"));
     let sent = sent_until(&mut rx, "Failed to analyze");
     assert!(sent.iter().any(|s| s.contains("no export 8")), "{sent:?}");
 }
@@ -467,7 +467,7 @@ fn it_says_so_when_it_has_no_way_to_fetch_a_game() {
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("bot"));
 
-    client.handle_msg(&pm("friend", "/analyze 7 HGroup5"));
+    client.handle_msg(&pm("friend", "!analyze 7 HGroup5"));
     let sent = sent_until(&mut rx, "Failed to analyze");
     assert!(
         sent.iter().any(|s| s.contains("no way to fetch games")),
@@ -483,10 +483,10 @@ fn it_answers_chat_commands() {
 
     client.handle_msg(&welcome("bot"));
 
-    client.handle_msg(&pm("friend", "/version"));
-    client.handle_msg(&pm("friend", "/settings"));
-    client.handle_msg(&pm("friend", "/settings HGroup5"));
-    client.handle_msg(&pm("friend", "/fastmode"));
+    client.handle_msg(&pm("friend", "!version"));
+    client.handle_msg(&pm("friend", "!settings"));
+    client.handle_msg(&pm("friend", "!settings HGroup5"));
+    client.handle_msg(&pm("friend", "!fastmode"));
 
     let outs = drain(&mut rx);
     let s = sends(&outs);
@@ -607,7 +607,7 @@ fn it_announces_how_to_send_feedback_once_per_game() {
 
     assert_eq!(chats.len(), 1);
     assert!(chats[0].contains("Rust port"));
-    assert!(chats[0].contains("/pm bot /feedback"));
+    assert!(chats[0].contains("/pm bot !feedback"));
     assert!(chats[0].contains(r#""tableId":7"#));
 }
 
@@ -627,16 +627,16 @@ fn it_saves_feedback_with_the_game_context() {
     client.handle_msg(&welcome("bot"));
 
     // No feedback text: usage.
-    client.handle_msg(&pm("alice", "/feedback"));
+    client.handle_msg(&pm("alice", "!feedback"));
     // Not in a game yet: saved without a table.
-    client.handle_msg(&pm("alice", "/feedback hello there"));
+    client.handle_msg(&pm("alice", "!feedback hello there"));
     let mut replies = pm_replies(&drain(&mut rx));
 
     let init = game_init(7, &["bot", "alice"], "x");
     client.handle_msg(&init);
 
-    client.handle_msg(&pm("alice", "/feedback you should have played slot 2"));
-    client.handle_msg(&pm("alice", &format!("/feedback {}", "x".repeat(5000))));
+    client.handle_msg(&pm("alice", "!feedback you should have played slot 2"));
+    client.handle_msg(&pm("alice", &format!("!feedback {}", "x".repeat(5000))));
 
     replies.extend(pm_replies(&drain(&mut rx)));
     assert!(replies[0].starts_with("Usage:"), "{replies:?}");
@@ -681,7 +681,7 @@ fn it_saves_feedback_as_typed() {
     // Chat is plain text: what looks like an HTML entity is what the player typed.
     client.handle_msg(&pm(
         "alice",
-        "/feedback <turn 5: bot told me about 1s & 2s, not &amp;>",
+        "!feedback <turn 5: bot told me about 1s & 2s, not &amp;>",
     ));
 
     let saved: Vec<Value> = std::fs::read_to_string(&path)
@@ -707,7 +707,7 @@ fn it_can_have_feedback_turned_off() {
     };
     let mut client = BotClient::new(config, tx);
     client.handle_msg(&welcome("bot"));
-    client.handle_msg(&pm("alice", "/feedback hello"));
+    client.handle_msg(&pm("alice", "!feedback hello"));
 
     let outs = drain(&mut rx);
     assert_eq!(pm_replies(&outs), ["Feedback isn't enabled on this bot."]);
@@ -783,7 +783,7 @@ fn init_for(table_id: usize, players: &[&str]) -> String {
 fn announcements(outs: &[Out]) -> usize {
     sends(outs)
         .iter()
-        .filter(|s| s.starts_with("chat ") && s.contains("/feedback"))
+        .filter(|s| s.starts_with("chat ") && s.contains("!feedback"))
         .count()
 }
 
@@ -835,8 +835,8 @@ fn a_new_setting_applies_from_the_next_game() {
     client.handle_msg(&welcome("bot"));
 
     // No game yet: the setting is simply what it will play.
-    client.handle_msg(&pm("alice", "/settings HGroup3"));
-    client.handle_msg(&pm("alice", "/settings"));
+    client.handle_msg(&pm("alice", "!settings HGroup3"));
+    client.handle_msg(&pm("alice", "!settings"));
     let replies = pm_replies(&drain(&mut rx));
     assert_eq!(replies[0], "At a new table I play HGroup3 conventions.");
     assert_eq!(replies[1], "At a new table I play HGroup3 conventions.");
@@ -844,29 +844,29 @@ fn a_new_setting_applies_from_the_next_game() {
     // A game starts with HGroup3. Changing the setting must not claim to change this game.
     client.handle_msg(&init_for(7, &["bot", "alice"]));
     drain(&mut rx);
-    client.handle_msg(&pm("alice", "/settings HGroup11"));
-    client.handle_msg(&pm("alice", "/settings"));
-    client.handle_msg(&pm("alice", "/feedback no order chop move"));
+    client.handle_msg(&pm("alice", "!settings HGroup11"));
+    client.handle_msg(&pm("alice", "!settings"));
+    client.handle_msg(&pm("alice", "!feedback no order chop move"));
     let replies = pm_replies(&drain(&mut rx));
-    let expected = "This game is being played with HGroup3 conventions; HGroup11 will be used from the next game (use `/settings HGroup11 force` to switch now).";
+    let expected = "This game is being played with HGroup3 conventions; HGroup11 will be used from the next game (use `!settings HGroup11 force` to switch now).";
     assert_eq!(replies[0], expected);
     assert_eq!(replies[1], expected);
     assert!(replies[2].starts_with("Thanks"));
 
     // Setting it back to what the game is using says nothing special.
-    client.handle_msg(&pm("alice", "/settings HGroup3"));
+    client.handle_msg(&pm("alice", "!settings HGroup3"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["Currently playing with HGroup3 conventions."]
     );
-    client.handle_msg(&pm("alice", "/settings HGroup11"));
+    client.handle_msg(&pm("alice", "!settings HGroup11"));
     drain(&mut rx);
 
     // The next game uses the new setting.
     client.handle_msg(&init_for(8, &["bot", "alice"]));
     drain(&mut rx);
-    client.handle_msg(&pm("alice", "/settings"));
-    client.handle_msg(&pm("alice", "/feedback now it should"));
+    client.handle_msg(&pm("alice", "!settings"));
+    client.handle_msg(&pm("alice", "!feedback now it should"));
     let replies = pm_replies(&drain(&mut rx));
     assert_eq!(replies[0], "Currently playing with HGroup11 conventions.");
 
@@ -911,7 +911,7 @@ fn a_convention_can_be_forced_during_a_game() {
     client.handle_msg(&welcome("bot"));
 
     // Without a game, "force" is just a setting.
-    client.handle_msg(&pm("alice", "/settings HGroup5 force"));
+    client.handle_msg(&pm("alice", "!settings HGroup5 force"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["At a new table I play HGroup5 conventions."]
@@ -937,7 +937,7 @@ fn a_convention_can_be_forced_during_a_game() {
     );
 
     // Someone who isn't playing can't force it.
-    client.handle_msg(&pm("bob", "/settings HGroup3 force"));
+    client.handle_msg(&pm("bob", "!settings HGroup3 force"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["Only players in the current game can force a convention change."]
@@ -946,7 +946,7 @@ fn a_convention_can_be_forced_during_a_game() {
 
     // A player can. The game is rebuilt with the new convention, the first-card note is rewritten and the
     // server is asked for the action list again.
-    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    client.handle_msg(&pm("alice", "!settings HGroup3 force"));
     let outs = drain(&mut rx);
     let sent = sends(&outs);
     assert!(
@@ -968,7 +968,7 @@ fn a_convention_can_be_forced_during_a_game() {
     assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
 
     // Asking again while it is switching is refused, and a move that arrives meanwhile is left to the list.
-    client.handle_msg(&pm("alice", "/settings HGroup7 force"));
+    client.handle_msg(&pm("alice", "!settings HGroup7 force"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["Already switching conventions, please wait a moment."]
@@ -1004,23 +1004,23 @@ fn a_convention_can_be_forced_during_a_game() {
     assert_eq!(note_on(3), Some(String::new()), "{notes:?}");
 
     // Now it is the setting and the game's convention, so there is nothing more to say.
-    client.handle_msg(&pm("alice", "/settings"));
+    client.handle_msg(&pm("alice", "!settings"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["Currently playing with HGroup3 conventions."]
     );
-    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    client.handle_msg(&pm("alice", "!settings HGroup3 force"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["Currently playing with HGroup3 conventions."]
     );
 
     // Without "force" a change still only applies to the next game.
-    client.handle_msg(&pm("alice", "/settings HGroup7"));
+    client.handle_msg(&pm("alice", "!settings HGroup7"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         [
-            "This game is being played with HGroup3 conventions; HGroup7 will be used from the next game (use `/settings HGroup7 force` to switch now)."
+            "This game is being played with HGroup3 conventions; HGroup7 will be used from the next game (use `!settings HGroup7 force` to switch now)."
         ]
     );
     assert_eq!(client.game.as_ref().unwrap().conv.name(), "HGroup3");
@@ -1052,7 +1052,7 @@ fn after_a_forced_switch_the_bot_plays_its_turn_with_the_new_convention() {
         sends(&first)
     );
 
-    client.handle_msg(&pm("alice", "/settings HGroup3 force"));
+    client.handle_msg(&pm("alice", "!settings HGroup3 force"));
     drain(&mut rx);
     client.handle_msg(&deal);
     let outs = drain(&mut rx);
@@ -1264,7 +1264,7 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
     drain(&mut rx);
 
     // The start names who sits there: the server ignores one that does not match the table.
-    client.handle_msg(&pm("alice", "/start"));
+    client.handle_msg(&pm("alice", "!start"));
     let outs = drain(&mut rx);
     assert_eq!(
         sends(&outs),
@@ -1273,7 +1273,7 @@ fn it_starts_a_table_for_the_players_who_sit_at_it() {
 
     // Someone who left the lobby is not known any more.
     client.handle_msg(r#"userRemoved {"userId": 12}"#);
-    client.handle_msg(&pm("alice", "/start"));
+    client.handle_msg(&pm("alice", "!start"));
     let outs = drain(&mut rx);
     assert!(sends(&outs).iter().all(|s| !s.starts_with("tableStart")));
     assert!(pm_replies(&outs)[0].contains("do not know who is sitting"));
@@ -1295,21 +1295,21 @@ fn it_tells_who_asked_when_the_server_refuses_a_request() {
     drain(&mut rx);
 
     // A refusal is the reply to a request (it was a warning before JSON frames), and the one who asked hears why.
-    client.handle_msg(&pm("alice", "/start"));
+    client.handle_msg(&pm("alice", "!start"));
     drain(&mut rx);
     client.handle_frame(r#"{"reply": 1, "error": {"message": "Only the owner can start."}}"#);
     let outs = drain(&mut rx);
     assert_eq!(pm_replies(&outs), ["Only the owner can start."]);
 
     // One that is not worth showing is not passed on, and neither is a success.
-    client.handle_msg(&pm("alice", "/start"));
+    client.handle_msg(&pm("alice", "!start"));
     drain(&mut rx);
     client.handle_frame(r#"{"reply": 2, "error": {"message": "Over.", "code": "commandIgnored"}}"#);
     client.handle_frame(r#"{"reply": 3}"#);
     assert!(pm_replies(&drain(&mut rx)).is_empty());
 
     // A warning that no request caused is still passed on.
-    client.handle_msg(&pm("alice", "/start"));
+    client.handle_msg(&pm("alice", "!start"));
     drain(&mut rx);
     client.handle_msg(r#"warning {"message": "Slow down."}"#);
     assert_eq!(pm_replies(&drain(&mut rx)), ["Slow down."]);
@@ -1574,17 +1574,17 @@ fn each_table_has_its_own_convention() {
     two_pregames(&mut client, &mut rx);
 
     // A person at a table sets that table; the table is told what it will get.
-    client.handle_msg(&pm("alice", "/settings HGroup5"));
+    client.handle_msg(&pm("alice", "!settings HGroup5"));
     let outs = drain(&mut rx);
     assert_eq!(
         convention_announcements(&outs),
-        ["table 3: I'll play HGroup5 here. PM me /settings <convention> to change it."]
+        ["table 3: I'll play HGroup5 here. PM me !settings <convention> to change it."]
     );
     assert_eq!(pm_replies(&outs).len(), 1);
-    client.handle_msg(&pm("bob", "/settings HGroup3"));
+    client.handle_msg(&pm("bob", "!settings HGroup3"));
     assert_eq!(
         convention_announcements(&drain(&mut rx)),
-        ["table 4: I'll play HGroup3 here. PM me /settings <convention> to change it."]
+        ["table 4: I'll play HGroup3 here. PM me !settings <convention> to change it."]
     );
     assert_eq!(
         (client.convention_at(3), client.convention_at(4)),
@@ -1595,7 +1595,7 @@ fn each_table_has_its_own_convention() {
     );
 
     // Someone at no table sets the default for tables to come, and none of these changes.
-    client.handle_msg(&pm("carol", "/settings HGroup7"));
+    client.handle_msg(&pm("carol", "!settings HGroup7"));
     assert_eq!(
         pm_replies(&drain(&mut rx)),
         ["At a new table I play HGroup7 conventions."]
@@ -1608,8 +1608,8 @@ fn each_table_has_its_own_convention() {
         )
     );
 
-    // What `/settings` says is about the table of whoever asks, and says what the default is.
-    client.handle_msg(&pm("alice", "/settings"));
+    // What `!settings` says is about the table of whoever asks, and says what the default is.
+    client.handle_msg(&pm("alice", "!settings"));
     let reply = pm_replies(&drain(&mut rx));
     assert_eq!(
         reply,
@@ -1620,7 +1620,7 @@ fn each_table_has_its_own_convention() {
     client.handle_msg(r#"tableJoined {"tableId": 5, "stage": "pregame"}"#);
     assert_eq!(
         convention_announcements(&drain(&mut rx)),
-        ["table 5: I'll play HGroup7 here. PM me /settings <convention> to change it."]
+        ["table 5: I'll play HGroup7 here. PM me !settings <convention> to change it."]
     );
 
     // The games start with what their tables had.
@@ -1645,7 +1645,7 @@ fn a_rematch_keeps_the_convention() {
     let old = table_json(3, &["alice", "bot"], json!({"type": "pregame"}), json!({}));
     client.handle_msg(&format!("table {}", old));
     client.handle_msg(r#"tableJoined {"tableId": 3, "stage": "pregame"}"#);
-    client.handle_msg(&pm("alice", "/settings HGroup5"));
+    client.handle_msg(&pm("alice", "!settings HGroup5"));
     drain(&mut rx);
 
     // The game is played and ends; everyone leaves the replay, and the new table has the same people.
@@ -1658,7 +1658,7 @@ fn a_rematch_keeps_the_convention() {
     assert_eq!(client.convention_at(9), Some(ConventionKind::HGroup(5)));
     assert_eq!(
         convention_announcements(&drain(&mut rx)),
-        ["table 9: I'll play HGroup5 here. PM me /settings <convention> to change it."]
+        ["table 9: I'll play HGroup5 here. PM me !settings <convention> to change it."]
     );
 
     // A table of other people, not long after, is not a rematch: it gets the default.
@@ -1685,15 +1685,15 @@ fn a_command_is_about_the_table_of_whoever_gives_it() {
     }
     two_pregames(&mut client, &mut rx);
 
-    // `/start` starts the table of whoever asks, with the players that sit there.
-    client.handle_msg(&pm("bob", "/start"));
+    // `!start` starts the table of whoever asks, with the players that sit there.
+    client.handle_msg(&pm("bob", "!start"));
     assert_eq!(
         sends(&drain(&mut rx)),
         [r#"tableStart {"intendedPlayerIds":[13,1],"tableId":4}"#]
     );
 
-    // `/leave` takes the bot out of that table only.
-    client.handle_msg(&pm("alice", "/leave"));
+    // `!leave` takes the bot out of that table only.
+    client.handle_msg(&pm("alice", "!leave"));
     assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":3}"#]);
     assert!(client.convention_at(4).is_some());
     assert_eq!(client.convention_at(3), None);
@@ -1702,7 +1702,7 @@ fn a_command_is_about_the_table_of_whoever_gives_it() {
     // with two tables there is no default.
     client.handle_msg(r#"tableJoined {"tableId": 6, "stage": "pregame"}"#);
     drain(&mut rx);
-    client.handle_msg(&pm("carol", "/leave"));
+    client.handle_msg(&pm("carol", "!leave"));
     assert!(
         sends(&drain(&mut rx))
             .iter()
@@ -1717,11 +1717,11 @@ fn a_command_is_about_the_table_of_whoever_gives_it() {
                 "kind": {"type": "public", "author": {"type": "user", "username": who}}})
         )
     };
-    client.handle_msg(&chat(4, "bob", "/setall HGroup5"));
+    client.handle_msg(&chat(4, "bob", "!setall HGroup5"));
     assert_eq!(client.convention_at(4), Some(ConventionKind::HGroup(5)));
     assert_eq!(client.convention_at(6), Some(ConventionKind::Reactor));
     drain(&mut rx);
-    client.handle_msg(&chat(4, "bob", "/leaveall"));
+    client.handle_msg(&chat(4, "bob", "!leaveall"));
     assert_eq!(sends(&drain(&mut rx)), [r#"tableLeave {"tableId":4}"#]);
     assert!(client.convention_at(6).is_some());
 }
@@ -1765,7 +1765,7 @@ fn it_joins_another_table_and_goes_back_to_all_its_games() {
     // Asked to join a table while at others, it joins.
     client.handle_msg(r#"tableJoined {"tableId": 4, "stage": "playing"}"#);
     drain(&mut rx);
-    client.handle_msg(&pm("alice", "/join"));
+    client.handle_msg(&pm("alice", "!join"));
     assert_eq!(sends(&drain(&mut rx)), [r#"tableJoin {"tableId":3}"#]);
 }
 
