@@ -108,6 +108,8 @@ chat command needs the `net` feature and answers that it is unavailable without 
 
 ## Changing the convention
 
+The bot's commands start with `!` (hanab.live keeps `/<command>` for itself, so `/settings` never reaches the bot; before version 1.6.3 the bot used `/`).
+
 PM the bot (or say in the table chat) `!settings <convention>` / `!setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
 game in progress is still played with the convention it started with, and the bot says so.
 
