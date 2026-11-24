@@ -33,4 +33,4 @@ body:
     id: extra
     attributes:
       label: Additional information
-      description: "Bot logs, a `/feedback` message, or the output of `analyze id=<replay id> convention=<convention>`"
+      description: "Bot logs, a `!feedback` message, or the output of `analyze id=<replay id> convention=<convention>`"

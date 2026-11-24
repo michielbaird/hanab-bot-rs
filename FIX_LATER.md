@@ -148,7 +148,7 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
     `investigations/`), including one that real endgame mistakes are still reported.
 
 38. **fixed** The library does not depend on tokio or any network crate (`net` feature, see PORTING_NOTES.md). CI builds and tests without
-    `net` and fails if the dependency tree gains tokio, reqwest, hyper, tungstenite or futures. `/analyze` in chat fetches the game with
+    `net` and fails if the dependency tree gains tokio, reqwest, hyper, tungstenite or futures. `!analyze` in chat fetches the game with
     `BotConfig::export_fetcher` (an `ExportFetcher`, which an embedding app implements; HTTPS with `net`, none without it, and then the command says
     so), and `GameData::fetch_with` does the same outside the bot.
 
@@ -163,7 +163,7 @@ Places where the Scala looks unintended and the Rust copied the behaviour so par
 7. **resolved** Scala's `solve` left the log level at Off after the `onlyAction` early return; the Rust restores it.
 27. **resolved** H-Group strength vs. Scala has been measured (HANDOFF.md, "Scala parity"): HGroup5 24.43 vs 24.33 average over 30 games each;
     HGroup3 24.47 vs 24.0; RefSieve 23.67 vs 24.37.
-35. **kept** Live bots announce `/feedback` at the start of a game (but not again to the same people within 24 h, so "Play again" doesn't repeat it) and append JSON lines to `feedback.jsonl` (not in Scala).
+35. **kept** Live bots announce `!feedback` at the start of a game (but not again to the same people within 24 h, so "Play again" doesn't repeat it) and append JSON lines to `feedback.jsonl` (not in Scala).
 
 ## E. Upstream issues (will-hanabi-bot/scala-bot), checked 2026-10-28
 
@@ -192,4 +192,4 @@ None of the H-Group ones is below level 11, so none affects HGroup 1-10 play as 
 
 Takeaways: nothing here needs doing for the HGroup 1-3 bots now running. Of the open issues, #35 is the only one with an exact fix described, and #84, #86
 and item 28 are the same problem (the giver and the receivers don't see the same thing) and are the more valuable thing to understand. Real games
-from `analyze_history` and `/feedback` are a better source of bugs for the levels that are actually played.
+from `analyze_history` and `!feedback` are a better source of bugs for the levels that are actually played.

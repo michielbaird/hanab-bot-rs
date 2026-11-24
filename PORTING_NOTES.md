@@ -194,10 +194,10 @@ H-Group endgame test is not ported (M6). `tests/endgame.rs` gives the solver a 6
   onto a tokio unbounded channel (so analysis threads can reply later). `bin/bot.rs` owns the websocket: it spaces sends by 500ms,
   pings every 30s, times out after 2 minutes of silence, logs in again and retries up to 5 times with `2 << attempt` second backoff.
   `BotClient` runs on its own OS thread because choosing an action can take seconds.
-- The Scala `IO.sleep(2.seconds)` race is `Out::Wait(2s - time spent choosing)` before the `action` send (no wait in `/fastmode`).
+- The Scala `IO.sleep(2.seconds)` race is `Out::Wait(2s - time spent choosing)` before the `action` send (no wait in `!fastmode`).
 - Panics inside message handling and action choosing are caught and logged (the message is dropped); this is the answer to
   FIX_LATER item 14 for the live bot.
-- `/settings`/`/setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them (all three conventions are now buildable).
+- `!settings`/`!setall` refuse conventions that `ConventionKind::build` can't construct yet (RefSieve, H-Group) instead of accepting them (all three conventions are now buildable).
 - TLS is rustls (not the JVM's); HTTP uses blocking `reqwest` (login, variants, `/export/<id>`), so `GameData::fetch_id` and `replay id=...` work.
 - Not verified live: a complete game (needs a second player). Login, websocket and the lobby handshake were exercised against hanab.live.
 
@@ -246,7 +246,7 @@ The server's `hanabi_protocol` crate is a dependency (feature `protocol`, which 
   fields on `BotClient`, where the code that plays a game has always found them, and the other tables' are parked in a map (`Parked`); every
   message about a table is handled with that table in focus (`focus`, which swaps them), so the code for one game is the code for several.
   Events, game states, replies and chat commands for a table the bot is not at are ignored. A person's PM is about the table of the bot's that
-  they are at (`table_of`; with the bot at one table, that one), or about the bot itself if they are at none: `/settings` then sets the
+  they are at (`table_of`; with the bot at one table, that one), or about the bot itself if they are at none: `!settings` then sets the
   default for tables to come. A table starts with the default, or with the convention of the table the bot was just taken out of if it is the
   rematch (the same people, within a minute), and says in the table's chat which it will play. The server sends `tableLeft` when a replay is
   left for the next game (it was `tableBooted` until upstream `fa13b41`). What is not per table yet: the pause
@@ -319,7 +319,7 @@ without it does not depend on the crate, so the WebAssembly package does not eit
 ## Feedback (not in the Scala bot)
 
 `src/feedback.rs` (`FeedbackStore`: validation, per-sender rate limit, JSON-lines append) and `BotClient::feedback_command`. The game-start
-announcement is sent once per table (`intro_table`). `/help` and `/bugreport` mention `/feedback`. Several bots in one process may share the
+announcement is sent once per table (`intro_table`). `!help` and `!bugreport` mention `!feedback`. Several bots in one process may share the
 file: each line is written with a single append-mode write; the rate limit is per bot.
 
 ## Library without tokio

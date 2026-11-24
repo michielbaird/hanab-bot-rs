@@ -79,11 +79,11 @@ pub struct BotConfig {
     pub leave_replay_if_only_bots: bool,
     pub bot_name_prefixes: Vec<String>,
     pub hostname: String,
-    /// Where `/feedback` messages are appended (JSON lines). `None` turns the command off.
+    /// Where `!feedback` messages are appended (JSON lines). `None` turns the command off.
     pub feedback_file: Option<PathBuf>,
     /// Whether to tell the table, when a game starts, how to send feedback.
     pub feedback_intro: bool,
-    /// How `/analyze` fetches an exported game. The `net` feature fetches over HTTPS by default; without it `/analyze` needs one
+    /// How `!analyze` fetches an exported game. The `net` feature fetches over HTTPS by default; without it `!analyze` needs one
     /// of these from the app that owns the network.
     pub export_fetcher: Option<Arc<dyn ExportFetcher>>,
 }
@@ -134,7 +134,7 @@ impl BotConfig {
                 .get("HANABI_HOSTNAME")
                 .cloned()
                 .unwrap_or_else(|| "hanab.live".to_string()),
-            // HANABI_FEEDBACK_FILE=off (or empty) disables the /feedback command.
+            // HANABI_FEEDBACK_FILE=off (or empty) disables the !feedback command.
             feedback_file: match env.get("HANABI_FEEDBACK_FILE").map(String::as_str) {
                 None => Some(PathBuf::from("feedback.jsonl")),
                 Some("" | "off") => None,
@@ -166,7 +166,7 @@ struct Parked {
     restored_settings: bool,
     resyncing: bool,
     old_note_orders: Vec<usize>,
-    /// The convention for the next game at this table (what `/settings` sets there).
+    /// The convention for the next game at this table (what `!settings` sets there).
     convention: ConventionKind,
     game_convention: Option<ConventionKind>,
     leave_pregame_if_only_bots: bool,
@@ -219,9 +219,9 @@ pub struct BotClient {
     tables: HashMap<i64, Table>,
     /// The users in the lobby, by their ID: a table lists its players by name, and starting one needs their IDs.
     users: HashMap<i64, UserInfo>,
-    /// The convention for the next game at the table in focus (what `/settings` sets there).
+    /// The convention for the next game at the table in focus (what `!settings` sets there).
     convention: ConventionKind,
-    /// The convention for a table the bot comes to (what `/settings` sets for someone who is not at one of its tables).
+    /// The convention for a table the bot comes to (what `!settings` sets for someone who is not at one of its tables).
     default_convention: ConventionKind,
     /// The tables the bot is at, other than the one in focus.
     parked: HashMap<usize, Parked>,
@@ -410,7 +410,7 @@ impl BotClient {
     /// Says in the chat of the table in focus which convention the bot will play there.
     fn announce_convention(&self) {
         self.send_chat(&format!(
-            "I'll play {} here. PM me /settings <convention> to change it.",
+            "I'll play {} here. PM me !settings <convention> to change it.",
             self.convention
         ));
     }
@@ -519,7 +519,7 @@ impl BotClient {
                 Incoming::Chat(msg) => self.handle_chat(&msg),
 
                 Incoming::ChatList(messages) => {
-                    let help_msg = "PM /help for help.";
+                    let help_msg = "PM !help for help.";
 
                     let send_help = messages.first().is_some_and(|msg| {
                         self.table_id.is_some_and(|id| msg.table_id == Some(id))
@@ -869,7 +869,7 @@ impl BotClient {
             // (Not every game: after "play again" the chat carries over and the same people already saw it.)
             if self.intro.should_announce(&players, &name, Instant::now()) {
                 self.send_chat(&format!(
-                    "I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with: /pm {name} /feedback <what happened>"
+                    "I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with: /pm {name} !feedback <what happened>"
                 ));
             }
         }
@@ -906,7 +906,7 @@ impl BotClient {
         match self.running_convention() {
             // A new setting only applies to the next game; the running one keeps its conventions.
             Some(running) if running != self.convention => format!(
-                "This game is being played with {running} conventions; {0} will be used from the next game (use `/settings {0} force` to switch now).{fast}{default}",
+                "This game is being played with {running} conventions; {0} will be used from the next game (use `!settings {0} force` to switch now).{fast}{default}",
                 self.convention
             ),
             _ => format!(
@@ -930,7 +930,7 @@ impl BotClient {
             return;
         };
 
-        // `/settings <convention> force` also switches the game in progress.
+        // `!settings <convention> force` also switches the game in progress.
         let rest = rest.trim();
         let (conv_str, force) = match rest.rsplit_once(' ') {
             Some((head, last)) if last.eq_ignore_ascii_case("force") => (head.trim(), true),
@@ -1026,7 +1026,7 @@ impl BotClient {
     }
 
     fn send_help(&self, who: &str) {
-        self.send_pm(who, "Commands: /analyze, /bugreport, /doc, /fastmode, /feedback, /help, /join, /leave, /settings, /start, /stay, /terminate, /version. See https://github.com/will-hanabi-bot/scala-bot#supported-commands for more info.");
+        self.send_pm(who, "Commands: !analyze, !bugreport, !doc, !fastmode, !feedback, !help, !join, !leave, !settings, !start, !stay, !terminate, !version. See https://github.com/will-hanabi-bot/scala-bot#supported-commands for more info.");
     }
 
     fn check_supported_settings(&self, table: &Table) {
@@ -1078,9 +1078,9 @@ impl BotClient {
             if !table_id.is_some_and(|table| self.focus(table)) {
                 return;
             }
-            if starts("/setall") {
+            if starts("!setall") {
                 self.assign_settings(data, false);
-            } else if starts("/leaveall") {
+            } else if starts("!leaveall") {
                 self.leave_room();
             }
             return;
@@ -1102,7 +1102,7 @@ impl BotClient {
             None => self.focus_none(),
         }
 
-        if starts("/join") {
+        if starts("!join") {
             let table = self
                 .tables
                 .values()
@@ -1127,7 +1127,7 @@ impl BotClient {
                 Some(t) => self.send(wire::send::table_join(t.table_id as usize, None)),
                 None => self.send_pm(who, "Could not join, as you are not in a room."),
             }
-        } else if starts("/rejoin") {
+        } else if starts("!rejoin") {
             if self.game.is_some() {
                 self.send_pm(who, "Could not rejoin, as the bot is already in a game.");
             } else {
@@ -1146,7 +1146,7 @@ impl BotClient {
                     ),
                 }
             }
-        } else if starts("/start") {
+        } else if starts("!start") {
             match self.table_id {
                 Some(id) => match self.player_ids(id as i64) {
                     Some(players) => {
@@ -1160,9 +1160,9 @@ impl BotClient {
                 },
                 None => self.send_pm(who, "Cannot start table, as the bot is not in a table."),
             }
-        } else if starts("/leave") {
+        } else if starts("!leave") {
             self.leave_room();
-        } else if starts("/terminate") {
+        } else if starts("!terminate") {
             match &self.game {
                 Some(game) if game.in_progress => {
                     if game.state.names.contains(who) {
@@ -1176,15 +1176,15 @@ impl BotClient {
                 }
                 _ => self.send_pm(who, "Could not terminate, as the bot is not in a game."),
             }
-        } else if starts("/settings") {
+        } else if starts("!settings") {
             self.assign_settings(data, true);
-        } else if starts("/version") {
+        } else if starts("!version") {
             self.send_pm(who, BOT_VERSION);
-        } else if starts("/help") {
+        } else if starts("!help") {
             self.send_help(who);
-        } else if starts("/analyze") {
+        } else if starts("!analyze") {
             self.analyze_command(who, msg);
-        } else if starts("/fastmode") {
+        } else if starts("!fastmode") {
             self.send_pm(
                 who,
                 &format!(
@@ -1193,7 +1193,7 @@ impl BotClient {
                 ),
             );
             self.fast_mode = !self.fast_mode;
-        } else if starts("/doc") {
+        } else if starts("!doc") {
             match self.convention {
                 ConventionKind::Reactor => {
                     self.send_pm(
@@ -1209,11 +1209,11 @@ impl BotClient {
                     self.send_pm(who, "H-Group: https://hanabi.github.io/reference");
                 }
             }
-        } else if starts("/feedback") {
+        } else if starts("!feedback") {
             self.feedback_command(who, msg);
-        } else if starts("/bugreport") {
-            self.send_pm(who, "The bots aren't perfect! This is a Rust port: send feedback with /feedback <what happened>. Bugs in the original Scala bot go on its issue tracker: https://github.com/will-hanabi-bot/scala-bot/issues");
-        } else if starts("/stay") {
+        } else if starts("!bugreport") {
+            self.send_pm(who, "The bots aren't perfect! This is a Rust port: send feedback with !feedback <what happened>. Bugs in the original Scala bot go on its issue tracker: https://github.com/will-hanabi-bot/scala-bot/issues");
+        } else if starts("!stay") {
             match self.table_id {
                 Some(_) => {
                     self.send_pm(
@@ -1222,7 +1222,7 @@ impl BotClient {
                     );
                     self.leave_pregame_if_only_bots = false;
                 }
-                None => self.send_pm(who, "Cannot set /stay, as the bot is not in a table."),
+                None => self.send_pm(who, "Cannot set !stay, as the bot is not in a table."),
             }
         }
     }
@@ -1292,7 +1292,7 @@ impl BotClient {
     }
 
     fn feedback_command(&mut self, who: &str, msg: &str) {
-        let text = msg.strip_prefix("/feedback").unwrap_or_default();
+        let text = msg.strip_prefix("!feedback").unwrap_or_default();
 
         if !self.feedback.is_enabled() {
             self.send_pm(who, "Feedback isn't enabled on this bot.");
@@ -1306,7 +1306,7 @@ impl BotClient {
                     .to_string()
             }
             Err(FeedbackError::Empty) => {
-                "Usage: /feedback <what happened>. Mention the table or turn if you can."
+                "Usage: !feedback <what happened>. Mention the table or turn if you can."
                     .to_string()
             }
             Err(FeedbackError::TooLong) => {
@@ -1337,7 +1337,7 @@ impl BotClient {
         let Some((id, convention)) = parsed else {
             self.send_pm(
                 who,
-                "Couldn't parse command. Format is /analyze <replayId> <convention>.",
+                "Couldn't parse command. Format is !analyze <replayId> <convention>.",
             );
             return;
         };

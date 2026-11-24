@@ -23,7 +23,7 @@ Hosting several bots in one process shares the (small) variant tables and the ru
 With several bots, console commands take the bot's index or username first (`1 hand Bob`). Logging in the live bot is compiled out unless
 you build with `--features verbose-logs`.
 
-Then PM the bot `/settings HGroup5` (or `Reactor1`, `RefSieve`, ...), and create a table and invite or `/join` it.
+Then PM the bot `!settings HGroup5` (or `Reactor1`, `RefSieve`, ...), and create a table and invite or `!join` it.
 Other tools: `replay`, `analyze` (exported games).
 
 See `HANDOFF.md` for the current state and how to continue, `PLAN.md` for the milestones, `PORTING_NOTES.md` for the design
@@ -63,7 +63,7 @@ for out in rx.try_iter() {
 }
 ```
 
-The bot's `/analyze <replayId> <convention>` command fetches the game from the server. With the `net` feature it does that over HTTPS; without it
+The bot's `!analyze <replayId> <convention>` command fetches the game from the server. With the `net` feature it does that over HTTPS; without it
 (as above) it needs a fetcher from the app that owns the network, which the library has no HTTP client for:
 
 ```rust
@@ -81,7 +81,7 @@ impl ExportFetcher for MyFetcher {
 let config = BotConfig { export_fetcher: Some(std::sync::Arc::new(MyFetcher)), ..BotConfig::default() };
 ```
 
-Without one, `/analyze` answers that this build has no way to fetch games. (`GameData::fetch_with(&fetcher, hostname, id)` does the same outside the bot.)
+Without one, `!analyze` answers that this build has no way to fetch games. (`GameData::fetch_with(&fetcher, hostname, id)` does the same outside the bot.)
 
 Choosing a move can take seconds late in a game at 5 or more players. `hanab_bot::budget::set_default_move_timeout(Some(duration))` (process-wide; the
 library has none by default) makes the lookahead of a move stop where it is once its budget is spent (every action is still evaluated, only less deep), so a move
@@ -103,27 +103,27 @@ match game.analyze_comments_with(&AnalysisOptions { progress: Some(&progress), c
 ```
 
 Logging into hanab.live (the `POST /login` that returns the session cookie) and the websocket itself are the embedder's job; `src/bin/bot.rs`
-shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `/analyze`
+shows the whole thing, including reconnecting and pacing. Several `BotClient`s can run in one process, each on its own thread. The `!analyze`
 chat command needs the `net` feature and answers that it is unavailable without it.
 
 ## Changing the convention
 
-PM the bot (or say in the table chat) `/settings <convention>` / `/setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
+PM the bot (or say in the table chat) `!settings <convention>` / `!setall <convention>`, for example `HGroup3`, `Reactor1`, `RefSieve`. That applies from the **next** game; the
 game in progress is still played with the convention it started with, and the bot says so.
 
 A bot can be at several tables at once, each with its own convention, so a command is about **your** table (a person is at one table at a time):
 
 - A PM from someone at one of the bot's tables sets that table. The bot says in the table's chat which convention it will play there when it joins, and again
   when you change it before the game. A rematch (the next game of the same people) keeps the table's convention.
-- `/setall <convention>` in a table's chat sets that table, for every bot at it.
-- A PM from someone at none of its tables sets the default for the tables it comes to later (Reactor until you say). With several tables, `/settings` on its own
+- `!setall <convention>` in a table's chat sets that table, for every bot at it.
+- A PM from someone at none of its tables sets the default for the tables it comes to later (Reactor until you say). With several tables, `!settings` on its own
   tells you the setting of your table and the default.
-- `/start`, `/leave`, `/terminate` and `/stay` are likewise about your table, and the bot goes back to all its games after a reconnect.
+- `!start`, `!leave`, `!terminate` and `!stay` are likewise about your table, and the bot goes back to all its games after a reconnect.
 
 To switch the game in progress, add `force`:
 
 ```
-/settings HGroup3 force
+!settings HGroup3 force
 ```
 
 The bot rebuilds the game from its start with the new convention, rewrites its notes (the first card now names the new convention; notes the old
@@ -173,23 +173,23 @@ a change did not alter the bot's behaviour) and, with `--features stats`, counts
 ## Reporting problems
 
 Open an issue at <https://github.com/michielbaird/hanab-bot-rs/issues> (the bug report template asks for the replay link, which bot and
-convention, and what you expected). In a game you can also PM the bot `/feedback <what happened>`. Known problems, including the ones the
+convention, and what you expected). In a game you can also PM the bot `!feedback <what happened>`. Known problems, including the ones the
 original scala-bot still has open, are tracked there too.
 
 ## Feedback
 
 When a game starts the bot tells the table (once per person per 24 hours, so "Play again", which keeps the chat, doesn't repeat it): *"I'm an unofficial Rust port of scala-bot. If I'm behaving weirdly, please send feedback with:
-/pm <bot> /feedback <what happened>"*. `/feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
-convention and version, the table, variant, players, turn and the game's seed. `convention` is the one the game is being played with; `setting` is what the bot will use for its next game (a `/settings` change during a game only applies from the next game, and the bot says so). The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
+/pm <bot> !feedback <what happened>"*. `!feedback <message>` (by PM) appends a JSON line to `feedback.jsonl` with the sender, the message, the bot's
+convention and version, the table, variant, players, turn and the game's seed. `convention` is the one the game is being played with; `setting` is what the bot will use for its next game (a `!settings` change during a game only applies from the next game, and the bot says so). The game itself is in the bot's history on hanab.live. Messages are limited to 1000 characters and 5 per person per hour.
 
 | Environment variable | Effect |
 |---|---|
-| `HANABI_FEEDBACK_FILE` | file to append to (default `feedback.jsonl`; `off` or empty turns `/feedback` off) |
+| `HANABI_FEEDBACK_FILE` | file to append to (default `feedback.jsonl`; `off` or empty turns `!feedback` off) |
 | `HANABI_ENDGAME_THREADS` | how many threads one endgame search may use (default `1`). The move chosen is the same for any number, as long as the search finishes in time; more threads make that likelier. Several bots in one process share the cores, so keep it low there |
 | `HANABI_ENDGAME_TIMEOUT_MS` | how long the endgame solver may search per move (default `3000`; self-play often hits the limit, so raise it if you have time to spare) |
 | `HANABI_MOVE_TIMEOUT_MS` | how long choosing a move may take before its lookahead is cut short (default `5000`; `0` is no limit). A move that finishes sooner is the same as without a limit; only a few late moves at 5 players take longer |
 | `HANABI_FEEDBACK_INTRO` | `0` stops the announcement at the start of each game (default `1`) |
-| `HANABI_LEAVE_REPLAY_IF_ONLY_BOTS` | `0` keeps a bot in a replay (of a game it played, or one it was invited to) when only bots are left watching it (default `1`: it leaves). A bot also leaves a pregame once only bots are left at the table; `/stay` (by PM) keeps it there |
+| `HANABI_LEAVE_REPLAY_IF_ONLY_BOTS` | `0` keeps a bot in a replay (of a game it played, or one it was invited to) when only bots are left watching it (default `1`: it leaves). A bot also leaves a pregame once only bots are left at the table; `!stay` (by PM) keeps it there |
 | `HANABI_BOT_NAME_PREFIXES` | comma-separated name prefixes (for example `my-bot-`) of accounts that count as bots in the two rules above. The accounts that hanab.live marks as bots (those that logged in with `client=bot`, which is what this bot does) count as well, so this is only for a bot that the server does not mark. Someone who has not shown up in the lobby yet counts as a person |
 
 ## Analyzing the bots' games
@@ -201,7 +201,7 @@ cargo run --release --bin analyze_history -- users=bot1,bot2,bot3 since=2026-10-
 Lists each user's games from the public hanab.live history, fetches every replay, and analyzes it with the convention the bot wrote in its first-card
 note (`convention=` is the fallback). Per game it writes `analysis/<id>.txt` (readable) and `<id>.json`; games already analyzed are reused
 (`force=1` redoes them, e.g. after upgrading the bot). Games that a player terminated (or that timed out) are counted separately, with who ended them and after how many actions, and are left out of the averages. `analysis/summary.md` has a table per convention (average score, perfect games, strikeouts,
-how often the bot disagrees with its own moves and with everyone else's) and a list of games worth a look, with any `/feedback` that carries the
+how often the bot disagrees with its own moves and with everyone else's) and a list of games worth a look, with any `!feedback` that carries the
 same seed. A disagreement with the bot's *own* move means the bot has changed since or isn't deterministic; disagreements with humans are expected.
 
 Endgame comments compare the winrates of the bot's move and the player's move from the real position at that turn (everyone's hand revealed, including the mover's own), so they are about what really happens, not about what the bot's conventions would have predicted.

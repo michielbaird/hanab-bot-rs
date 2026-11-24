@@ -94,7 +94,7 @@ Order followed: M3, M4, M2, M5, M6, then M7. Scala oddities are noted in `FIX_LA
 
 ## Credentials
 
-The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only (the user said yes once for a live session on the day M7 started; that does not carry over). The account can't play alone: a human (or a second account the user approves) must start a table and `/join` + `/start` the bot by PM.
+The user gave a test account for hanab.live (`michiel-test`; password in the untracked `.env` as `HANABI_USERNAME0` / `HANABI_PASSWORD0`). `.env` and `seeds/` are gitignored. Don't commit or print the password. **Ask the user before every use of these credentials** (running `bot`, any login or live connection); a yes covers that one use only (the user said yes once for a live session on the day M7 started; that does not carry over). The account can't play alone: a human (or a second account the user approves) must start a table and `!join` + `!start` the bot by PM.
 
 ## Suggested next steps
 
@@ -148,6 +148,6 @@ Rust HGroup12 (10 games): 24.3 avg, 6 perfect. Scala `analyze` agrees with every
 ## Verified live (2026-10-27)
 
 Deployed by the user from the Docker image on a NAS (PUID/PGID set): two bots on this Rust port and one Scala bot side by side, the
-multi-account host (`bot index=...`), the game-start `/feedback` announcement and the `/feedback` command (entries appear in `feedback.jsonl`)
+multi-account host (`bot index=...`), the game-start `!feedback` announcement and the `!feedback` command (entries appear in `feedback.jsonl`)
 all work. Still unwatched: how the bots behave over days of real games (use `analyze_history`, see README) and the `kind: error` fallback path
 (only tested without a network).

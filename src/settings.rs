@@ -7,7 +7,7 @@ use crate::basics::Convention;
 use crate::reactor::Reactor;
 use crate::ref_sieve::RefSieve;
 
-/// The version the bot reports (in its first-card note, to `/version` and in the log). It comes from `Cargo.toml`, so
+/// The version the bot reports (in its first-card note, to `!version` and in the log). It comes from `Cargo.toml`, so
 /// there is one place to change it; the number is the scala-bot release it was ported from, until the two drift apart.
 pub const BOT_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"), " (hanab-bot-rs)");
 pub const MAX_H_LEVEL: usize = 13;
