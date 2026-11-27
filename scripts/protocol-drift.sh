@@ -37,7 +37,7 @@ if [[ ${1:-} != --no-build ]]; then
   cd "$work/bot"
   rm -rf target
   sed -i "s/$pinned/$upstream/" Cargo.toml
-  if ! cargo update -q -p hanabi_protocol 2> "$work/update.log"; then
+  if ! cargo update -q -p hanabi-protocol 2> "$work/update.log"; then
     result="could not update the dependency: $(tail -3 "$work/update.log")"
   elif ! cargo check --all-targets > "$work/check.log" 2>&1; then
     result="does **not** compile: $(grep -m3 -A4 '^error' "$work/check.log" | head -20)"

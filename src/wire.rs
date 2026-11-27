@@ -487,13 +487,7 @@ fn user(user: &UserRef) -> UserInfo {
 fn author(author: &ChatAuthor) -> (&'static str, String) {
     match author {
         ChatAuthor::User { username } => ("user", username.to_string()),
-        ChatAuthor::Discord { username } => (
-            "discord",
-            username
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-        ),
+        ChatAuthor::Discord { username } => ("discord", username.to_string()),
         ChatAuthor::Server {} => ("server", String::new()),
     }
 }
